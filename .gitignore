@@ -1,0 +1,7 @@
+.vercel
+
+# Verification / QA artifacts (large screenshots, not source)
+.playtest/
+.playwright-mcp/
+hdrvos-live-hq.png
+phase1-town-current.png

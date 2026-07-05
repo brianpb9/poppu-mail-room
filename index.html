@@ -6,6 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#F6EAD6">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%93%AC%3C/text%3E%3C/svg%3E">
 <title>Poppu's Mail Room</title>
 <style>
   html,body{margin:0;padding:0;height:100%;width:100%;overflow:hidden;background:#e9dcc4;
@@ -73,6 +74,17 @@ const LEVELS = [
     mech:{seal:1,stamp:1,shake:1,multi:1,shuffle:1,distract:1,golden:1}, tag:'Golden Boss' },
 ];
 function curLevel(){ return LEVELS[Math.max(0,Math.min(LEVELS.length-1,currentLevel-1))]; }
+/* wordless level-map badge (A3): the level's newest/highest-tier active mechanic, cascading so every
+   node still reads a clear "what's new here" icon without a single numeral or English word — position
+   along the path already communicates ORDER, this only communicates WHAT. */
+function levelIcon(L){
+  const m=L.mech;
+  if(m.golden) return 'crown';
+  if(m.shake) return 'bolt';
+  if(m.stamp) return 'stamp';
+  if(m.seal) return 'seal';
+  return 'star';
+}
 
 /* three themed scenes — unlock as levels are cleared */
 const SCENES = [
@@ -124,28 +136,48 @@ function defaultSave(){
     levelStars: new Array(LEVELS.length).fill(0),
     maxLevel: 1,
     currentScene: 0,
-    day: todayStr(), deliveredToday: 0, streak: 0, lastPlayDay: null, goldenHat:false,
+    day: todayStr(), deliveredToday: 0, dailyGoalDone:false, streak: 0, lastPlayDay: null, goldenHat:false,
     upgrades: { speedBelt:false, bigBoxes:false, autoSorter:false, scanner:false, doubleStamps:false },
     owned: {},
     equipped: { hat:null, mailbox:null, conveyor:null, decor:null },
+    /* ------ Poppu's Post Town (Phase 1) ------
+       postOffice is always open. wrapShop unlocks once Level 1 is cleared and is now
+       fully functional (Wrap Shop). Friend houses unlock as charDeliveries for their
+       type crosses a threshold (see FRIEND_UNLOCK) — each shows a picture-meter while
+       locked, and opens into the Friend scene once unlocked. */
+    unlocks: { postOffice:true, wrapShop:false, peekyHouse:false, zazaHouse:false, orbyHouse:false, waveyHouse:false, puffyHouse:false },
+    newBadge: {},   // { buildingId:true } — cleared the first time that building is tapped
+    volume: 2, tutorialDone: false, sessions: 0, charDeliveries: {},
+    /* ------ Wrap Shop / Friend houses (Phase 1) ------ */
+    wrapQueue: 0,       // finished wrapped packages waiting — consumed (celebrated) at the next level start
+    wrappedCount: 0,    // lifetime total wrapped, for parent-dashboard/future stats
+    driveVisits: 0,     // rotates which unlocked friend the Delivery Drive visits next
+    friendHats: {},      // { buildingId: cosmeticHatId } — purely-for-fun dress-up, session-persistent
   };
 }
 let SAVE = loadSave();
 function loadSave(){
   try{
     const s = JSON.parse(localStorage.getItem(SAVE_KEY));
-    if(!s || typeof s!=='object') return defaultSave();
+    if(!s || typeof s!=='object' || Array.isArray(s)) return defaultSave();
     const base = defaultSave();
     for(const k in base) if(!(k in s)) s[k]=base[k];
     for(const k in base.upgrades) if(!(k in s.upgrades)) s.upgrades[k]=base.upgrades[k];
     for(const k in base.equipped) if(!(k in s.equipped)) s.equipped[k]=base.equipped[k];
+    if(!s.unlocks || typeof s.unlocks!=='object' || Array.isArray(s.unlocks)) s.unlocks={};
+    for(const k in base.unlocks) if(!(k in s.unlocks)) s.unlocks[k]=base.unlocks[k];
+    if(!s.newBadge || typeof s.newBadge!=='object' || Array.isArray(s.newBadge)) s.newBadge={};
+    if(!s.friendHats || typeof s.friendHats!=='object' || Array.isArray(s.friendHats)) s.friendHats={};
+    if(typeof s.wrapQueue!=='number' || s.wrapQueue<0) s.wrapQueue=0;
+    if(typeof s.wrappedCount!=='number' || s.wrappedCount<0) s.wrappedCount=0;
+    if(typeof s.driveVisits!=='number' || s.driveVisits<0) s.driveVisits=0;
     if(!Array.isArray(s.levelStars) || s.levelStars.length!==LEVELS.length)
       s.levelStars = new Array(LEVELS.length).fill(0);
     if(s.day !== todayStr()){
       const yd=new Date(); yd.setDate(yd.getDate()-1);
       const ydStr=yd.getFullYear()+'-'+(yd.getMonth()+1)+'-'+yd.getDate();
       if(s.lastPlayDay !== ydStr && s.lastPlayDay !== todayStr()) s.streak=0;
-      s.day=todayStr(); s.deliveredToday=0;
+      s.day=todayStr(); s.deliveredToday=0; s.dailyGoalDone=false;
     }
     return s;
   }catch(e){ return defaultSave(); }
@@ -157,10 +189,66 @@ function sceneUnlocked(i){ return (SAVE.maxLevel||1) >= SCENES[i].unlockLevel; }
 function owns(id){ return !!SAVE.owned[id]; }
 function equipped(cat){ return SAVE.equipped[cat]; }
 function hasUp(id){ return !!SAVE.upgrades[id]; }
+const DAILY_GOALS=[5,10,15,20];
+function dailyGoal(){ return DAILY_GOALS[Math.min(SAVE.streak||0, DAILY_GOALS.length-1)]; }
+
+/* --------------------------------------------------------- TOWN UNLOCKS */
+/* Friend houses: building id -> { type: TYPES id, need: charDeliveries threshold, unlockKey: SAVE.unlocks flag }.
+   'peeky' is the original (Phase 0) building id, tied to the 'gear' type — kept as-is for save
+   compatibility. New friend houses are keyed by their TYPE id directly. */
+const FRIEND_UNLOCK = {
+  peeky: { type:'gear',  need:5,  unlockKey:'peekyHouse' },
+  heart: { type:'heart', need:5,  unlockKey:'zazaHouse'  },
+  moon:  { type:'moon',  need:8,  unlockKey:'orbyHouse'  },
+  drop:  { type:'drop',  need:8,  unlockKey:'waveyHouse' },
+  cloud: { type:'cloud', need:10, unlockKey:'puffyHouse' },
+};
+function buildingUnlocked(id){
+  if(id==='post') return true;                          // Post Office is always open
+  if(id==='wrap') return !!SAVE.unlocks.wrapShop;        // unlocked after Level 1 clears
+  const info=FRIEND_UNLOCK[id]; if(info) return !!SAVE.unlocks[info.unlockKey];
+  return false;
+}
+/* Phase 1: every building does something real once unlocked — Post Office starts a Sort
+   level, Wrap Shop opens the Wrap flow, and each friend house opens the Friend scene. */
+function buildingFunctional(id){ return true; }
+/* 3-star preview meter toward a locked friend house's unlock — icon-first "getting closer" cue. */
+function houseMeterStars(id){
+  const info=FRIEND_UNLOCK[id]; if(!info) return 0;
+  return Math.min(3, Math.floor((SAVE.charDeliveries[info.type]||0)/Math.max(1,Math.round(info.need/3))));
+}
+function peekyMeterStars(){ return houseMeterStars('peeky'); }   // kept for backward-compat
+/* called after any charDeliveries change (Sort delivery, Drive hug, Friend feed/pet) — flips a
+   friend house's unlock flag + arms its "new!" badge the moment its threshold is crossed. */
+function checkTownUnlocks(){
+  let changed=false;
+  for(const id in FRIEND_UNLOCK){
+    const info=FRIEND_UNLOCK[id];
+    if(!SAVE.unlocks[info.unlockKey] && (SAVE.charDeliveries[info.type]||0)>=info.need){
+      SAVE.unlocks[info.unlockKey]=true; SAVE.newBadge[id]=true; changed=true;
+    }
+  }
+  if(changed) persist();
+}
+/* Delivery Drive friend rotation: 'gear' (Peeky) is always available; each further friend joins
+   the rotation only once their house has unlocked — so the Drive itself is what builds up the
+   charDeliveries that unlock the NEXT friend's house (a natural progression ladder). */
+function unlockedDriveFriendIds(){
+  const ids=['gear'];
+  if(SAVE.unlocks.peekyHouse) ids.push('heart');
+  if(SAVE.unlocks.zazaHouse) ids.push('moon');
+  if(SAVE.unlocks.orbyHouse) ids.push('drop');
+  if(SAVE.unlocks.waveyHouse) ids.push('cloud');
+  return ids;
+}
+/* gear's house art predates the type-id naming convention (house_peeky, not house_gear) — every
+   other friend's house key follows 'house_'+typeId directly. */
+function houseKeyForType(typeId){ return typeId==='gear' ? 'house_peeky' : 'house_'+typeId; }
 
 /* --------------------------------------------------------------- CANVAS/DPR */
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
 let scale=1, offX=0, offY=0, DPR=1;
 function resize(){
   const vw=window.innerWidth, vh=window.innerHeight;
@@ -169,6 +257,8 @@ function resize(){
   canvas.style.width=vw+'px'; canvas.style.height=vh+'px';
   scale=Math.min(vw/W, vh/H);
   offX=(vw-W*scale)/2; offY=(vh-H*scale)/2;
+  // resizing canvas.width/height resets 2D context state (incl. image smoothing) — reapply every time
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
 }
 window.addEventListener('resize', resize); resize();
 function toStage(cx,cy){ return { x:(cx-offX)/scale, y:(cy-offY)/scale }; }
@@ -176,10 +266,12 @@ function toStage(cx,cy){ return { x:(cx-offX)/scale, y:(cy-offY)/scale }; }
 /* -------------------------------------------------------------------- AUDIO */
 const Audio_ = (()=>{
   let ac=null, master=null, hum=null, humGain=null, musicOn=true, started=false;
+  const VOL_LEVELS=[0.0, 0.4, 0.9];   // mute · quiet · normal
+  let masterTarget=0.9;
   function ensure(){
     if(ac) return;
     try{ ac=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return; }
-    master=ac.createGain(); master.gain.value=0.9; master.connect(ac.destination);
+    master=ac.createGain(); master.gain.value=masterTarget; master.connect(ac.destination);
   }
   function resume(){ ensure(); if(ac&&ac.state==='suspended') ac.resume(); if(!started){ started=true; startHum(); startMusic(); } }
   function now(){ return ac?ac.currentTime:0; }
@@ -200,6 +292,20 @@ const Audio_ = (()=>{
     for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*(1-i/len);
     n.buffer=buf; const f=ac.createBiquadFilter(); f.type='bandpass'; f.frequency.value=freq; f.Q.value=q;
     const g=ac.createGain(); g.gain.value=vol;
+    n.connect(f); f.connect(g); g.connect(master); n.start(t0);
+  }
+  /* filtered noise whose bandpass center SWEEPS f0->f1 over the sound — used for silky/swishy
+     gestures (e.g. a ribbon dragged across a box) where a static noise() would sound like static hiss. */
+  function noiseSweep(t0,dur,vol,f0,f1,q){
+    if(!ac) return;
+    const len=Math.floor(ac.sampleRate*dur);
+    const buf=ac.createBuffer(1,len,ac.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*(1-i/len);
+    const n=ac.createBufferSource(); n.buffer=buf;
+    const f=ac.createBiquadFilter(); f.type='bandpass'; f.Q.value=q||1;
+    f.frequency.setValueAtTime(f0,t0); f.frequency.exponentialRampToValueAtTime(f1,t0+dur);
+    const g=ac.createGain(); g.gain.setValueAtTime(0.0001,t0);
+    g.gain.exponentialRampToValueAtTime(vol,t0+dur*0.4); g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);
     n.connect(f); f.connect(g); g.connect(master); n.start(t0);
   }
   function startHum(){
@@ -240,8 +346,32 @@ const Audio_ = (()=>{
     [523.25,659.25,783.99,1046.5,1318.5].forEach((f,i)=>{ tone(f,t+i*0.10,0.6,'sine',0.26); tone(f*2,t+i*0.10,0.35,'triangle',0.10); });
     noise(t+0.05,0.5,0.05,2400); noise(t+0.28,0.45,0.04,3200);
   }
+  /* ---- Poppu's Post Town: ambience + truck engine (looping synth beds) ---- */
+  let townAmb=null, townAmbGain=null, townAmbLfo=null, townAmbLfoGain=null;
+  function startTownAmbience(){ if(!ac||townAmb) return; townAmb=ac.createOscillator(); townAmbGain=ac.createGain(); const filt=ac.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=900; townAmb.type='sine'; townAmb.frequency.value=196; townAmbGain.gain.value=0.0; townAmbLfo=ac.createOscillator(); townAmbLfo.type='sine'; townAmbLfo.frequency.value=0.12; townAmbLfoGain=ac.createGain(); townAmbLfoGain.gain.value=120; townAmbLfo.connect(townAmbLfoGain); townAmbLfoGain.connect(filt.frequency); townAmb.connect(filt); filt.connect(townAmbGain); townAmbGain.connect(master); townAmb.start(); townAmbLfo.start(); }
+  let truck=null, truckGain=null, truckLfo=null, truckLfoGain=null, truckFilt=null;
+  function startTruckNodes(){ if(!ac||truck) return; truck=ac.createOscillator(); truckGain=ac.createGain(); truckFilt=ac.createBiquadFilter(); truckFilt.type='lowpass'; truckFilt.frequency.value=260; truck.type='triangle'; truck.frequency.value=58; truckGain.gain.value=0.0; truckLfo=ac.createOscillator(); truckLfo.type='sine'; truckLfo.frequency.value=5.5; truckLfoGain=ac.createGain(); truckLfoGain.gain.value=0.028; truckLfo.connect(truckLfoGain); truckLfoGain.connect(truckGain.gain); truck.connect(truckFilt); truckFilt.connect(truckGain); truckGain.connect(master); truck.start(); truckLfo.start(); }
+  /* ---- Friend House ambience: a warm, soft chorused pad (distinct register/timbre from the dusty
+     town-square hum) — two gently-detuned sine layers + a slow lowpass LFO, loopable, cozy. ---- */
+  let friendAmb=null, friendAmb2=null, friendAmbGain=null, friendAmbLfo=null, friendAmbLfoGain=null;
+  function startFriendAmbience(){
+    if(!ac||friendAmb) return;
+    friendAmb=ac.createOscillator(); friendAmb2=ac.createOscillator(); friendAmbGain=ac.createGain();
+    const filt=ac.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=1100;
+    friendAmb.type='sine'; friendAmb.frequency.value=261.63;                 // warm C4 pad
+    friendAmb2.type='sine'; friendAmb2.frequency.value=261.63*1.5; friendAmb2.detune.value=6; // soft fifth, gentle chorus
+    friendAmbGain.gain.value=0.0;
+    friendAmbLfo=ac.createOscillator(); friendAmbLfo.type='sine'; friendAmbLfo.frequency.value=0.09;
+    friendAmbLfoGain=ac.createGain(); friendAmbLfoGain.gain.value=100;
+    friendAmbLfo.connect(friendAmbLfoGain); friendAmbLfoGain.connect(filt.frequency);
+    const g2=ac.createGain(); g2.gain.value=0.35;
+    friendAmb.connect(filt); friendAmb2.connect(g2); g2.connect(filt); filt.connect(friendAmbGain); friendAmbGain.connect(master);
+    friendAmb.start(); friendAmb2.start(); friendAmbLfo.start();
+  }
   return {
     resume,
+    setVolume(level){ masterTarget=VOL_LEVELS[level]!=null?VOL_LEVELS[level]:0.9;
+      if(master&&ac) master.gain.setTargetAtTime(masterTarget, now(), 0.02); },
     setMusic(v){ musicOn=v; }, isMusic(){ return musicOn; },
     setMusicRoot(n){ musicRoot=n||0; },
     setHum(on){ if(humGain&&ac) humGain.gain.linearRampToValueAtTime(on?0.05:0.0, now()+0.4); },
@@ -250,6 +380,7 @@ const Audio_ = (()=>{
     slide(){ noise(now(),0.10,0.05,900); },
     plop(){ const t=now(); tone(523.25,t,0.12,'sine',0.3); tone(659.25,t+0.09,0.12,'sine',0.3); tone(783.99,t+0.18,0.22,'sine',0.34); noise(t,0.06,0.06,500); },
     boop(){ const t=now(); tone(300,t,0.16,'triangle',0.22,180); },
+    aww(){ const t=now(); tone(392,t,0.15,'triangle',0.12,300); },   // gentle no-penalty "so close!" — softer/warmer than boop
     stamp(){ const t=now(); noise(t,0.05,0.14,320,3); tone(180,t,0.10,'square',0.18,120); tone(720,t+0.02,0.08,'sine',0.14); },
     seal(){ const t=now(); noise(t,0.22,0.10,1600,0.8); tone(880,t+0.05,0.14,'sine',0.16,1400); },
     rattle(){ const t=now(); for(let i=0;i<3;i++) noise(t+i*0.03,0.05,0.09,600+Math.random()*800,2); },
@@ -257,29 +388,133 @@ const Audio_ = (()=>{
     golden(){ const t=now(); [659,784,988,1319].forEach((f,i)=>{ tone(f,t+i*0.07,0.5,'sine',0.28); tone(f*2,t+i*0.07,0.3,'triangle',0.12); }); },
     levelWin(){ const t=now(); [523.25,659.25,783.99,1046.5,1318.5,1568].forEach((f,i)=>{ tone(f,t+i*0.11,0.5,'sine',0.28); tone(f*2,t+i*0.11,0.28,'triangle',0.10); }); noise(t+0.1,0.5,0.05,2600); },
     buy(){ const t=now(); tone(784,t,0.10,'sine',0.24); tone(1046,t+0.08,0.14,'sine',0.22); noise(t,0.05,0.05,1800); },
+    locked(){ const t=now(); tone(523,t,0.10,'sine',0.16); tone(659,t+0.07,0.12,'sine',0.14); },
+    setTownAmbience(on){ startTownAmbience(); if(townAmbGain&&ac) townAmbGain.gain.linearRampToValueAtTime(on?0.035:0.0, now()+0.6); },
+    selectBuilding(){ const t=now(); tone(880,t,0.07,'sine',0.20,1046.5); tone(1174.66,t+0.05,0.09,'sine',0.16); },
+    buildingLocked(){ const t=now(); tone(587.33,t,0.11,'sine',0.16); tone(466.16,t+0.09,0.14,'sine',0.14); noise(t+0.09,0.08,0.03,300,1.2); },
+    buildingUnlock(){ const t=now(); [659.25,880.00,1046.50].forEach((f,i)=>{ tone(f,t+i*0.09,0.28,'sine',0.24); tone(f*2,t+i*0.09,0.16,'triangle',0.09); }); noise(t+0.05,0.30,0.045,3000,1.4); },
+    setTruck(on){ startTruckNodes(); if(truckGain&&ac){ truckGain.gain.cancelScheduledValues(now()); truckGain.gain.setTargetAtTime(on?0.045:0.0, now(), 0.5); } },
+    startTruck(){ this.setTruck(true); }, stopTruck(){ this.setTruck(false); },
+    collect(){ const t=now(); tone(1400+Math.random()*120,t,0.055,'sine',0.16,2000); tone(2100,t+0.02,0.045,'sine',0.10); },
+    arrival(){ const t=now(); [PENTA[0],PENTA[2],PENTA[3],PENTA[4],PENTA[4]*2].forEach((f,i)=>{ kalimbaNote(f,t+i*0.11,0.22-i*0.02); }); tone(PENTA[4]*2,t+0.55,0.5,'sine',0.16); noise(t+0.05,0.4,0.04,2600,1.2); },
+    /* ---- Wrap Shop / Friend house (Phase 1) — bespoke synthesis, built from the same
+       kalimba/tone/noise palette as the rest of the game so it sits in one cozy sound-world.
+       Names/signatures are the contract other systems call — kept stable. ---- */
+    /* tapping a box to cycle its color: a soft woody "tock" (short bandpassed noise knock) +
+       a tiny pitch-up blip — tactile, satisfying, never sharp. */
+    wrapBox(){ const t=now(); noise(t,0.045,0.13,650,3.5); tone(300,t,0.06,'sine',0.16,360); },
+    /* dragging the ribbon across the box: a gentle silky noise-sweep "swish" (bandpass rising
+       500Hz->2200Hz) that resolves into a soft two-note chime as the bow cinches shut. */
+    wrapRibbon(){ const t=now(); noiseSweep(t,0.35,0.09,500,2200,1.1); tone(880,t+0.32,0.10,'sine',0.16,1174.66); tone(1318.5,t+0.40,0.18,'sine',0.14); },
+    /* pressing a sticker on: a soft low "pat" (muted thump) + a cute high sparkle ping right after. */
+    wrapSticker(){ const t=now(); noise(t,0.05,0.11,350,2); tone(220,t,0.06,'sine',0.14,180); tone(1568,t+0.09,0.08,'sine',0.14,2093); tone(2093,t+0.15,0.06,'sine',0.08); },
+    /* finished package plops into the queue: a warm RISING 3-note kalimba flourish (proud handmade
+       reveal, not a machine "ding") + one little pop as it lands. */
+    wrapDone(){ const t=now(); kalimbaNote(PENTA[0],t,0.16); kalimbaNote(PENTA[2],t+0.11,0.18); kalimbaNote(PENTA[4],t+0.22,0.20); tone(PENTA[4]*1.5,t+0.36,0.08,'sine',0.18,PENTA[4]*2); noise(t+0.34,0.08,0.05,2400,1.5); },
+    /* a friend happily eats/plays with the treat: two soft "nom" thumps (muted low noise + a dipping
+       triangle/sine tone) then a warm rising content note — pitch + timbre keyed by idx for a light
+       per-friend flavor (star/gear/moon/heart/drop/cloud = Poppu/Peeky/Orby/Zaza/Wavey/Puffy). */
+    feed(idx){ const t=now(); const i=idx%6;
+      const base=[783.99,880.00,987.77,659.25,523.25,440.00][i];
+      const typ=['triangle','square','sine','sine','triangle','sine'][i];
+      noise(t,0.045,0.11,260+i*18,2.4); tone(base*0.5,t,0.06,typ,0.15,base*0.42);
+      noise(t+0.11,0.045,0.10,260+i*18,2.4); tone(base*0.5,t+0.11,0.06,typ,0.14,base*0.40);
+      tone(base*0.7,t+0.23,0.15,'sine',0.15,base); kalimbaNote(base,t+0.30,i===5?0.08:0.13); },
+    /* tap-to-pet: a soft squish (short low thump with a gentle downward tone) followed by a cute
+       giggle of 3 quick rising blips — base pitch keyed by idx for per-friend flavor. */
+    pet(idx){ const t=now(); const i=idx%6;
+      const base=[659.25,739.99,830.61,587.33,493.88,440.00][i];
+      noise(t,0.06,0.09,500,1.6); tone(base*0.6,t,0.09,'sine',0.12,base*0.4);
+      for(let k=0;k<3;k++) tone(base*(1+k*0.18),t+0.09+k*0.045,0.045,'sine',0.10-k*0.02); },
+    /* a hat is placed on a friend: a soft "boop" dip landing, then a little two-note "ta-da"
+       sparkle + airy shimmer on top — celebratory but gentle. */
+    dress(){ const t=now(); tone(392,t,0.10,'triangle',0.18,300); noise(t+0.02,0.05,0.05,700,2);
+      tone(880,t+0.14,0.10,'sine',0.20,1174.66); tone(1318.5,t+0.22,0.20,'sine',0.14); noise(t+0.20,0.18,0.035,3200,1.4); },
+    /* friendship heart ticks up: a gentle warm ASCENDING kalimba ping (two plucked notes rising +
+       a soft sine pad tail) — deliberately warm/plucked rather than the bright metallic collect()
+       "coin" sound, so it reads as "it grew", not "you scored". */
+    heartFill(){ const t=now(); kalimbaNote(659.25,t,0.16); kalimbaNote(880.00,t+0.09,0.14); tone(880,t+0.02,0.35,'sine',0.06,1046.5); },
+    /* each friend's signature arrival jingle — 6 distinct short cozy motifs from the same
+       kalimba/tone palette, one per personality (idx = star/gear/moon/heart/drop/cloud). */
+    friendJingle(idx){ const t=now();
+      switch(idx%6){
+        case 0: /* Poppu (star) — bright & warm: cheerful ascending arpeggio */
+          [PENTA[0],PENTA[2],PENTA[3],PENTA[4]].forEach((f,i)=>kalimbaNote(f,t+i*0.09,0.20-i*0.02));
+          tone(PENTA[4],t+0.40,0.25,'sine',0.12); break;
+        case 1: /* Peeky (gear) — clumsy-proud wind-up ting: uneven accelerating clicks then a bright ting */
+          tone(300,t,0.05,'square',0.10,340); tone(340,t+0.09,0.05,'square',0.11,380); tone(380,t+0.155,0.05,'square',0.12,430);
+          kalimbaNote(1046.5,t+0.26,0.22); tone(2093,t+0.26,0.10,'sine',0.08); break;
+        case 2: /* Orby (moon) — dreamy wonder shimmer: slow high glide arpeggio + airy noise shimmer */
+          [PENTA[2],PENTA[3],PENTA[4],PENTA[4]*1.5].forEach((f,i)=>tone(f,t+i*0.13,0.4,'sine',0.10,f*1.03));
+          noise(t+0.05,0.5,0.03,3400,1.2); break;
+        case 3: /* Zaza (heart) — tender & sweet: soft slow two-note dip-then-rise */
+          tone(784,t,0.22,'sine',0.16,660); tone(880,t+0.24,0.30,'sine',0.16); break;
+        case 4: /* Wavey (drop) — bouncy & splashy: 3 bouncing notes + a little splash */
+          [587.33,698.46,880].forEach((f,i)=>tone(f,t+i*0.08,0.12,'triangle',0.16,f*1.15));
+          noise(t+0.20,0.15,0.06,1800,1); break;
+        case 5: /* Puffy (cloud) — sleepy & soft: two slow, quiet, drowsy tones */
+          tone(440,t,0.5,'sine',0.09,392); tone(392,t+0.35,0.6,'sine',0.07); break;
+      } },
+    /* soft ambient bed for the Friend House biome — gentle, low, loopable, symmetric with
+       setTownAmbience; guarded so it's always safe to call before/without user gesture. */
+    setFriendAmbience(on){ startFriendAmbience(); if(friendAmbGain&&ac) friendAmbGain.gain.linearRampToValueAtTime(on?0.028:0.0, now()+0.6); },
   };
 })();
 
 /* ------------------------------------------------------------- ASSET LOADER */
 const ASSET_SRC = {
-  bg:'assets/bg-mailroom.jpg', bg_forest:'assets/bg-forest.jpg', bg_space:'assets/bg-space.jpg',
+  bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-space.webp',
   poppu_postal:'assets/poppu-postal.png', poppu_wave:'assets/poppu-wave.png', poppu_celebrate:'assets/poppu-celebrate.png',
   conveyor:'assets/conveyor-belt.png', ui_play:'assets/ui-play-btn.png', ui_sticker:'assets/ui-sticker-frame.png',
+};
+/* WebP first, transparent fallback to the original JPG if WebP is unsupported/missing */
+const ASSET_FALLBACK = {
+  bg:'assets/bg-mailroom.jpg', bg_forest:'assets/bg-forest.jpg', bg_space:'assets/bg-space.jpg',
 };
 TYPES.forEach(t=>{
   ASSET_SRC['pkg_'+t.id]='assets/pkg-'+t.id+'.png';
   ASSET_SRC['mailbox_'+t.id]='assets/mailbox-'+t.id+'.png';
   ASSET_SRC['face_'+t.id]='assets/face-'+t.id+'.png';
 });
-const IMG={}; let loadedCount=0, totalToLoad=Object.keys(ASSET_SRC).length, loadDone=false;
+/* full-body character art for the delivery greeting (Poppu reuses poppu_celebrate) */
+ASSET_SRC['full_gear']='assets/peeky-full.png';
+ASSET_SRC['full_moon']='assets/orby-full.png';
+ASSET_SRC['full_heart']='assets/zaza-full.png';
+ASSET_SRC['full_drop']='assets/wavey-full.png';
+ASSET_SRC['full_cloud']='assets/puffy-full.png';
+/* Poppu's Post Town (Phase 0) — hub map + drive art, kebab filenames per art pipeline */
+ASSET_SRC['town_map']='assets/town-map.webp';
+ASSET_SRC['post_office']='assets/post-office.png';
+ASSET_SRC['wrap_shop']='assets/wrap-shop.png';
+ASSET_SRC['house_peeky']='assets/house-peeky.png';
+ASSET_SRC['new_badge']='assets/new-badge.png';
+ASSET_SRC['new_badge_v2']='assets/new-badge-v2.png';
+ASSET_SRC['mail_truck']='assets/mail-truck.png';
+ASSET_SRC['road_tex']='assets/road-path-texture-tile.png';
+/* Poppu's Post Town (Phase 1) — Wrap Shop interior + the four new friend houses (Peeky/gear's
+   house_peeky above predates this naming convention; every other friend follows house_<typeId>) */
+ASSET_SRC['wrap_bg']='assets/wrap-bg.webp';
+ASSET_SRC['house_heart']='assets/house-heart.png';
+ASSET_SRC['house_moon']='assets/house-moon.png';
+ASSET_SRC['house_drop']='assets/house-drop.png';
+ASSET_SRC['house_cloud']='assets/house-cloud.png';
+/* Cosmetic shop IN-CONTEXT preview art — each is a small composed scene (hat ON a mini Poppu,
+   skin ON a mini mailbox/conveyor swatch, decor in a room corner), not a floating icon. Falls back
+   to the existing procedural in-context placeholder (drawCosmeticCard) until real art lands. */
+COSMETICS.forEach(c=>{ ASSET_SRC['cos-'+c.id.replace(/_/g,'-')]='assets/cos-'+c.id.replace(/_/g,'-')+'.png'; });
+const IMG={}; let loadedCount=0, totalToLoad=Object.keys(ASSET_SRC).length, loadDone=false, loadStart=0;
 function beginLoad(){
+  loadStart=performance.now();
   for(const k in ASSET_SRC){
-    const im=new Image(); IMG[k]={img:im,ok:false};
+    const im=new Image(); IMG[k]={img:im,ok:false,tried:false};
     im.onload=()=>{ IMG[k].ok=(im.naturalWidth>0); tick(); };
-    im.onerror=()=>{ IMG[k].ok=false; tick(); };
+    im.onerror=()=>{
+      if(ASSET_FALLBACK[k] && !IMG[k].tried){ IMG[k].tried=true; im.src=ASSET_FALLBACK[k]; return; }
+      IMG[k].ok=false; tick();
+    };
     im.src=ASSET_SRC[k];
   }
-  setTimeout(()=>{ if(!loadDone) loadDone=true; }, 2500);
+  setTimeout(()=>{ if(!loadDone) loadDone=true; }, 5000);
 }
 function tick(){ loadedCount++; if(loadedCount>=totalToLoad) loadDone=true; }
 function has(k){ return IMG[k]&&IMG[k].ok; }
@@ -294,6 +529,28 @@ function noShadow(){ ctx.shadowBlur=0; ctx.shadowColor='transparent'; ctx.shadow
 function dist(a,b,c,d){ return Math.hypot(a-c,b-d); }
 function inRect(px,py,r){ return px>=r.x&&px<=r.x+r.w&&py>=r.y&&py<=r.y+r.h; }
 function easeOutBack(t){ const c1=1.70158,c3=c1+1; return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2); }
+/* soft flattened contact shadow — grounds any sprite at a FIXED ground line (draw BEFORE the sprite,
+   ignore idle bob so the object hovers a hair above its own shadow, never swims with it). Radial
+   gradient scaled onto an ellipse; cheap enough for every-frame use (no shadowBlur). */
+function groundShadow(cx,cy,rw,rh,alpha,soft){
+  soft=(soft==null)?0.4:soft;
+  ctx.save(); ctx.translate(cx,cy); ctx.scale(1,rh/rw);
+  const g=ctx.createRadialGradient(0,0,0,0,0,rw);
+  g.addColorStop(0,'rgba(58,42,26,'+alpha+')'); g.addColorStop(1-soft,'rgba(58,42,26,'+alpha+')'); g.addColorStop(1,'rgba(58,42,26,0)');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,rw,0,7); ctx.fill(); ctx.restore();
+}
+/* TWO-STOP baked contact shadow — replaces the old single flat oval. A tight, DARKER core hugs the
+   sprite's own footprint (real contact occlusion, where wall/foot actually meets ground) and a wider,
+   much softer warm-brown falloff spreads outward to ground the whole silhouette. This is what actually
+   removes the "floating cutout" read (grass tufts used to paper over that seam; this fixes the cause).
+   Two cheap radial-gradient fills, no shadowBlur — safe every frame. */
+function bakedContactShadow(cx,cy,rw,rh,coreAlpha){
+  groundShadow(cx,cy,rw*1.65,rh*1.65,coreAlpha*0.42,0.62);   // wide soft ambient falloff
+  groundShadow(cx,cy,rw,rh,coreAlpha,0.20);                  // tight dark core at the contact line
+}
+/* deterministic pseudo-random in [0,1) from a seed — used for sun dapples / roadside foliage so the
+   town and drive scenery are stable frame-to-frame (no re-rolled jitter) yet still look organic */
+function seededRand(seed){ const x=Math.sin(seed*12.9898)*43758.5453; return x-Math.floor(x); }
 
 function drawIcon(kind,cx,cy,s,fill,stroke){
   ctx.save(); ctx.translate(cx,cy); ctx.lineJoin='round'; ctx.lineCap='round';
@@ -316,6 +573,25 @@ function drawIcon(kind,cx,cy,s,fill,stroke){
   else if(kind==='box'){ rr(-s*0.4,-s*0.4,s*0.8,s*0.8,s*0.12); ctx.fill(); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,-s*0.4); ctx.lineTo(0,s*0.4); ctx.stroke(); }
   else if(kind==='arrow'){ ctx.beginPath(); ctx.moveTo(-s*0.4,0); ctx.lineTo(s*0.2,0); ctx.stroke(); ctx.beginPath(); ctx.moveTo(s*0.0,-s*0.24); ctx.lineTo(s*0.36,0); ctx.lineTo(s*0.0,s*0.24); ctx.stroke(); }
   else if(kind==='eye'){ ctx.beginPath(); ctx.ellipse(0,0,s*0.44,s*0.28,0,0,7); ctx.fill(); ctx.stroke(); ctx.beginPath(); ctx.arc(0,0,s*0.16,0,7); ctx.fillStyle=stroke||'#5a3d24'; ctx.fill(); }
+  /* ---- wordless LEVEL-MAP mechanic glyphs (A3) — deliberately distinct from the 6 character/type
+     icons above (star/gear/moon/heart/drop/cloud already mean Poppu/Peeky/Orby/Zaza/Wavey/Puffy
+     elsewhere) so a mechanic badge on the level path can never be mistaken for a friend/color. ---- */
+  else if(kind==='seal'){   // envelope + a plain wax blob — the swipe-to-seal mechanic
+      rr(-s*0.5,-s*0.32,s,s*0.64,s*0.08); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-s*0.5,-s*0.32); ctx.lineTo(0,s*0.08); ctx.lineTo(s*0.5,-s*0.32); ctx.stroke();
+      ctx.fillStyle=stroke||'#5a3d24'; ctx.beginPath(); ctx.arc(0,s*0.06,s*0.16,0,7); ctx.fill(); }
+  else if(kind==='stamp'){   // scalloped rosette badge — the tap-a-stamp mechanic
+      const n=10,ro=s*0.5,ri=s*0.4; ctx.beginPath();
+      for(let i=0;i<n;i++){ const a=i*2*Math.PI/n; ctx.moveTo(Math.cos(a)*ro,Math.sin(a)*ro);
+        ctx.arc(Math.cos(a)*ri*1.0,Math.sin(a)*ri*1.0,ro*0.22,0,7); }
+      ctx.beginPath(); ctx.arc(0,0,ri,0,7); ctx.fill(); ctx.stroke();
+      for(let i=0;i<n;i++){ const a=i*2*Math.PI/n; ctx.beginPath(); ctx.arc(Math.cos(a)*ri,Math.sin(a)*ri,ro*0.16,0,7); ctx.fill(); ctx.stroke(); }
+      ctx.fillStyle=stroke||'#5a3d24'; ctx.beginPath(); ctx.arc(0,0,s*0.1,0,7); ctx.fill(); }
+  else if(kind==='crown'){   // gold crown — the golden-package boss level
+      ctx.beginPath(); ctx.moveTo(-s*0.46,s*0.22); ctx.lineTo(-s*0.46,-s*0.06);
+      ctx.lineTo(-s*0.2,s*0.1); ctx.lineTo(0,-s*0.32); ctx.lineTo(s*0.2,s*0.1); ctx.lineTo(s*0.46,-s*0.06);
+      ctx.lineTo(s*0.46,s*0.22); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle=stroke||'#5a3d24'; ctx.beginPath(); ctx.arc(0,s*0.02,s*0.09,0,7); ctx.fill(); }
   ctx.restore();
 }
 function drawText(txt,x,y,size,fill,stroke,align='center',weight='800',sw){
@@ -399,6 +675,27 @@ function ph_poppu(pose,x,y,s){
 
 /* real asset if present, else placeholder */
 function sprite(key,x,y,w,h){ if(has(key)){ ctx.drawImage(IMG[key].img,x-w/2,y-h/2,w,h); return true; } return false; }
+/* subtle "alive" idle: breathing (2s sine, 1.0→1.02) + a blink squash every ~3.4s */
+function poppuIdle(){
+  const breath = 1.01 + Math.sin(time*Math.PI)*0.01;   // 2s cycle
+  const bt = time % 3.4; let blink = 0;
+  if(bt < 0.15) blink = Math.sin((bt/0.15)*Math.PI);     // 0→1→0 over 150ms
+  return { sx: breath*(1+blink*0.03), sy: breath*(1-blink*0.07) };
+}
+function drawPoppuSprite(key,x,y,size,idle){
+  if(!has(key)) return false;
+  ctx.save();
+  if(idle){ const q=poppuIdle(), py=y+size*0.34;   // pivot near the feet so the chest lifts
+    ctx.translate(x,py); ctx.scale(q.sx,q.sy); ctx.translate(-x,-py); }
+  ctx.drawImage(IMG[key].img,x-size/2,y-size/2,size,size);
+  ctx.restore(); return true;
+}
+/* Poppu's on-screen footprint per screen — used for the parent-dashboard long-press */
+function poppuHit(px,py){
+  if(state==='PLAYING'){ return Math.abs(px-250)<150 && Math.abs(py-812)<180; }
+  if(state==='START'){ return Math.abs(px-300)<170 && Math.abs(py-760)<230; }
+  return false;
+}
 function drawFaceCircle(type,cx,cy,r){
   const key='face_'+type.id;
   if(has(key)){ const im=IMG[key].img;
@@ -408,6 +705,25 @@ function drawFaceCircle(type,cx,cy,r){
 }
 
 /* -------------------------------------------------------------- COSMETICS */
+/* small procedural Poppu head — used as the "mini Poppu" a shop hat preview sits on (cosmetic shop
+   in-context rendering: hats drawn ON a face, never a floating icon) until real cos-* art lands. */
+function drawMiniPoppuHead(cx,cy,s){
+  ctx.save(); ctx.translate(cx,cy);
+  ctx.fillStyle='#F6EAD6'; ctx.strokeStyle='#5a3d24'; ctx.lineWidth=s*0.05;
+  for(const sx of[-1,1]){ ctx.beginPath(); ctx.ellipse(sx*s*0.34,-s*0.5,s*0.16,s*0.24,sx*0.3,0,7); ctx.fill(); ctx.stroke(); }
+  ctx.beginPath(); ctx.arc(0,0,s*0.5,0,7); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#FFC6B6'; ctx.beginPath(); ctx.arc(-s*0.2,s*0.05,s*0.07,0,7); ctx.arc(s*0.2,s*0.05,s*0.07,0,7); ctx.fill();
+  ctx.fillStyle='#3a2a1a'; ctx.beginPath(); ctx.arc(-s*0.13,-s*0.08,s*0.06,0,7); ctx.arc(s*0.13,-s*0.08,s*0.06,0,7); ctx.fill();
+  ctx.restore();
+}
+/* a tiny two-wall "room corner" backdrop so decor previews read as "in a room", not a floating icon */
+function drawRoomCorner(cx,cy){
+  ctx.save();
+  ctx.fillStyle='#F0E6D2'; ctx.fillRect(cx-70,cy-70,140,90);
+  ctx.fillStyle='#E8DCC4'; ctx.fillRect(cx-70,cy+20,140,50);
+  ctx.strokeStyle='#d9c3a0'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(cx-70,cy+20); ctx.lineTo(cx+70,cy+20); ctx.stroke();
+  ctx.restore();
+}
 function drawPoppuHat(x,y,s,id){
   if(!id){ if(SAVE.goldenHat) id='hat_gold'; else return; }
   ctx.save(); ctx.translate(x,y); ctx.lineJoin='round'; ctx.strokeStyle='#5a3d24'; ctx.lineWidth=s*0.03;
@@ -474,6 +790,107 @@ const CONVEYOR={ cx:(600+1210)/2, cy:712, w:820, ar:317/1276 };
 const PKG_S=152;
 const STATION={ x:905, y:392 };            // special-mechanic station (center)
 
+/* --------------------------------------------------------- TOWN MAP LAYOUT */
+/* coordinates per ui-ux-designer spec — bottom-anchored, idle-bob, hit-rects fixed */
+const TOWN_BUILDINGS = {
+  post:  { id:'post',  key:'post_office', cx:420,  groundY:880, w:560, h:600, bobAmp:6, bobPeriod:3.2, bobPhase:0,
+           hit:{x:180,y:260,w:480,h:660} },
+  wrap:  { id:'wrap',  key:'wrap_shop',   cx:980,  groundY:740, w:420, h:440, bobAmp:5, bobPeriod:3.0, bobPhase:1.0,
+           hit:{x:830,y:340,w:440,h:500} },
+  peeky: { id:'peeky', key:'house_peeky', cx:1540, groundY:560, w:340, h:360, bobAmp:4, bobPeriod:2.8, bobPhase:2.0,
+           hit:{x:1420,y:230,w:360,h:430} },
+  /* ---- Phase 1 (rev. ui-ux-designer "hillside terrace" layout, A2) ----
+     The four remaining friend houses scattered across the hillside behind post/wrap/peeky at their
+     own distinct heights/sizes rather than one flat top strip — reads as a real town skyline and,
+     critically, is verified zero-overlap against every other building's hit rect (post/wrap/peeky
+     UNCHANGED above) and fully on-stage (0..1920 / 0..1080). QA note: an earlier revision placed
+     'drop' inside post's hit rect and it silently ate the tap; this layout was re-checked pairwise. */
+  moon:  { id:'moon',  key:'house_moon',  cx:1600, groundY:220, w:200, h:180, bobAmp:4, bobPeriod:2.7, bobPhase:0.3,
+           hit:{x:1490,y:0,  w:220,h:220} },
+  cloud: { id:'cloud', key:'house_cloud', cx:1277, groundY:540, w:160, h:230, bobAmp:4, bobPeriod:3.0, bobPhase:2.6,
+           hit:{x:1280,y:300,w:135,h:360} },
+  drop:  { id:'drop',  key:'house_drop',  cx:1080, groundY:300, w:220, h:200, bobAmp:5, bobPeriod:3.1, bobPhase:2.0,
+           hit:{x:960, y:70, w:240,h:250} },
+  heart: { id:'heart', key:'house_heart', cx:730,  groundY:650, w:150, h:250, bobAmp:4, bobPeriod:2.9, bobPhase:1.1,
+           hit:{x:665, y:400,w:160,h:420} },
+};
+/* farthest-back first so nearer buildings overlap correctly */
+const TOWN_ORDER=['moon','drop','cloud','peeky','heart','wrap','post'];
+/* fixed contact-shadow ground line per building — deliberately NOT the same as groundY+bob (shadows
+   never swim with the idle bob, a real object's shadow doesn't float). Larger + darker core than the
+   old flat single-stop shadow (creative-director fix: buildings were floating) — see bakedContactShadow. */
+const TOWN_BUILDING_SHADOW = {
+  post:  { cx:420,  cy:880, rw:250, rh:50, a:0.38 },
+  wrap:  { cx:980,  cy:740, rw:180, rh:38, a:0.36 },
+  peeky: { cx:1540, cy:560, rw:145, rh:30, a:0.34 },
+  moon:  { cx:1600, cy:220, rw:84,  rh:19, a:0.30 },
+  cloud: { cx:1277, cy:540, rw:59,  rh:13, a:0.28 },
+  drop:  { cx:1080, cy:300, rw:92,  rh:20, a:0.32 },
+  heart: { cx:730,  cy:650, rw:55,  rh:12, a:0.28 },
+};
+const POPPU_TOWN_HOME={ x:960, y:890 };
+
+/* --------------------------------------------------------- DELIVERY DRIVE */
+const DRIVE_LENGTH=2860;          // total route length in stage-px (~13s at DRIVE_SPEED) — brisk cozy joyride, not a slow empty stretch
+const DRIVE_SPEED=220;            // constant scroll speed, stage-px/sec — no timer, no punishment
+const DRIVE_ROAD_HALFW=340;       // drivable half-width (center ± 340) — narrowed from 450 to a cozy lane; still ~3.8x the truck's own width
+const DRIVE_DRAG_HALFW=300;       // how far a drag can pull the truck off lane-center — generous, easy steering, just inside the road edge
+const DRIVE_RATTLE_OFF=260;       // distance from lane-center that cues the gentle "drifting wide" rattle
+const DRIVE_FADE_DUR=0.9;         // seconds — cream cross-fade out of the hug beat, into LEVELDONE (no hard cut)
+function roadCenterX(scrollY){ return 960+Math.sin(scrollY*0.0009)*260; }
+/* subtle recede: the drivable lane's RENDERED width tapers a touch narrower toward the far/top of the
+   visible stretch — a cheap depth hint that helps the top-down road unify with the side-view forest
+   without a full art re-render. Visual only: steering bounds / item collection stay full-width so this
+   can never make the lane feel narrower to actually drive. */
+function roadTaperAt(d, scrollY){ const ahead=Math.max(0,Math.min(1,(d-scrollY)/900)); return 1-ahead*0.22; }
+
+/* per-destination biome (ip-director table) — a lightweight bg/tint/ambient-particle wash per
+   arrival friend so every Drive run feels distinct, without needing 5 fully bespoke backgrounds yet.
+   moon/orby reuses bg_space but is warmed toward lavender + explicitly kept "cozy twilight", not sci-fi. */
+const DRIVE_BIOMES = {
+  gear:  { name:'woodland',  bgKey:'bg_forest', tint:'rgba(120,180,120,0.05)', roadTint:'rgba(110,150,90,0.10)',  particleKind:'leaf',   particleCol:['#9ED89E','#7EC77E','#C6E89A'] },
+  heart: { name:'meadow',    bgKey:'bg_forest', tint:'rgba(255,160,190,0.16)', roadTint:'rgba(230,140,170,0.13)', particleKind:'petal',  particleCol:['#FFC2D3','#FF9DB6','#FFE0EA'] },
+  moon:  { name:'twilight',  bgKey:'bg_space',  tint:'rgba(150,130,220,0.14)', roadTint:'rgba(140,120,190,0.15)', particleKind:'star',   particleCol:['#E6DBFF','#C9B8F0','#FFF3C4'] },
+  drop:  { name:'riverside', bgKey:'bg_forest', tint:'rgba(120,190,220,0.18)', roadTint:'rgba(100,170,210,0.15)', particleKind:'bubble',  particleCol:['#BFE6F6','#8ECFEC','#E0F5FF'] },
+  cloud: { name:'sky',       bgKey:'bg_forest', tint:'rgba(230,240,250,0.22)', roadTint:'rgba(220,230,245,0.13)', particleKind:'puff',   particleCol:['#FFFFFF','#EAF4FF','#DCEBF7'] },
+};
+/* per-friend arrival-hug flourish table (animation-director spec) — drives the drop-in ease/lean/
+   squeeze/pull of drawDriveArrival's embrace beat + the color/count of its landing sparkle burst, so
+   every friend's Delivery-Drive hug reads with its own personality instead of one shared generic pose. */
+const DRIVE_FLAIR={
+  gear:  { dropStart:0.40, dropDur:0.50, ease:'back', lean:-0.16, squeeze:0.09, pullX:96,  col:'#FFD15C', pn:16, psp:7 },
+  moon:  { dropStart:0.30, dropDur:0.70, ease:'quad', lean:-0.10, squeeze:0.06, pullX:88,  col:'#B79BEA', pn:8,  psp:3 },
+  heart: { dropStart:0.40, dropDur:0.50, ease:'back', lean:-0.18, squeeze:0.08, pullX:104, col:'#FF9DB6', pn:12, psp:5 },
+  drop:  { dropStart:0.40, dropDur:0.45, ease:'back', lean:-0.15, squeeze:0.10, pullX:98,  col:'#8ECFEC', pn:14, psp:6 },
+  cloud: { dropStart:0.35, dropDur:0.70, ease:'quad', lean:-0.14, squeeze:0.14, pullX:92,  col:'#C4E9D4', pn:12, psp:3 },
+};
+function buildDriveAmbientParticles(biome){
+  const n=10, kind=biome.particleKind, cols=biome.particleCol, arr=[];
+  for(let i=0;i<n;i++){
+    arr.push({ x:Math.random()*W, y:Math.random()*H*0.6,
+      vx:(kind==='star'?(Math.random()-0.5)*4:(Math.random()-0.5)*18),
+      vy:(kind==='petal'?14:kind==='bubble'?-16:(Math.random()-0.5)*8),
+      ph:Math.random()*7, sz:(kind==='star'?2+Math.random()*3:8+Math.random()*10),
+      col:cols[i%cols.length] });
+  }
+  return arr;
+}
+function updateDriveAmbient(dt){
+  const D=drive; if(!D||!D.amb) return;
+  for(const a of D.amb){ a.x+=a.vx*dt; a.y+=a.vy*dt; a.ph+=dt;
+    if(a.y>H+20){ a.y=-20; a.x=Math.random()*W; } if(a.y<-20){ a.y=H+20; a.x=Math.random()*W; }
+    if(a.x<-20) a.x=W+20; if(a.x>W+20) a.x=-20; }
+}
+function drawDriveAmbient(){
+  const D=drive; if(!D||!D.amb||!D.biome) return; const kind=D.biome.particleKind;
+  for(const a of D.amb){ ctx.save(); ctx.translate(a.x,a.y); ctx.globalAlpha=0.5+0.3*Math.sin(a.ph*2); ctx.fillStyle=a.col;
+    if(kind==='star'){ ctx.beginPath(); ctx.arc(0,0,a.sz,0,7); ctx.fill(); }
+    else if(kind==='bubble'){ ctx.globalAlpha*=0.7; ctx.beginPath(); ctx.arc(0,0,a.sz*0.5,0,7); ctx.fill();
+      ctx.strokeStyle=a.col; ctx.lineWidth=2; ctx.stroke(); }
+    else { ctx.beginPath(); ctx.ellipse(0,0,a.sz*0.5,a.sz*0.3,a.ph,0,7); ctx.fill(); }   // leaf / petal / puff
+    ctx.restore(); }
+}
+
 function boxScale(){ return hasUp('bigBoxes')?1.25:1; }
 function activeBoxes(){
   const n=curLevel().boxes;
@@ -496,7 +913,7 @@ function randType(){ const t=levelTypes(); return t[Math.floor(Math.random()*t.l
 
 /* --------------------------------------------------------------- STATE */
 let time=0;
-let state='LOADING';   // LOADING·START·LEVELMAP·SHOP·PLAYING·LEVELDONE·STICKER
+let state='LOADING';   // LOADING·START·LEVELMAP·SHOP·PLAYING·LEVELDONE·STICKER·TOWN·DRIVE
 let packages=[];
 let particles=[];
 let popups=[];
@@ -510,6 +927,39 @@ let ambient=[];
 let shopTab='upgrade';
 let shopCat='hat';
 let shuffleActive=false;
+let tutorial=null;                 // {fading,ft} — first-play guided overlay
+let parentOpen=false;              // parent dashboard modal
+let longPressTimer=null, pressPx=0, pressPy=0;   // 3s long-press on Poppu
+
+/* ------------------------------------------------------------ TOWN runtime */
+let townTransition=null;   // {t, target, fired} — zoom-push into a level from the town map
+let buildingSqueeze=null;  // {id,t} — 260ms tap squeeze on a town building
+let poppuPoint=null;       // {t, target:{x,groundY,h}} — Poppu's non-blocking hop-and-point gesture
+let lockedPulse=null;      // {id,t} — icon-first "not yet" feedback: heart bump + filling-star pop (no reading required)
+let teasePulse=null;       // {id,t} — icon-first "happy visit" feedback on an unlocked-but-teased building (no reading required)
+let newBadgeAnimState={};  // {id:{t}} — one-shot ~500ms "look at me!" wiggle, played once per reveal
+let newBadgeSeen={};       // {id:true} — guards the wiggle so re-entering TOWN doesn't replay it every time
+
+/* ------------------------------------------------------------ DRIVE runtime */
+let drive=null;            // {scrollY,truck:{x,rot},items[],dragActiveX,arriving,arriveT,friendType,biome,...} — see startDrive()
+
+/* ------------------------------------------------------------ WRAP SHOP runtime */
+let wrapBox=null;          // {typeIdx,ribbon,ribbonProg,sticker,acted} — the package currently being wrapped
+let wrapRibbonSwipe=null;  // {x0,dx} — active ribbon-drag gesture (mirrors sealSwipe's math)
+let wrapQueueBounce=0;     // 0..1 — decaying "pop" scale on the queue tray when a finished package ships
+let wrapBoxPopT=null;      // 1..0 — box color-cycle tap squash+pop (decay -dt*3.3, ~0.30s life)
+let wrapCinchT=null, wrapBowT=null;   // 1..0 — ribbon-cinch waist-pinch + bow snap-on (decay -dt*2.4, ~0.42s)
+let wrapStampT=null;       // 1..0 — sticker press slam+settle (decay -dt*2.9, ~0.35s)
+let wrapShipAnim=null;     // {t,type,ribbon,sticker,from,to,earn,landed} — 3-beat proud-wiggle/plop-arc/land flight
+let wrapSpawnT=null;       // 0..0.30 (elapsed) — fresh replacement box pop-in after a ship lands (easeOutBack)
+let wrapShipBounceT=null;  // 0..0.3 (elapsed) — "not yet" bounce when the ship button is tapped before wrapBox.acted
+
+/* ------------------------------------------------------------ FRIEND HOUSE runtime */
+let friendScene=null;      // {id,type,petT,breathing,feedAnim,hatDropT,hatLandT,hatLanded} — see enterFriend
+let friendDragItem=null;   // {kind:'item'|'hat', icon|id, x,y} — a treat or hat being dragged toward the friend
+let friendPetCooldown=0;   // seconds remaining before another pet nudges the friendship meter (squish/giggle still always play)
+let friendHeartFlash=0;    // 0..1 — decaying pulse on the heart meter when a new heart fills
+let friendHeartNewIdx=null;// index (0..4) of the heart that just burst in — drives its easeOutBack pop + the ring
 
 /* per-level runtime */
 let activeTask=null;        // {kind, type, golden, ...}
@@ -559,8 +1009,13 @@ function beginNextTask(){
   const golden=m.golden?true:(Math.random()<GOLDEN_CHANCE);
   if(kind==='seal'){ activeTask={ kind:'seal', type:randType(), golden, prog:0, done:false, t:0 }; }
   else if(kind==='stamp'){
-    const opts=['star','heart','moon']; const want=opts[Math.floor(Math.random()*opts.length)];
-    activeTask={ kind:'stamp', type:randType(), golden, want, opts:shuffleArr(opts.slice()), stamped:false, t:0, flash:0 };
+    // FIX (C4): the correct stamp is now the PACKAGE'S OWN icon — solvable by matching, not a
+    // guess. opts always include that icon + 2 random distractors; drawStationTask gives the
+    // matching stamp a gentle pre-tap glow/pulse so a toddler can find it without failing first.
+    const pkgType=randType(), correctIcon=pkgType.icon;
+    const distractors=shuffleArr(TYPES.map(t=>t.icon).filter(ic=>ic!==correctIcon)).slice(0,2);
+    const opts=shuffleArr([correctIcon,...distractors]);
+    activeTask={ kind:'stamp', type:pkgType, golden, want:correctIcon, opts, stamped:false, t:0, flash:0 };
   } else if(kind==='shake'){
     const items=[]; for(let i=0;i<3;i++) items.push({ type:randType(), golden:m.golden||Math.random()<GOLDEN_CHANCE,
       ox:(Math.random()-0.5)*70, oy:(Math.random()-0.5)*50, rot:(Math.random()-0.5)*0.6 });
@@ -596,6 +1051,8 @@ function confetti(x,y){ const cols=['#FF9DB6','#8ECFEC','#FFD15C','#B79BEA','#98
     life:1.8,color:cols[i%cols.length],size:8+Math.random()*8,rot:Math.random()*7,vr:(Math.random()-0.5)*0.5,shape:'rect',grav:0.28}); } }
 
 const CATCH={ star:'Yay!', gear:'Thanks!', moon:'Wow!', heart:'Love it!', drop:'Splash!', cloud:'Yippee!' };
+/* simple English pluralizer for the (few) parent-facing count labels in the game — e.g. "1 sticker" vs "3 stickers" */
+function plural(n,word){ return n+' '+word+(n===1?'':'s'); }
 
 /* -------------------------------------------------------------- DELIVERY */
 function addStamps(n){ SAVE.stamps=(SAVE.stamps||0)+n; }
@@ -605,7 +1062,9 @@ function deliver(pkg, box){
   Audio_.plop(); Audio_.greet(ti);
   burst(bp.x,bp.y-40,pkg.type.deep,24,9);
   boxBounce[ti]=1; poppuCelebrateT=0.9;
-  popups.push({ type:pkg.type, x:bp.x, y:bp.y-box.h*0.55, t:0, boxTop:bp.y-box.h*0.55 });
+  SAVE.charDeliveries[pkg.type.id]=(SAVE.charDeliveries[pkg.type.id]||0)+1;
+  checkTownUnlocks();
+  popups.push({ type:pkg.type, x:bp.x, boxCy:bp.y, boxH:box.h, t:0 });
   floatTexts.push({ x:bp.x, y:bp.y-box.h*0.9, text:CATCH[pkg.type.id]||'thank you!', t:0, color:pkg.type.deep });
 
   // ---- Star Stamps economy ----
@@ -618,10 +1077,23 @@ function deliver(pkg, box){
   // meta progress
   SAVE.deliveredToday+=1; SAVE.totalDelivered+=1;
   deliveredThisLevel+=1;
+  if(!SAVE.dailyGoalDone && SAVE.deliveredToday>=dailyGoal()){
+    SAVE.dailyGoalDone=true; const gb=20; addStamps(gb);
+    floatTexts.push({x:bp.x,y:bp.y-box.h*1.55,text:'Daily goal! +'+gb+'⭐',t:0,color:'#5FB985',big:true});
+    Audio_.levelWin();
+  }
   const before=Math.floor((SAVE.totalDelivered-1)/STICKER_EVERY), after=Math.floor(SAVE.totalDelivered/STICKER_EVERY);
   for(let k=before;k<after;k++){ SAVE.stickers.push(TYPES[k%TYPES.length].id);
     floatTexts.push({x:bp.x,y:bp.y-box.h*1.35,text:'★ sticker!',t:0,color:'#E3A93E'}); }
-  if(pkg.golden){ Audio_.golden(); confetti(bp.x,bp.y-40); }
+  // ---- Golden package: 3x stickers (independent bonus, on top of the every-5 sticker above) + confetti ----
+  if(pkg.golden){
+    Audio_.golden(); confetti(bp.x,bp.y-40);
+    const GOLD_STICKERS=3;
+    for(let k=0;k<GOLD_STICKERS;k++) SAVE.stickers.push(pkg.type.id);
+    floatTexts.push({x:bp.x,y:bp.y-box.h*1.75,text:'★×'+GOLD_STICKERS+' stickers!',t:0,color:'#E3A93E',big:true});
+  }
+
+  if(tutorial && !tutorial.fading){ tutorial.fading=true; SAVE.tutorialDone=true; }
 
   persist();
   setTimeout(()=>{ packages=packages.filter(p=>p!==pkg); }, 620);
@@ -636,7 +1108,18 @@ function startLevel(n){
   packages=[]; particles=[]; popups=[]; floatTexts=[]; dragging=null; hoverType=null; sealSwipe=null;
   activeTask=null; taskNo=0; spawnedThisLevel=0; deliveredThisLevel=0; mistakesThisLevel=0;
   levelDone=false; spawnTimer=0.4; levelStartT=time; shuffleActive=false;
+  tutorial = (!SAVE.tutorialDone && currentLevel===1) ? {fading:false, ft:0} : null;
   Audio_.resume(); Audio_.setHum(true); Audio_.setMusicRoot(SCENES[currentScene].music.root);
+  consumeWrapQueueForLevel();
+}
+/* Wrap Shop's finished packages get "delivered" into the very next Sort level — a small icon-only
+   celebration + bonus stamps, so the queue built up in the Wrap Shop visibly pays off elsewhere
+   (minimum bar: it accumulates in Wrap and celebrates here). */
+function consumeWrapQueueForLevel(){
+  const n=SAVE.wrapQueue||0; if(n<=0) return;
+  SAVE.wrapQueue=0; persist();
+  burst(BELT.x1,BELT.y,'#FFC2D3',10+Math.min(6,n)*4,5);
+  Audio_.collect(); addStamps(n); persist();
 }
 function finishLevel(){
   levelDone=true; Audio_.setHum(false); Audio_.levelWin(); Audio_.celebrate();
@@ -649,12 +1132,696 @@ function finishLevel(){
   stars=Math.max(1,Math.min(3,stars));
   const bonus=[0,10,20,30][stars];
   addStamps(bonus);
-  SAVE.lastPlayDay=todayStr();
+  // ---- daily streak: first level-completion of a new day builds the streak ----
+  const _today=todayStr();
+  if(SAVE.lastPlayDay!==_today){
+    const _yd=new Date(); _yd.setDate(_yd.getDate()-1);
+    const _ydStr=_yd.getFullYear()+'-'+(_yd.getMonth()+1)+'-'+_yd.getDate();
+    SAVE.streak = (SAVE.lastPlayDay===_ydStr) ? (SAVE.streak||0)+1 : 1;
+    if(SAVE.streak>=7 && !SAVE.goldenHat) SAVE.goldenHat=true;
+    SAVE.lastPlayDay=_today;
+  }
   if(stars>(SAVE.levelStars[currentLevel-1]||0)) SAVE.levelStars[currentLevel-1]=stars;
   if(currentLevel>=SAVE.maxLevel && currentLevel<LEVELS.length) SAVE.maxLevel=currentLevel+1;
+  // ---- Post Town: Wrap Shop teases open the first time Level 1 is cleared ----
+  // NOTE: newBadge is keyed by TOWN_BUILDINGS id ('wrap'), not the save-slot name ('wrapShop')
+  if(currentLevel===1 && !SAVE.unlocks.wrapShop){ SAVE.unlocks.wrapShop=true; SAVE.newBadge.wrap=true; }
   persist();
   doneScreen={ stars, stamps:bonus, level:currentLevel };
-  setTimeout(()=>{ state='LEVELDONE'; }, 900);
+  // ---- Delivery Drive: a short lose-proof drive to Peeky's before the results screen ----
+  // (guarded: if the child already backed out to Home during the celebration, don't hijack them back in)
+  setTimeout(()=>{ if(state==='PLAYING') startDrive(); }, 900);
+}
+
+/* ============================================================ DELIVERY DRIVE
+   A short (~19s), lose-proof scenic drive between "level cleared" and the
+   results screen. No timer pressure, no obstacles that hurt, no dead-ends —
+   purely a cozy breather + a few bonus collectibles + a Peeky greeting.     */
+function buildDriveItems(){
+  // dense, near-continuous trail (~190px apart, ~0.86s at DRIVE_SPEED — was 300px/~1.36s) so 3-5 are always
+  // visible/reachable ahead — no dead beats between pickups. Gentle weave across two lanes + center so
+  // catching one naturally lines the truck up to catch the next, right along the road's own curve.
+  const items=[]; let idx=0;
+  const LANES=[-170,0,170,0];
+  for(let d=280; d<DRIVE_LENGTH-200; d+=190){
+    items.push({ d, lane:LANES[idx%LANES.length], kind:(idx%2===0?'star':'heart'), collected:false });
+    idx++;
+  }
+  return items;
+}
+function buildRoadsideProps(){
+  // roadside dressing only — never on the drivable lane, never blocks/hurts. A few cozy props (~11 over
+  // the whole drive) so the shoulders never read as empty tan expanse while the truck rolls past.
+  const KINDS=['flower','flower','mushroom','flower','butterfly','flower','signpost','mushroom','flower'];
+  const COLS=['#FF9DB6','#B79BEA','#8ECFEC','#FFD15C'];
+  const props=[]; let idx=0;
+  for(let d=220; d<DRIVE_LENGTH-120; d+=240){
+    props.push({ d, side:idx%2===0?-1:1, kind:KINDS[idx%KINDS.length], jitter:Math.sin(idx*2.1)*36,
+      col:COLS[idx%COLS.length], ph:idx*1.7 });
+    idx++;
+  }
+  return props;
+}
+function startDrive(){
+  state='DRIVE';
+  floatTexts=[]; popups=[]; particles=[];   // never carry stale TOWN/PLAYING text or particles into the drive
+  // ---- Friend rotation + per-destination biome (Phase 1): stop hardcoding Peeky/gear. Rotate
+  // through the friends unlocked SO FAR via SAVE.driveVisits % rotation-length — every run visits a
+  // different friend, and each friend carries their own body/house/biome. ----
+  const rotIds=unlockedDriveFriendIds();
+  const chosenId=rotIds[(SAVE.driveVisits||0)%rotIds.length];
+  SAVE.driveVisits=(SAVE.driveVisits||0)+1; persist();
+  const friendType=T[chosenId], biome=DRIVE_BIOMES[chosenId]||DRIVE_BIOMES.gear;
+  drive={
+    scrollY:0,
+    truck:{ x:roadCenterX(0), rot:0 },
+    dragActiveX:null,
+    items:buildDriveItems(),
+    props:buildRoadsideProps(),
+    arriving:false, arriveT:0, peekyTriggered:false, hugTriggered:false, done:false,
+    lastRattle:-999,
+    friendType, biome, houseKey:houseKeyForType(chosenId),
+    amb:buildDriveAmbientParticles(biome),
+    // two reactive mid-drive beats (kills the dead-quiet stretch) — a cozy bunny pops up right beside
+    // the driving lane and waves as the truck passes, ~32% and ~68% of the way; purely decorative,
+    // drawn close to roadCenterX so it's impossible to miss, never blocks/hurts the truck.
+    critters:[
+      { d:DRIVE_LENGTH*0.32, side:-1, state:'idle', t:0 },
+      { d:DRIVE_LENGTH*0.68, side:1,  state:'idle', t:0 },
+    ],
+    arrivalPop:null,   // {t,full} — wordless hug payoff, set at the hug beat (see updateDrive)
+  };
+  Audio_.startTruck(); Audio_.setMusicRoot(5);
+}
+function driveProgress(){ return drive?Math.max(0,Math.min(1,drive.scrollY/DRIVE_LENGTH)):0; }
+function collectDriveItem(it){
+  if(it.collected) return; it.collected=true;
+  const x=roadCenterX(it.d)+it.lane, y=820-(it.d-drive.scrollY);
+  const color=it.kind==='star'?'#FFD15C':'#FF9DB6';
+  burst(x,y,color,16,7); Audio_.collect(); addStamps(1); persist();
+}
+/* NO-PENALTY "aww, so close!" feedback when the truck rolls past a collectible without catching it —
+   never blocks, never costs anything, purely a soft "that mattered" cue so steering feels consequential
+   even on a miss. A gentle wiggle + a few dulled sparkles + a soft descending note (Audio_.aww). */
+function missDriveItem(it){
+  if(it.collected||it.missed) return; it.missed=true; it.missT=0;
+  const x=roadCenterX(it.d)+it.lane, y=820-(it.d-drive.scrollY);
+  burst(x,y,'#D8C8C0',6,3); Audio_.aww();
+}
+function startArrival(){
+  const D=drive; D.arriving=true; D.arriveT=0; D.peekyTriggered=false; D.hugTriggered=false; D.done=false; D.arrivalPop=null;
+}
+function updateDrive(dt){
+  const D=drive; if(!D) return;
+  updateDriveAmbient(dt);
+  if(!D.arriving){
+    D.scrollY+=DRIVE_SPEED*dt;
+    if(D.scrollY>=DRIVE_LENGTH){ D.scrollY=DRIVE_LENGTH; startArrival(); }
+    const cx=roadCenterX(D.scrollY);
+    if(D.dragActiveX!=null){
+      const desired=Math.max(cx-DRIVE_DRAG_HALFW,Math.min(cx+DRIVE_DRAG_HALFW,D.dragActiveX));
+      D.truck.x+=(desired-D.truck.x)*Math.min(1,dt*10);
+      D.truck.rot=Math.max(-12,Math.min(12,(desired-D.truck.x)*0.02))*Math.PI/180;
+    } else {
+      D.truck.rot*=Math.max(0,1-dt*3);
+      D.truck.x+=(cx-D.truck.x)*Math.min(1,dt*3);   // gentle self-centering when the finger lifts
+    }
+    const off=Math.abs(D.truck.x-cx);
+    if(off>DRIVE_RATTLE_OFF && time-D.lastRattle>0.3){ D.lastRattle=time; Audio_.rattle(); }
+    for(const it of D.items){
+      if(it.collected) continue;
+      const itx=roadCenterX(it.d)+it.lane, ddy=it.d-D.scrollY;
+      if(Math.hypot(itx-D.truck.x,ddy)<160) collectDriveItem(it);
+      else if(!it.missed && ddy<-140) missDriveItem(it);   // truck has rolled past it, uncaught
+      if(it.missed) it.missT+=dt;
+    }
+    // reactive mid-drive beats: wake each critter as the truck gets near it
+    for(const c of D.critters){
+      if(c.state==='idle' && D.scrollY>=c.d-170){
+        c.state='active'; c.t=0; Audio_.greet(c.side<0?1:4);
+        burst(roadCenterX(c.d)+c.side*130, 820-(c.d-D.scrollY), '#FFF3C4', 10, 5);
+      }
+      if(c.state==='active'){ c.t+=dt; if(c.t>2.0) c.state='done'; }
+    }
+  } else {
+    D.arriveT+=dt; const t=D.arriveT;
+    if(D.arrivalPop) D.arrivalPop.t+=dt;
+    if(t<=0.4){
+      const p=t/0.4, e=1-(1-p)*(1-p);   // easeOutQuad decel 220→0
+      D.scrollY=Math.min(DRIVE_LENGTH, D.scrollY+DRIVE_SPEED*(1-e)*dt);
+      const cx=roadCenterX(D.scrollY);
+      D.truck.x+=(cx-D.truck.x)*Math.min(1,dt*6);
+      D.truck.rot*=Math.max(0,1-dt*4);
+    }
+    if(t>=0.4 && !D.peekyTriggered) D.peekyTriggered=true;
+    if(t>=0.9 && !D.hugTriggered){
+      D.hugTriggered=true;
+      // ---- steering payoff: a full/near-full catch run earns an extra wordless flourish + bonus stamps ----
+      const caught=D.items.filter(i=>i.collected).length, total=D.items.length;
+      const fullRun=total>0 && caught>=Math.max(1,Math.ceil(total*0.9));
+      D.caught=caught; D.total=total; D.fullRun=fullRun;
+      const DF=DRIVE_FLAIR[D.friendType.id]||DRIVE_FLAIR.gear;
+      Audio_.arrival(); confetti(1010,700);
+      burst(1010,600,DF.col,fullRun?Math.round(DF.pn*1.7):DF.pn,fullRun?DF.psp+2:DF.psp);   // per-friend landing sparkle
+      if(fullRun){ burst(1010,555,'#FFD54A',18,7); Audio_.golden(); addStamps(10); }
+      D.arrivalPop={ t:0, full:fullRun };   // word-free heart/star pop — see drawDriveArrivalPop
+      SAVE.charDeliveries[D.friendType.id]=(SAVE.charDeliveries[D.friendType.id]||0)+1;
+      addStamps(5); persist(); checkTownUnlocks();
+      setTimeout(()=>{ Audio_.friendJingle(D.friendType.index); }, 250);
+    }
+    if(t>=1.6 && !D.done){
+      D.done=true; Audio_.stopTruck(); Audio_.setMusicRoot(SCENES[currentScene].music.root);
+    }
+    // simulation-time (not wall-clock) hand-off — stays correct under fast-forwarded/headless test steps too.
+    // Guarded: only leave the drive scene if the child is still on it (didn't already tap Home).
+    if(D.done && t>=1.6+DRIVE_FADE_DUR && state==='DRIVE'){ state='LEVELDONE'; }
+  }
+}
+
+/* ================================================================ TOWN MAP */
+function enterTown(){
+  state='TOWN'; townTransition=null; poppuPoint=null; buildingSqueeze=null; lockedPulse=null; teasePulse=null;
+  floatTexts=[]; popups=[]; particles=[];   // never carry stale text/particles in from another scene
+  // wordless "new" reveal: the first time a building with an unclaimed badge is SHOWN this session,
+  // it does a one-shot look-at-me wiggle (never replays on later re-entries while still unclaimed)
+  for(const id in TOWN_BUILDINGS){ if(SAVE.newBadge[id] && !newBadgeSeen[id]){ newBadgeSeen[id]=true; newBadgeAnimState[id]={t:0}; } }
+  Audio_.setTownAmbience(true); Audio_.pop();
+}
+function leaveTown(){
+  Audio_.setTownAmbience(false); state='START';
+  floatTexts=[]; popups=[]; particles=[];   // don't let TOWN's teases bleed into whatever screen comes next
+}
+function triggerSqueeze(id){ buildingSqueeze={ id, t:0 }; }
+function squeezeScale(t){
+  const d=0.26; if(t>=d) return 1;
+  const p=t/d;
+  if(p<0.5) return 1-0.06*(p/0.5);
+  return 0.94+0.06*easeOutBack((p-0.5)/0.5);
+}
+function triggerPoppuPoint(target){
+  poppuPoint={ t:0, target };
+  // ZERO-TEXT locked feedback: icon/animation alone carries the message — heart-bump + filling-star pop
+  // (drawTownBuilding), Poppu's lean/point (drawPoppuTownPointGesture) + the sparkle burst in
+  // handleBuildingTap. No "soon" label — non-readers can't read it, so nothing here reads it either.
+}
+function poppuTownPos(){
+  if(townTransition){
+    const t=townTransition.t, travel=Math.max(0,Math.min(1,t/0.18)), e=travel*travel*(3-2*travel);
+    const x=POPPU_TOWN_HOME.x+(420-POPPU_TOWN_HOME.x)*e, y=POPPU_TOWN_HOME.y+(880-POPPU_TOWN_HOME.y)*e;
+    const hop=Math.abs(Math.sin(t*Math.PI/0.09))*24*(1-travel);
+    return { x, y:y-hop };
+  }
+  if(poppuPoint){
+    const t=poppuPoint.t, tgt=poppuPoint.target;
+    const dx=(tgt.cx-POPPU_TOWN_HOME.x)*0.32;
+    const out=t<0.6, travel=out?Math.min(1,t/0.6):Math.max(0,1-(t-0.6)/0.3);
+    const x=POPPU_TOWN_HOME.x+dx*travel;
+    const hopPhase=out?((t%0.3)/0.3):0;
+    const hopY=out?-Math.abs(Math.sin(hopPhase*Math.PI))*40:0;
+    return { x, y:POPPU_TOWN_HOME.y+hopY };
+  }
+  return { x:POPPU_TOWN_HOME.x, y:POPPU_TOWN_HOME.y };
+}
+function startTownTransition(target){ townTransition={ t:0, target, fired:false }; Audio_.pop(); }
+function handleBuildingTap(id){
+  const b=TOWN_BUILDINGS[id]; if(!b) return;
+  if(SAVE.newBadge[id]){
+    delete SAVE.newBadge[id]; persist();
+    delete newBadgeAnimState[id];   // clear any in-flight one-shot wiggle — badge is gone now
+    // wordless "new" reveal payoff: sparkle burst + a bright unlock chime, badge cleared for good
+    burst(b.cx-b.w*0.24, b.groundY-b.h*0.66, '#FFD54A', 16, 6);
+    Audio_.buildingUnlock();
+  }
+  triggerSqueeze(id);
+  if(!buildingUnlocked(id)){
+    Audio_.buildingLocked();
+    triggerPoppuPoint({ cx:b.cx, groundY:b.groundY, h:b.h });
+    lockedPulse={ id, t:0 };   // icon-first "not yet" pop: heart bump + filling-star, no reading required
+    burst(b.cx+b.w*0.18, b.groundY-b.h*0.5, '#FFC2D3', 10, 4);
+    return;
+  }
+  if(buildingFunctional(id)){
+    Audio_.selectBuilding();
+    if(id==='post'){ startTownTransition(id); return; }   // Post Office keeps its zoom-push into a Sort level
+    if(id==='wrap'){ enterWrap(); return; }
+    if(FRIEND_UNLOCK[id]){ enterFriend(id); return; }
+  }
+  // fallback (no functional buildings currently reach here, but keeps a happy, never-dead-end
+  // response for anything future-teased) — a bright sparkle burst + a bouncing star pop, 100% wordless.
+  Audio_.selectBuilding();
+  burst(b.cx, b.groundY-b.h*0.7, '#FFD15C', 14, 5);
+  teasePulse={ id, t:0 };
+}
+
+/* ================================================================ WRAP SHOP
+   Lose-proof, no-reading toy: tap a box to cycle its color, drag a ribbon across it to snap a bow,
+   tap a sticker to stamp it — ANY combination is valid and adorable. Tapping the (always-available,
+   dimmer-until-something's-been-done) send-off button ships the finished package into a visible
+   queue tray, awards a few Star Stamps, and hands a fresh blank box right back. */
+const WRAP_BOX_POS={ x:760, y:480 };
+const WRAP_RIBBON_STRIP={ x:760, y:770, w:480, h:120 };
+const WRAP_RIBBON_HITH=200;   // A5 — vertical hit-tolerance (used as full height, i.e. ±100) around the ribbon lane
+const WRAP_SHIP_BTN={ x:1280, y:480, r:120 };
+const WRAP_QUEUE_POS={ x:1740, y:560 };
+function newWrapBox(){ return { typeIdx:0, ribbon:false, ribbonProg:0, sticker:null, acted:false }; }
+function enterWrap(){
+  state='WRAP'; wrapBox=newWrapBox(); wrapRibbonSwipe=null;
+  wrapBoxPopT=null; wrapCinchT=null; wrapBowT=null; wrapStampT=null; wrapShipAnim=null; wrapSpawnT=null; wrapShipBounceT=null;
+  floatTexts=[]; popups=[]; particles=[];
+  Audio_.setTownAmbience(true); Audio_.pop();
+}
+function leaveWrap(){
+  if(wrapShipAnim) finalizeWrapShip();   // never lose an in-flight ship if the child backs out mid-animation
+  wrapShipAnim=null; wrapRibbonSwipe=null; Audio_.pop(); enterTown();
+}
+function cycleWrapColor(){
+  if(!wrapBox) return;
+  wrapBox.typeIdx=(wrapBox.typeIdx+1)%TYPES.length; wrapBox.acted=true; Audio_.wrapBox();
+  wrapBoxPopT=1;   // 1a: squash+pop + color cross-flash (see drawWrapBoxScene)
+  burst(WRAP_BOX_POS.x,WRAP_BOX_POS.y-20,TYPES[wrapBox.typeIdx].light,12,4.5);
+}
+function applyWrapRibbon(){
+  if(!wrapBox||wrapBox.ribbon){ Audio_.wrapBox(); return; }
+  wrapBox.ribbon=true; wrapBox.ribbonProg=1; wrapBox.acted=true; Audio_.wrapRibbon();
+  wrapBowT=1; wrapCinchT=1;   // 1b: waist-pinch + bow snap-on
+  burst(WRAP_BOX_POS.x,WRAP_BOX_POS.y,'#fff3c4',10,5); burst(WRAP_BOX_POS.x,WRAP_BOX_POS.y,'#FFE8A8',6,3.5);
+}
+function applyWrapSticker(icon){
+  if(!wrapBox) return;
+  const type=TYPES[wrapBox.typeIdx];
+  wrapBox.sticker=icon; wrapBox.acted=true; Audio_.wrapSticker();
+  wrapStampT=1;   // 1c: press slam+settle + ink shock-ring
+  burst(WRAP_BOX_POS.x,WRAP_BOX_POS.y-40,type.deep,12,5); burst(WRAP_BOX_POS.x,WRAP_BOX_POS.y-40,'#fff',6,3);
+}
+/* 1d: tapping Ship starts a 3-beat flight (proud wiggle -> plop arc -> land) instead of an instant
+   teleport into the queue — see update()'s wrapShipAnim tick + drawWrapShipAnim(). Data (stamps/queue
+   count) is only committed at the LAND beat via finalizeWrapShip(), so the visible queue count never
+   jumps ahead of what's actually landed there. */
+function startWrapShip(){
+  if(!wrapBox||!wrapBox.acted||wrapShipAnim) return;
+  const type=TYPES[wrapBox.typeIdx];
+  wrapShipAnim={ t:0, type, ribbon:wrapBox.ribbon, sticker:wrapBox.sticker,
+    from:{x:WRAP_BOX_POS.x,y:WRAP_BOX_POS.y}, to:{x:WRAP_QUEUE_POS.x,y:WRAP_QUEUE_POS.y},
+    earn:3+(wrapBox.ribbon?1:0)+(wrapBox.sticker?1:0), landed:false };
+  wrapBox=null;
+}
+function finalizeWrapShip(){
+  const A=wrapShipAnim; if(!A||A.landed) return; A.landed=true;
+  addStamps(A.earn); SAVE.wrapQueue=(SAVE.wrapQueue||0)+1; SAVE.wrappedCount=(SAVE.wrappedCount||0)+1; persist();
+  Audio_.wrapDone(); wrapQueueBounce=1;
+  burst(WRAP_QUEUE_POS.x,WRAP_QUEUE_POS.y,'#FFD54A',18,6); burst(WRAP_QUEUE_POS.x,WRAP_QUEUE_POS.y+20,'#EAD9B5',8,4);
+  floatTexts.push({ x:WRAP_QUEUE_POS.x, y:WRAP_QUEUE_POS.y-170, text:'+'+A.earn+'⭐', t:0, color:'#E3A93E' });
+  wrapBox=newWrapBox(); wrapSpawnT=0;
+}
+function wrapStickerTray(){
+  const y=920, r=76, gap=200, cx=WRAP_BOX_POS.x;
+  return ['star','heart','moon'].map((icon,i)=>({ icon, x:cx-gap+i*gap, y, r }));
+}
+function drawBow(x,y,s,col){
+  ctx.save(); ctx.translate(x,y); ctx.strokeStyle='#5a3d24'; ctx.lineWidth=s*0.08; ctx.fillStyle=col;
+  for(const sx of [-1,1]){ ctx.save(); ctx.scale(sx,1); ctx.beginPath();
+    ctx.moveTo(0,0); ctx.quadraticCurveTo(s*0.5,-s*0.4,s*0.55,0); ctx.quadraticCurveTo(s*0.5,s*0.4,0,0);
+    ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore(); }
+  ctx.beginPath(); ctx.arc(0,0,s*0.16,0,7); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+function ph_wrapBg(){
+  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#FFE9F1'); g.addColorStop(1,'#FFD7E4');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  ctx.save(); ctx.globalAlpha=0.14; ctx.fillStyle='#fff';
+  for(let x=80;x<W;x+=220) for(let y=80;y<H;y+=220) drawIcon('heart',x,y,60,'#fff','#fff');
+  ctx.restore();
+}
+/* wordless "what do I do here?" guide (A7) — one continuous dashed path through every station, while
+   the box hasn't been touched yet. Reuses drawTutorial's exact dashed-line language (lineWidth 6,
+   dash [3,20], scrolling lineDashOffset) so the two teaching moments feel like the same visual grammar. */
+function drawWrapGuidePath(){
+  if(!wrapBox||wrapBox.acted) return;
+  const pts=[{x:760,y:480},{x:760,y:770},{x:760,y:920},{x:1280,y:480},{x:1740,y:560}];
+  ctx.save(); ctx.globalAlpha=0.6; ctx.strokeStyle='rgba(255,255,255,0.85)'; ctx.lineWidth=6; ctx.lineCap='round';
+  ctx.setLineDash([3,20]); ctx.lineDashOffset=-time*40;
+  ctx.beginPath(); pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)); ctx.stroke();
+  ctx.setLineDash([]); ctx.restore();
+}
+function drawWrapBoxScene(){
+  if(!wrapBox) return;
+  const type=TYPES[wrapBox.typeIdx], bob=Math.sin(time*1.8)*6, s=260;
+  ctx.save(); ctx.translate(WRAP_BOX_POS.x,WRAP_BOX_POS.y+bob);
+  if(wrapSpawnT!=null){ const e=easeOutBack(Math.min(1,wrapSpawnT/0.30)); ctx.scale(Math.max(0.02,e),Math.max(0.02,e)); }   // fresh-box pop-in
+  if(wrapBoxPopT!=null){   // 1a: volume-preserving squash-in/stretch-rebound + ±3° wag
+    const p=1-wrapBoxPopT, wig=Math.sin(p*Math.PI*2)*wrapBoxPopT;
+    ctx.rotate((3*Math.PI/180)*wig);
+    const sx=1-0.18*wig, sy=Math.abs(sx)>0.001?1/sx:1;
+    ctx.scale(sx,sy);
+  }
+  if(wrapCinchT!=null){   // 1b: waist-pinch while the ribbon cinches shut
+    const cp=(1-wrapCinchT)/2.4, pinch=Math.sin(Math.min(1,cp/0.5)*Math.PI);
+    ctx.scale(1-0.10*pinch,1+0.10*pinch);
+  }
+  groundShadow(0,s*0.56,s*0.42,s*0.12,0.22,0.5);
+  const key='pkg_'+type.id;
+  if(has(key)) ctx.drawImage(IMG[key].img,-s/2,-s/2,s,s); else ph_package(type,0,0,s,false);
+  if(wrapBoxPopT!=null){   // color cross-flash of the newly-cycled type, bloomed over the box
+    const flashA=(1-wrapBoxPopT)*0.5;
+    ctx.save(); ctx.globalAlpha=flashA; ctx.globalCompositeOperation='lighter';
+    const g=ctx.createRadialGradient(0,0,0,0,0,s*0.6); g.addColorStop(0,type.light); g.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,s*0.6,0,7); ctx.fill(); ctx.restore();
+  }
+  if(wrapBox.ribbon){
+    let bowScale=1;
+    if(wrapBowT!=null){ const bp=(1-wrapBowT)/2.4; bowScale=Math.max(0.02,easeOutBack(Math.min(1,bp/0.66))); }
+    ctx.save(); ctx.translate(0,s*0.06); ctx.scale(bowScale,bowScale); drawBow(0,0,90,'#fff'); ctx.restore();
+  }
+  if(wrapBox.sticker){
+    let stScale=1, stRot=0, stAlpha=1, ringP=null;
+    if(wrapStampT!=null){
+      const sp=(1-wrapStampT)/2.9, settle=easeOutBack(Math.min(1,sp/0.6));
+      stScale=1+(1-settle)*0.6; stRot=(1-settle)*0.25; stAlpha=Math.min(1,sp/0.15); ringP=Math.min(1,sp/0.5);
+    }
+    ctx.save(); ctx.translate(s*0.28,-s*0.30);
+    if(ringP!=null && ringP<1){ ctx.save(); ctx.globalAlpha=(1-ringP)*0.6; ctx.strokeStyle=type.deep; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.arc(0,0,54+ringP*36,0,7); ctx.stroke(); ctx.restore(); }
+    ctx.globalAlpha=stAlpha; ctx.rotate(stRot); ctx.scale(stScale,stScale);
+    shadow(10,'rgba(0,0,0,0.16)',0,4);
+    ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,54,0,7); ctx.fill(); noShadow();
+    ctx.lineWidth=5; ctx.strokeStyle=type.deep; ctx.stroke();
+    drawIcon(wrapBox.sticker,0,0,60,'#FFD15C','#E3A93E'); ctx.restore();
+  }
+  ctx.restore();
+  if(!wrapBox.acted){
+    ctx.save(); ctx.globalAlpha=0.5+0.3*Math.sin(time*3); ctx.strokeStyle=type.deep; ctx.lineWidth=6;
+    ctx.beginPath(); ctx.arc(WRAP_BOX_POS.x,WRAP_BOX_POS.y+bob,s*0.62,0,7); ctx.stroke(); ctx.restore();
+  }
+}
+function drawWrapRibbonStrip(){
+  if(!wrapBox) return;
+  const r=WRAP_RIBBON_STRIP;
+  ctx.save(); shadow(14,'rgba(0,0,0,0.12)',0,5); ctx.fillStyle='rgba(255,252,244,0.9)';
+  rr(r.x-r.w/2,r.y-r.h/2,r.w,r.h,30); ctx.fill(); noShadow();
+  ctx.lineWidth=5; ctx.strokeStyle='#F06A8E'; rr(r.x-r.w/2,r.y-r.h/2,r.w,r.h,30); ctx.stroke();
+  const prog=wrapBox.ribbon?1:wrapBox.ribbonProg;
+  ctx.save(); rr(r.x-r.w/2,r.y-r.h/2,r.w,r.h,30); ctx.clip();
+  ctx.fillStyle='rgba(255,157,182,0.35)'; ctx.fillRect(r.x-r.w/2,r.y-r.h/2,r.w*prog,r.h); ctx.restore();
+  const ix = wrapBox.ribbon? r.x+r.w*0.5-50 : r.x-r.w*0.5+50+prog*(r.w-100);
+  drawBow(ix,r.y,70,'#F06A8E');
+  if(!wrapBox.ribbon){ ctx.save(); ctx.globalAlpha=0.7+0.3*Math.sin(time*3);
+    drawIcon('arrow',r.x,r.y-r.h*0.6-30,46,'#F4A93E','#E3A93E'); ctx.restore(); }
+  ctx.restore();
+}
+function drawWrapStickerTray(){
+  if(!wrapBox) return;
+  for(const st of wrapStickerTray()){
+    ctx.save(); shadow(12,'rgba(0,0,0,0.14)',0,5); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(st.x,st.y,st.r,0,7); ctx.fill(); noShadow();
+    ctx.lineWidth=6; ctx.strokeStyle=(wrapBox.sticker===st.icon)?'#FFD54A':'#e3d3b4'; ctx.stroke();
+    drawIcon(st.icon,st.x,st.y,st.r*1.1,'#FFD15C','#E3A93E'); ctx.restore();
+  }
+}
+/* the flying package during the 1d ship animation — Beat A (proud wiggle in place) then Beat B (plop
+   arc into the queue); Beat C (land) is handled by finalizeWrapShip() + drawWrapQueue's landing squash. */
+function drawWrapShipAnim(){
+  const A=wrapShipAnim; if(!A) return;
+  const t=A.t; let x,y,scale=1,rot=0;
+  if(t<0.35){
+    const w=Math.sin(t*54)*(1-t/0.35);
+    x=A.from.x; y=A.from.y; rot=0.10*w; scale=1+0.06*w;
+  } else {
+    const p=Math.max(0,Math.min(1,(t-0.35)/0.55)), sm=p*p*(3-2*p);
+    x=A.from.x+(A.to.x-A.from.x)*sm;
+    let yy=A.from.y+(A.to.y-A.from.y)*sm-Math.sin(p*Math.PI)*130;
+    if(p>0.8) yy+=((p-0.8)/0.2)*40;   // extra drop in the last 20%
+    y=yy; scale=1+(0.45-1)*sm; rot=p*Math.PI*0.9;   // lazy tumble
+  }
+  ctx.save(); ctx.translate(x,y); ctx.rotate(rot); ctx.scale(scale,scale);
+  const s=260, key='pkg_'+A.type.id;
+  if(has(key)) ctx.drawImage(IMG[key].img,-s/2,-s/2,s,s); else ph_package(A.type,0,0,s,false);
+  if(A.ribbon) drawBow(0,s*0.06,90,'#fff');
+  if(A.sticker){ ctx.save(); ctx.translate(s*0.28,-s*0.30);
+    ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,54,0,7); ctx.fill();
+    ctx.lineWidth=5; ctx.strokeStyle=A.type.deep; ctx.stroke(); drawIcon(A.sticker,0,0,60,'#FFD15C','#E3A93E'); ctx.restore(); }
+  ctx.restore();
+}
+function drawWrapShipButton(){
+  const active=!!(wrapBox&&wrapBox.acted), b=WRAP_SHIP_BTN, pulse=active?1+Math.sin(time*3)*0.05:1;
+  const bounce=wrapShipBounceT!=null?1+Math.max(0,0.30-wrapShipBounceT*1.0):1;   // A6: "not yet" tap feedback
+  ctx.save(); ctx.translate(b.x,b.y); ctx.scale(pulse*bounce,pulse*bounce);
+  shadow(active?26:12, active?'rgba(255,213,84,0.6)':'rgba(0,0,0,0.14)',0,active?10:5);
+  ctx.fillStyle=active?'#FFD15C':'#efe6d2'; ctx.beginPath(); ctx.arc(0,0,b.r,0,7); ctx.fill(); noShadow();
+  ctx.lineWidth=8; ctx.strokeStyle=active?'#fff':'#e3d3b4'; ctx.stroke();
+  drawIcon('arrow',0,0,b.r*0.9,active?'#fff':'#cbbd9c',active?'#E3A93E':'#b8a684');
+  ctx.restore();
+}
+function drawWrapQueue(){
+  const n=Math.min(6,SAVE.wrapQueue||0);
+  const b=wrapQueueBounce>0?easeOutBack(Math.max(0,Math.min(1,1-wrapQueueBounce))):1;   // 1d Beat C landing squash
+  const bx=WRAP_QUEUE_POS.x, by=WRAP_QUEUE_POS.y;
+  ctx.save(); shadow(16,'rgba(0,0,0,0.14)',0,6); ctx.fillStyle='rgba(255,252,244,0.9)'; rr(bx-130,by-190,260,380,32); ctx.fill(); noShadow();
+  ctx.lineWidth=5; ctx.strokeStyle='#B79BEA'; rr(bx-130,by-190,260,380,32); ctx.stroke();
+  drawIcon('heart',bx,by-150,44,'#FF9DB6','#F06A8E');
+  const cols=['#FFD15C','#FF9DB6','#8ECFEC','#98D7B4','#B79BEA','#FFC2D3'];
+  for(let i=0;i<Math.max(1,n);i++){
+    const stackY=by+120-i*40;
+    ctx.save(); ctx.translate(bx+(i%2===0?-6:6),stackY);
+    if(i===n-1 && n>0) ctx.scale(2-b,b);
+    ctx.strokeStyle='#5a3d24'; ctx.lineWidth=5;
+    if(i<n){ ctx.fillStyle=cols[i%cols.length]; rr(-56,-40,112,80,14); ctx.fill(); ctx.stroke();
+      ctx.fillStyle='#fff'; rr(-56,-40,112,26,14); ctx.fill(); }
+    else { ctx.strokeStyle='rgba(90,61,36,0.25)'; ctx.setLineDash([8,8]); rr(-56,-40,112,80,14); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+function drawWrap(){
+  if(has('wrap_bg')) ctx.drawImage(IMG.wrap_bg.img,0,0,W,H); else ph_wrapBg();
+  drawWrapGuidePath(); drawWrapQueue();
+  drawWrapBoxScene(); drawWrapRibbonStrip(); drawWrapStickerTray(); drawWrapShipAnim(); drawWrapShipButton();
+  drawParticles(); drawFloatTexts();
+  backButton(); stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
+}
+
+/* ================================================================ FRIEND HOUSE
+   A cozy, lose-proof "hang out with a friend" toy: feed them any treat (drag from the tray), pet
+   them (tap), or dress them up in a hat (drag from the hat row). Friendship hearts derive from
+   SAVE.charDeliveries (same counter the Sort game + Delivery Drive already build up), and feeding
+   / petting nudge it too, so the meter visibly fills no matter how the child plays. */
+const FRIEND_POS={ x:960, y:640 };
+const FRIEND_ITEM_ICONS=['star','heart','cloud'];
+/* the "want" bubble must only ever ask for something the item tray actually offers — every want is
+   solvable in one tap (A1 bugfix; TYPES ids double as their icon ids so a simple filter is exact). */
+const FRIEND_WANT_TYPES=TYPES.filter(t=>FRIEND_ITEM_ICONS.includes(t.icon));
+function friendItemTray(){
+  const y=940, r=78, gap=230, cx=W/2;   // gap widened 200->230 (A8)
+  return FRIEND_ITEM_ICONS.map((icon,i)=>({ icon, x:cx-gap+i*gap, y, r }));
+}
+function friendHatTray(){
+  const list=COSMETICS.filter(c=>c.cat==='hat'); const y=175, r=72, gap=150, total=(list.length-1)*gap, x0=W/2-total/2;   // y 150->175, r 64->72 (A8)
+  return list.map((c,i)=>({ id:c.id, x:x0+i*gap, y, r }));
+}
+function friendHearts(typeId){ return Math.min(5, Math.floor((SAVE.charDeliveries[typeId]||0)/3)); }
+/* per-friend flair table (animation-director spec) — every knob a Friend-House interaction touches
+   (feed/pet timing+ease, idle bob speed, and the accent color used across their particle bursts). */
+const FRIEND_FLAIR={
+  gear:  { col:'#FFD15C', squish:0.18, petDur:0.42, ease:'back', speed:1.00 },
+  moon:  { col:'#B79BEA', squish:0.14, petDur:0.46, ease:'quad', speed:0.72 },
+  heart: { col:'#FF9DB6', squish:0.18, petDur:0.42, ease:'back', speed:0.90 },
+  drop:  { col:'#8ECFEC', squish:0.20, petDur:0.42, ease:'back', speed:1.10 },
+  cloud: { col:'#C4E9D4', squish:0.30, petDur:0.58, ease:'quad', speed:0.60 },
+};
+/* calibrated per-character hat seat (was eyeballed to Peeky only — every other friend's head sits at
+   a different height/width, so a shared 190/1.0 made hats float or clip on anyone else). */
+const HAT_Y={ gear:190, moon:236, heart:232, drop:234, cloud:218 };
+const HAT_SCALE={ gear:1.0, moon:1.0, heart:1.0, drop:1.05, cloud:1.08 };
+function heartMeterPos(i){ const cx=W/2, y=60, gap=64, total=5*gap, x0=cx-total/2+gap/2; return { x:x0+i*gap, y }; }
+function enterFriend(id){
+  const info=FRIEND_UNLOCK[id]; if(!info) return;
+  friendScene={ id, type:T[info.type], petT:0, breathing:true, feedAnim:null, hatDropT:null, hatLandT:null, hatLanded:true };
+  friendDragItem=null;
+  state='FRIEND'; floatTexts=[]; popups=[]; particles=[];
+  Audio_.setFriendAmbience(true); Audio_.pop();
+}
+function leaveFriend(){ friendDragItem=null; Audio_.setFriendAmbience(false); enterTown(); }
+function bumpFriendship(typeId){
+  const before=friendHearts(typeId);
+  SAVE.charDeliveries[typeId]=(SAVE.charDeliveries[typeId]||0)+1; persist();
+  const after=friendHearts(typeId);
+  if(after>before){
+    Audio_.heartFill(); friendHeartFlash=1; friendHeartNewIdx=Math.min(4,after-1);
+    const pos=heartMeterPos(friendHeartNewIdx);
+    burst(pos.x,pos.y,'#FF9DB6',16,6); burst(pos.x,pos.y,'#FFD54A',6,4);
+  }
+  checkTownUnlocks();
+}
+/* item arc-flies from the tray (or wherever it was released) into the friend's mouth, a body "chomp"
+   squash plays, then a per-friend reaction takes over — see friendFeedReaction() + drawFriendFeedAnim(). */
+function feedFriend(icon, fromPos){
+  const F=friendScene; if(!F) return;
+  if(F.breathing) F.breathing=false;   // entry breathing cancels on first interaction (A8)
+  const flair=FRIEND_FLAIR[F.type.id];
+  F.feedAnim={ t:0, icon, from:fromPos||{x:FRIEND_POS.x,y:FRIEND_POS.y+320}, reacted:false };
+  Audio_.feed(F.type.index); burst(FRIEND_POS.x,FRIEND_POS.y-40,flair.col,14,5);
+  bumpFriendship(F.type.id);
+}
+function petFriend(){
+  const F=friendScene; if(!F) return;
+  if(F.breathing) F.breathing=false;
+  F.petT=0.0001; Audio_.pet(F.type.index);
+  burst(FRIEND_POS.x,FRIEND_POS.y-80,FRIEND_FLAIR[F.type.id].col,10,4);
+  if(friendPetCooldown<=0){ friendPetCooldown=1.4; bumpFriendship(F.type.id); }   // cooldown gates ONLY the heart bump — squish always plays
+}
+function dressFriend(hatId){
+  const F=friendScene; if(!F) return;
+  if(F.breathing) F.breathing=false;
+  SAVE.friendHats[F.id]=hatId; persist(); Audio_.dress();
+  F.hatDropT=1; F.hatLanded=false; F.hatLandT=null;   // 1..0 elapsed-style timer, ~0.45s fall (see update())
+  burst(FRIEND_POS.x,FRIEND_POS.y-190,'#B79BEA',12,5);
+}
+function drawFriendHeartMeter(){
+  const F=friendScene; if(!F) return;
+  const hearts=friendHearts(F.type.id), size=54;
+  for(let i=0;i<5;i++){
+    const pos=heartMeterPos(i), filled=i<hearts;
+    let sizeMul=1;
+    if(friendHeartFlash>0 && i===friendHeartNewIdx){
+      const p=1-friendHeartFlash;                                    // 0..1 as the flash decays
+      sizeMul=Math.max(0.02,easeOutBack(Math.min(1,p/0.7)));          // bursts in 0 -> ~1.3 -> settles to 1
+    } else if(friendHeartFlash>0 && filled){
+      sizeMul=1+0.10*friendHeartFlash*Math.max(0,Math.sin(Math.PI*((1-friendHeartFlash)*3-i*0.5)));  // gentle sympathy wave
+    }
+    drawIcon('heart',pos.x,pos.y,filled?size*sizeMul:size*0.82,filled?'#FF9DB6':'#fffdf6',filled?'#F06A8E':'#e3d3b4');
+    if(friendHeartFlash>0 && i===friendHeartNewIdx){
+      const p=1-friendHeartFlash, ringP=Math.min(1,p/0.6);
+      ctx.save(); ctx.globalAlpha=(1-ringP)*0.7; ctx.strokeStyle='#FF9DB6'; ctx.lineWidth=4;
+      ctx.beginPath(); ctx.arc(pos.x,pos.y,size*0.5+ringP*30,0,7); ctx.stroke(); ctx.restore();
+    }
+  }
+}
+function drawFriendWantBubble(){
+  const F=friendScene; if(!F) return;
+  const wantType=FRIEND_WANT_TYPES[Math.floor(time/6)%FRIEND_WANT_TYPES.length];
+  const bx=FRIEND_POS.x+150, by=FRIEND_POS.y-260;
+  ctx.save(); shadow(12,'rgba(0,0,0,0.14)',0,5); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(bx,by,64,0,7); ctx.fill(); noShadow();
+  ctx.lineWidth=5; ctx.strokeStyle='#e3d3b4'; ctx.beginPath(); ctx.arc(bx,by,64,0,7); ctx.stroke();
+  ctx.beginPath(); ctx.arc(bx-46,by+58,14,0,7); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(bx-24,by+34,8,0,7); ctx.fill(); ctx.stroke();
+  drawIcon(wantType.icon,bx,by,60,wantType.mid,wantType.deep);
+  ctx.restore();
+}
+/* per-friend post-chomp reaction — extra idle-bob offset + a body squishY multiplier, layered on top of
+   the shared pet-squish/breathing so Peeky/Orby/Wavey/Puffy each move distinctly once they've eaten.
+   Zaza's reaction is carried entirely by the overlay heart-puffs + blush (drawFriendFeedAnim/drawFriendBody
+   below) so her body stays soft/still — a deliberate contrast, not a missing case. */
+function friendFeedReaction(id,rt){
+  if(id==='gear'){ const cyc=rt%0.42, hop=rt<0.86?Math.sin(Math.min(1,cyc/0.42)*Math.PI):0; return { by:-hop*24, sy:1 }; }         // double-hop
+  if(id==='moon'){ const p=Math.min(1,rt/1.0); return { by:-p*20, sy:1+Math.sin(p*Math.PI*2)*0.03*(1-p) }; }                        // slow rise+rock
+  if(id==='drop'){ const p=Math.min(1,rt/0.5), hop=Math.sin(p*Math.PI); return { by:-hop*36, sy:1+0.08*hop }; }                     // big bounce
+  if(id==='cloud'){ const p=Math.min(1,rt/0.9); return { by:0, sy:1-0.22*Math.sin(p*Math.PI) }; }                                   // deep slow squash to ~0.78
+  return { by:0, sy:1 };
+}
+function drawFriendBody(){
+  const F=friendScene, t=F.type, flair=FRIEND_FLAIR[t.id];
+  const pt=F.petT>0?Math.min(1,F.petT/flair.petDur):0;
+  let squishY=F.petT>0 ? 1-flair.squish*Math.sin(pt*Math.PI) : 1;
+  const giggle=F.petT>0 ? Math.sin(F.petT*38)*0.04*(1-pt) : 0;
+  let extraBob=0;
+  if(F.feedAnim){
+    const ft=F.feedAnim.t;
+    if(ft>=0.32 && ft<0.58){ const eatP=(ft-0.32)/0.26; squishY*=1-0.14*Math.abs(Math.sin(eatP*2*Math.PI)); }        // chomp
+    else if(ft>=0.58){ const r=friendFeedReaction(t.id,ft-0.58); squishY*=r.sy; extraBob+=r.by; }
+  }
+  const squishX=squishY!==0?1/squishY:1;   // volume-preserving — never looks like it lost mass
+  const breathe=F.breathing?1.02+0.02*Math.sin(time*2*Math.PI/1.2):1;   // A8 entry breathing (cancels on first touch)
+  const bob=Math.sin(time*1.6*flair.speed)*10+extraBob, key=fullBodyKey(t);
+  ctx.save(); ctx.translate(FRIEND_POS.x,FRIEND_POS.y+bob);
+  ctx.rotate(giggle); ctx.scale(squishX*breathe,squishY*breathe);
+  if(has(key)){ const im=IMG[key].img, hgt=460, w=hgt*(im.naturalWidth/im.naturalHeight||0.8);
+    groundShadow(0,hgt*0.42,w*0.32,hgt*0.05,0.22,0.5);
+    ctx.drawImage(im,-w/2,-hgt/2,w,hgt);
+  } else { groundShadow(0,190,150,32,0.22,0.5); ph_face(t,0,0,220); }
+  // happy closed-eye face during the pet squash — universal, wordless "aww!" cue (no dedicated art rig)
+  if(F.petT>0){
+    ctx.save(); ctx.globalAlpha=Math.sin(pt*Math.PI);
+    ctx.strokeStyle='#5a3d24'; ctx.lineWidth=6; ctx.lineCap='round';
+    ctx.beginPath(); ctx.arc(-38,-10,20,0.15,Math.PI-0.15); ctx.stroke();
+    ctx.beginPath(); ctx.arc(38,-10,20,0.15,Math.PI-0.15); ctx.stroke();
+    ctx.fillStyle='#FF9DB6'; ctx.beginPath(); ctx.arc(-52,26,14,0,7); ctx.arc(52,26,14,0,7); ctx.fill();
+    ctx.restore();
+  }
+  // Zaza's feed blush — her feed "reaction" plays entirely as this + the drifting heart-puffs overlay
+  if(t.id==='heart' && F.feedAnim && F.feedAnim.t>=0.58){
+    const bp=Math.min(1,(F.feedAnim.t-0.58)/0.5);
+    ctx.save(); ctx.globalAlpha=Math.sin(bp*Math.PI)*0.8;
+    ctx.fillStyle='#FF6B9C'; ctx.beginPath(); ctx.arc(-52,26,15,0,7); ctx.arc(52,26,15,0,7); ctx.fill(); ctx.restore();
+  }
+  ctx.restore();
+  const hatId=SAVE.friendHats[F.id];
+  if(hatId){
+    const dp=F.hatDropT!=null?(1-F.hatDropT)/2.2:null;
+    const fall=dp!=null ? -120*(1-easeOutBack(Math.min(1,dp/0.66))) : 0;   // drops in from above, lands with overshoot
+    const landSquash=F.hatLandT!=null ? 1-0.12*F.hatLandT : 1;             // quick squash the instant it lands
+    const hy=FRIEND_POS.y+bob-HAT_Y[t.id]*squishY+fall;                    // *squishY so the hat rides the head down
+    ctx.save(); ctx.translate(FRIEND_POS.x,hy); ctx.scale(HAT_SCALE[t.id]||1,(HAT_SCALE[t.id]||1)*landSquash);
+    drawPoppuHat(0,0,170,hatId);
+    ctx.restore();
+  }
+}
+/* the fed item's own arc-flight into the friend's mouth (0-0.32s), then friend-specific overlay
+   flourishes during the reaction beat: Orby's staged twinkles, Zaza's drifting heart-puffs, Wavey's
+   ripple ring + splash, Puffy's soft drifting puffs. Peeky's spark is a one-shot burst (see update()). */
+function drawFriendFeedAnim(){
+  const F=friendScene; if(!F||!F.feedAnim) return;
+  const A=F.feedAnim, t=A.t, id=F.type.id, mouth={x:FRIEND_POS.x,y:FRIEND_POS.y-40};
+  if(t<0.32){
+    const p=t/0.32, e=p*p;   // easeIn
+    const x=A.from.x+(mouth.x-A.from.x)*e, y=A.from.y+(mouth.y-A.from.y)*e;
+    ctx.save(); ctx.translate(x,y); ctx.scale(1-0.3*e,1-0.3*e); drawIcon(A.icon,0,0,84,'#FFD15C','#E3A93E'); ctx.restore();
+  }
+  if(id==='drop' && t>=0.32 && t<0.90){
+    const rp=(t-0.32)/0.58, r=20+rp*140;
+    ctx.save(); ctx.globalAlpha=Math.max(0,1-rp); ctx.strokeStyle=FRIEND_FLAIR.drop.col; ctx.lineWidth=5;
+    ctx.beginPath(); ctx.ellipse(FRIEND_POS.x,FRIEND_POS.y+170,r,r*0.35,0,0,7); ctx.stroke(); ctx.restore();
+  } else if(id==='moon' && t>=0.72 && t<1.2){
+    for(let i=0;i<3;i++){ const ph=t-0.72-i*0.16; if(ph>0&&ph<0.5){ const e=easeOutBack(Math.min(1,ph/0.3)), fade=Math.max(0,1-ph/0.5);
+      ctx.save(); ctx.globalAlpha=fade; drawIcon('star',FRIEND_POS.x+(i-1)*70,FRIEND_POS.y-220-i*18,30*Math.max(0,e),'#FFF3C4','#E6DBFF'); ctx.restore(); } }
+  } else if(id==='heart' && t>=0.58 && t<1.3){
+    for(let i=0;i<3;i++){ const ph=t-0.58-i*0.22; if(ph>0&&ph<0.7){ const rise=ph/0.7;
+      ctx.save(); ctx.globalAlpha=Math.max(0,1-rise); drawIcon('heart',FRIEND_POS.x+(i-1)*36,FRIEND_POS.y-140-rise*90,26,FRIEND_FLAIR.heart.col,'#F06A8E'); ctx.restore(); } }
+  } else if(id==='cloud' && t>=0.58 && t<1.3){
+    const pp=t-0.58;
+    for(let i=0;i<2;i++){ const ph=pp-i*0.3; if(ph>0){ const fade=Math.max(0,1-ph*1.4);
+      ctx.save(); ctx.globalAlpha=fade*0.7; drawIcon('cloud',FRIEND_POS.x+(i?70:-70),FRIEND_POS.y-160-ph*60,40,'#fff',FRIEND_FLAIR.cloud.col); ctx.restore(); } }
+  }
+}
+function drawFriendItemTray(){
+  for(const it of friendItemTray()){
+    ctx.save(); shadow(14,'rgba(0,0,0,0.14)',0,6); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(it.x,it.y,it.r,0,7); ctx.fill(); noShadow();
+    ctx.lineWidth=6; ctx.strokeStyle='#e3d3b4'; ctx.stroke();
+    drawIcon(it.icon,it.x,it.y,it.r*1.1,'#FFD15C','#E3A93E'); ctx.restore();
+  }
+}
+function drawFriendHatTray(){
+  const F=friendScene; if(!F) return;
+  for(const h of friendHatTray()){
+    ctx.save(); shadow(12,'rgba(0,0,0,0.12)',0,5); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(h.x,h.y,h.r,0,7); ctx.fill(); noShadow();
+    ctx.lineWidth=5; ctx.strokeStyle=(SAVE.friendHats[F.id]===h.id)?'#B79BEA':'#e3d3b4'; ctx.stroke();
+    ctx.save(); ctx.beginPath(); ctx.arc(h.x,h.y,h.r,0,7); ctx.clip(); drawPoppuHat(h.x,h.y+18,110,h.id); ctx.restore();
+    ctx.restore();
+  }
+}
+function drawFriendDraggedItem(){
+  if(!friendDragItem) return; const d=friendDragItem;
+  ctx.save(); ctx.translate(d.x,d.y); ctx.scale(1.15,1.15);
+  if(d.kind==='item') drawIcon(d.icon,0,0,90,'#FFD15C','#E3A93E'); else drawPoppuHat(0,10,150,d.id);
+  ctx.restore();
+}
+function drawFriend(){
+  const F=friendScene; if(!F){ enterTown(); return; }
+  const t=F.type;
+  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,t.light); g.addColorStop(1,t.mid);
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  ctx.save(); ctx.globalAlpha=0.16; ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H); ctx.restore();
+  drawFriendHeartMeter(); drawFriendBody(); drawFriendFeedAnim(); drawFriendWantBubble();
+  drawFriendItemTray(); drawFriendHatTray(); drawFriendDraggedItem();
+  drawParticles(); drawFloatTexts();
+  backButton(); stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
 }
 
 /* ------------------------------------------------------------- INPUT */
@@ -671,8 +1838,27 @@ const START_BTNS=()=>{ const y=742,w=300,h=98,gap=34,total=3*w+2*gap,x0=W/2-tota
 const SCENE_BTNS=()=>{ const y=H-172,w=250,h=132,gap=28,total=3*w+2*gap,x0=W/2-total/2;
   return SCENES.map((S,i)=>({S,x:x0+i*(w+gap),y,w,h})); };
 const STAMP_CHIP={x:W-40,y:56};
-const HOMEBTN={x:90,y:90,r:56};
+const HOMEBTN={x:96,y:96,r:64};   // 128px — clears the 120px toddler-tap floor (A4)
 const BACKBTN={x:150,y:H-120,r:70};
+const VOLBTN={x:224,y:90,r:56};
+const PARENT_PANEL={x:W/2-470,y:150,w:940,h:790};
+const PARENT_CLOSE={x:W/2+470-64,y:150+64,r:42};
+const PARENT_VOL=()=>({x:W/2-260,y:PARENT_PANEL.y+PARENT_PANEL.h-210,w:520,h:96});
+
+function cycleVolume(){ SAVE.volume=(SAVE.volume+2)%3; Audio_.setVolume(SAVE.volume); persist(); Audio_.pop(); }
+function startLongPress(px,py){ cancelLongPress(); pressPx=px; pressPy=py;
+  longPressTimer=setTimeout(()=>{ longPressTimer=null; parentOpen=true; Audio_.pop(); }, 3000); }
+function cancelLongPress(){ if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer=null; } }
+function handleParentTap(px,py){
+  if(dist(px,py,PARENT_CLOSE.x,PARENT_CLOSE.y)<PARENT_CLOSE.r+8){ parentOpen=false; Audio_.pop(); return; }
+  if(inRect(px,py,PARENT_VOL())){ cycleVolume(); return; }
+  if(!inRect(px,py,PARENT_PANEL)){ parentOpen=false; Audio_.pop(); }
+}
+function favoriteChar(){
+  const cd=SAVE.charDeliveries||{}; let best=null, bestN=0;
+  for(const t of TYPES){ const n=cd[t.id]||0; if(n>bestN){ bestN=n; best=t; } }
+  return best;
+}
 
 function levelNodes(){
   const nodes=[]; const cols=5, cw=300, ch=300, gx=(W-cols*cw)/2+cw/2, gy=360;
@@ -698,19 +1884,21 @@ function stampTray(){ const y=602,r=86,gap=230, cx=STATION.x;
 function onDown(cx,cy){
   Audio_.resume();
   const p=toStage(cx,cy);
+  if(parentOpen){ handleParentTap(p.x,p.y); return; }
   if(state==='START'){
-    if(dist(p.x,p.y,PLAYBTN.x,PLAYBTN.y)<PLAYBTN.r){ startLevel(Math.min(SAVE.maxLevel,LEVELS.length)); return; }
+    if(poppuHit(p.x,p.y)) startLongPress(p.x,p.y);
+    if(dist(p.x,p.y,PLAYBTN.x,PLAYBTN.y)<PLAYBTN.r){ enterTown(); return; }
     for(const b of START_BTNS()) if(inRect(p.x,p.y,b)){
       if(b.id==='levels'){ state='LEVELMAP'; Audio_.pop(); }
       else if(b.id==='shop'){ state='SHOP'; shopTab='upgrade'; Audio_.pop(); }
       else if(b.id==='stickers'){ state='STICKER'; Audio_.pop(); } return; }
-    for(const r of SCENE_BTNS()) if(inRect(p.x,p.y,r)){ if(sceneUnlocked(r.S.id)){ setScene(r.S.id); Audio_.pop(); } else Audio_.boop(); return; }
+    for(const r of SCENE_BTNS()) if(inRect(p.x,p.y,r)){ if(sceneUnlocked(r.S.id)){ setScene(r.S.id); Audio_.pop(); } else Audio_.locked(); return; }
     return;
   }
   if(state==='LEVELMAP'){
     if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ state='START'; return; }
     for(const nd of levelNodes()) if(dist(p.x,p.y,nd.x,nd.y)<nd.rad){
-      if(levelUnlocked(nd.n)) startLevel(nd.n); else Audio_.boop(); return; }
+      if(levelUnlocked(nd.n)) startLevel(nd.n); else Audio_.locked(); return; }
     return;
   }
   if(state==='SHOP'){
@@ -724,13 +1912,43 @@ function onDown(cx,cy){
   if(state==='STICKER'){ if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r) state='START'; return; }
   if(state==='LEVELDONE'){
     for(const b of doneBtns()) if(inRect(p.x,p.y,b)){
+      if(b.id==='next' && currentLevel>=LEVELS.length){ state='START'; Audio_.pop(); return; }
       if(b.id==='replay') startLevel(currentLevel);
       else if(b.id==='next') startLevel(Math.min(LEVELS.length,currentLevel+1));
       else state='START'; return; }
     return;
   }
+  if(state==='TOWN'){
+    if(townTransition) return;   // brief, non-interruptible zoom-push already in flight
+    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ leaveTown(); return; }
+    for(const id in TOWN_BUILDINGS){ if(inRect(p.x,p.y,TOWN_BUILDINGS[id].hit)){ handleBuildingTap(id); return; } }
+    return;
+  }
+  if(state==='WRAP'){
+    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ leaveWrap(); return; }
+    if(wrapBox.acted && dist(p.x,p.y,WRAP_SHIP_BTN.x,WRAP_SHIP_BTN.y)<WRAP_SHIP_BTN.r){ shipWrapBox(); return; }
+    { const r=WRAP_RIBBON_STRIP;
+      if(Math.abs(p.x-r.x)<r.w/2 && Math.abs(p.y-r.y)<r.h/2){ wrapRibbonSwipe={x0:p.x,dx:0}; return; } }
+    for(const st of wrapStickerTray()){ if(dist(p.x,p.y,st.x,st.y)<st.r){ applyWrapSticker(st.icon); return; } }
+    if(dist(p.x,p.y,WRAP_BOX_POS.x,WRAP_BOX_POS.y)<170){ cycleWrapColor(); return; }
+    return;
+  }
+  if(state==='FRIEND'){
+    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ leaveFriend(); return; }
+    for(const it of friendItemTray()){ if(dist(p.x,p.y,it.x,it.y)<it.r){ friendDragItem={kind:'item',icon:it.icon,x:p.x,y:p.y}; return; } }
+    for(const h of friendHatTray()){ if(dist(p.x,p.y,h.x,h.y)<h.r){ friendDragItem={kind:'hat',id:h.id,x:p.x,y:p.y}; return; } }
+    if(dist(p.x,p.y,FRIEND_POS.x,FRIEND_POS.y)<230){ petFriend(); return; }
+    return;
+  }
+  if(state==='DRIVE'){
+    if(dist(p.x,p.y,HOMEBTN.x,HOMEBTN.y)<HOMEBTN.r){ Audio_.stopTruck(); Audio_.setMusicRoot(SCENES[currentScene].music.root); drive=null; state='START'; floatTexts=[]; popups=[]; return; }
+    if(drive && !drive.arriving) drive.dragActiveX=p.x;
+    return;
+  }
   if(state==='PLAYING'){
     if(dist(p.x,p.y,HOMEBTN.x,HOMEBTN.y)<HOMEBTN.r){ state='START'; Audio_.setHum(false); return; }
+    if(dist(p.x,p.y,VOLBTN.x,VOLBTN.y)<VOLBTN.r){ cycleVolume(); return; }
+    if(poppuHit(p.x,p.y)){ startLongPress(p.x,p.y); return; }
     if(activeTask){
       if(activeTask.kind==='seal' && !activeTask.done){
         if(Math.abs(p.x-STATION.x)<190 && Math.abs(p.y-STATION.y)<130){ sealSwipe={x0:p.x, dx:0}; return; }
@@ -738,7 +1956,7 @@ function onDown(cx,cy){
         const tray=stampTray();
         for(let i=0;i<3;i++){ if(dist(p.x,p.y,tray[i].x,tray[i].y)<tray[i].r){
           if(activeTask.opts[i]===activeTask.want) resolveStamp();
-          else { Audio_.boop(); activeTask.flash=0.4; } return; } }
+          else { Audio_.aww(); activeTask.flash=0.4; } return; } }   // no-penalty "aww, try again" — never a boop-fail
       } else if(activeTask.kind==='shake' && !activeTask.sorted){
         if(Math.abs(p.x-STATION.x)<230 && Math.abs(p.y-STATION.y)<170){
           activeTask.taps++; Audio_.rattle(); for(const it of activeTask.items){ it.ox+=(Math.random()-0.5)*30; it.oy+=(Math.random()-0.5)*20; }
@@ -746,11 +1964,21 @@ function onDown(cx,cy){
       }
     }
     const pk=pickPackage(p.x,p.y);
-    if(pk){ dragging=pk; pk.state='dragging'; dragDX=p.x-pk.x; dragDY=p.y-pk.y; pk.scale=1.14; Audio_.pop(); }
+    if(pk){ if(dragging && dragging!==pk){ dragging.state='returning'; dragging.scale=1; }
+      dragging=pk; pk.state='dragging'; dragDX=p.x-pk.x; dragDY=p.y-pk.y; pk.scale=1.14; Audio_.pop(); }
   }
 }
 function onMove(cx,cy){
   const p=toStage(cx,cy);
+  if(state==='DRIVE'){ if(drive && drive.dragActiveX!=null && !drive.arriving) drive.dragActiveX=p.x; return; }
+  if(state==='WRAP'){
+    if(wrapRibbonSwipe){ wrapRibbonSwipe.dx=p.x-wrapRibbonSwipe.x0;
+      wrapBox.ribbonProg=Math.max(0,Math.min(1,wrapRibbonSwipe.dx/220));
+      if(wrapRibbonSwipe.dx>200){ applyWrapRibbon(); wrapRibbonSwipe=null; } }
+    return;
+  }
+  if(state==='FRIEND'){ if(friendDragItem){ friendDragItem.x=p.x; friendDragItem.y=p.y; } return; }
+  if(longPressTimer && dist(p.x,p.y,pressPx,pressPy)>28) cancelLongPress();
   if(sealSwipe && activeTask && activeTask.kind==='seal' && !activeTask.done){
     sealSwipe.dx=p.x-sealSwipe.x0; activeTask.prog=Math.max(0,Math.min(1,sealSwipe.dx/220));
     if(sealSwipe.dx>200){ resolveSeal(); sealSwipe=null; }
@@ -762,6 +1990,19 @@ function onMove(cx,cy){
   if(id!==hoverType){ hoverType=id; if(b) Audio_.slide(); }
 }
 function onUp(cx,cy){
+  if(state==='DRIVE'){ if(drive) drive.dragActiveX=null; return; }
+  if(state==='WRAP'){ if(wrapRibbonSwipe){ wrapRibbonSwipe=null; if(wrapBox) wrapBox.ribbonProg=wrapBox.ribbon?1:0; } return; }
+  if(state==='FRIEND'){
+    if(friendDragItem){
+      const p=toStage(cx,cy);
+      if(dist(p.x,p.y,FRIEND_POS.x,FRIEND_POS.y)<260){
+        if(friendDragItem.kind==='item') feedFriend(friendDragItem.icon,{x:friendDragItem.x,y:friendDragItem.y}); else dressFriend(friendDragItem.id);
+      }
+      friendDragItem=null;
+    }
+    return;
+  }
+  cancelLongPress();
   if(sealSwipe){ sealSwipe=null; if(activeTask&&activeTask.kind==='seal') activeTask.prog=0; }
   if(!dragging) return;
   const b=boxAt(dragging.x,dragging.y);
@@ -789,7 +2030,9 @@ function buyOrEquip(c){
 canvas.addEventListener('pointerdown',e=>{ e.preventDefault(); try{canvas.setPointerCapture(e.pointerId);}catch(_){} onDown(e.clientX,e.clientY); },{passive:false});
 canvas.addEventListener('pointermove',e=>{ e.preventDefault(); onMove(e.clientX,e.clientY); },{passive:false});
 canvas.addEventListener('pointerup',e=>{ e.preventDefault(); onUp(e.clientX,e.clientY); },{passive:false});
-canvas.addEventListener('pointercancel',e=>{ if(dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } sealSwipe=null; });
+canvas.addEventListener('pointercancel',e=>{ if(dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } sealSwipe=null; wrapRibbonSwipe=null; friendDragItem=null; if(drive) drive.dragActiveX=null; cancelLongPress(); });
+window.addEventListener('blur',()=>{ if(dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } sealSwipe=null; wrapRibbonSwipe=null; friendDragItem=null; if(drive) drive.dragActiveX=null; cancelLongPress(); });
+document.addEventListener('visibilitychange',()=>{ if(document.hidden && dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } });
 window.addEventListener('touchmove',e=>{ e.preventDefault(); },{passive:false});
 let lastShake=0;
 window.addEventListener('devicemotion',e=>{
@@ -807,6 +2050,58 @@ function update(dt){
   if(poppuCelebrateT>0) poppuCelebrateT=Math.max(0,poppuCelebrateT-dt);
   for(let i=0;i<6;i++) if(boxBounce[i]>0) boxBounce[i]=Math.max(0,boxBounce[i]-dt*2.4);
   if(activeTask){ activeTask.t+=dt; if(activeTask.flash>0) activeTask.flash=Math.max(0,activeTask.flash-dt); }
+  if(tutorial && tutorial.fading){ tutorial.ft+=dt; if(tutorial.ft>0.6) tutorial=null; }
+  if(wrapQueueBounce>0) wrapQueueBounce=Math.max(0,wrapQueueBounce-dt*2.5);
+  if(wrapBoxPopT!=null){ wrapBoxPopT=Math.max(0,wrapBoxPopT-dt*3.3); if(wrapBoxPopT<=0) wrapBoxPopT=null; }
+  if(wrapCinchT!=null){ wrapCinchT=Math.max(0,wrapCinchT-dt*2.4); if(wrapCinchT<=0) wrapCinchT=null; }
+  if(wrapBowT!=null){ wrapBowT=Math.max(0,wrapBowT-dt*2.4); if(wrapBowT<=0) wrapBowT=null; }
+  if(wrapStampT!=null){ wrapStampT=Math.max(0,wrapStampT-dt*2.9); if(wrapStampT<=0) wrapStampT=null; }
+  if(wrapSpawnT!=null){ wrapSpawnT+=dt; if(wrapSpawnT>=0.30) wrapSpawnT=null; }
+  if(wrapShipBounceT!=null){ wrapShipBounceT+=dt; if(wrapShipBounceT>=0.3) wrapShipBounceT=null; }
+  if(wrapBox && !wrapBox.ribbon && !wrapRibbonSwipe && wrapBox.ribbonProg>0) wrapBox.ribbonProg=Math.max(0,wrapBox.ribbonProg-dt*4);   // A5 spring-back
+  if(wrapShipAnim){ wrapShipAnim.t+=dt; if(wrapShipAnim.t>=0.90 && !wrapShipAnim.landed){ finalizeWrapShip(); wrapShipAnim=null; } }
+
+  if(friendPetCooldown>0) friendPetCooldown=Math.max(0,friendPetCooldown-dt);
+  if(friendHeartFlash>0){ friendHeartFlash=Math.max(0,friendHeartFlash-dt*1.5); if(friendHeartFlash<=0) friendHeartNewIdx=null; }
+  if(friendScene){
+    const F=friendScene, flair=FRIEND_FLAIR[F.type.id];
+    if(F.petT>0){ F.petT+=dt; if(F.petT>flair.petDur) F.petT=0; }
+    if(F.feedAnim){
+      F.feedAnim.t+=dt;
+      if(!F.feedAnim.reacted && F.feedAnim.t>=0.58){
+        F.feedAnim.reacted=true;
+        if(F.type.id==='gear') burst(FRIEND_POS.x,FRIEND_POS.y-260,flair.col,10,5);        // Peeky's spark
+        else if(F.type.id==='drop') burst(FRIEND_POS.x,FRIEND_POS.y+130,flair.col,12,6);   // Wavey's splash
+      }
+      if(F.feedAnim.t>1.6) F.feedAnim=null;
+    }
+    if(F.hatDropT!=null){
+      F.hatDropT=Math.max(0,F.hatDropT-dt*2.2);
+      if(F.hatDropT<=0){
+        if(!F.hatLanded){ F.hatLanded=true; F.hatLandT=1;
+          burst(FRIEND_POS.x,FRIEND_POS.y-(HAT_Y[F.type.id]||200),'#fff3c4',10,4); }
+        F.hatDropT=null;
+      }
+    }
+    if(F.hatLandT!=null){ F.hatLandT=Math.max(0,F.hatLandT-dt*4.5); if(F.hatLandT<=0) F.hatLandT=null; }
+  }
+
+  if(state==='TOWN'){
+    if(buildingSqueeze){ buildingSqueeze.t+=dt; if(buildingSqueeze.t>0.26) buildingSqueeze=null; }
+    if(poppuPoint){ poppuPoint.t+=dt; if(poppuPoint.t>0.9) poppuPoint=null; }
+    if(lockedPulse){ lockedPulse.t+=dt; if(lockedPulse.t>0.9) lockedPulse=null; }
+    if(teasePulse){ teasePulse.t+=dt; if(teasePulse.t>0.7) teasePulse=null; }
+    for(const id in newBadgeAnimState){ newBadgeAnimState[id].t+=dt; if(newBadgeAnimState[id].t>0.5) delete newBadgeAnimState[id]; }
+    if(townTransition){
+      townTransition.t+=dt;
+      if(townTransition.t>=0.55 && !townTransition.fired){
+        townTransition.fired=true;
+        const tgt=townTransition.target; townTransition=null;
+        if(tgt==='post') startLevel(Math.min(SAVE.maxLevel,LEVELS.length));
+      }
+    }
+  }
+  if(state==='DRIVE') updateDrive(dt);
   for(const a of ambient){ a.x+=a.vx*dt; a.y+=a.vy*dt; a.ph+=dt;
     if(a.kind==='leaf'){ a.x+=Math.sin(a.ph*1.4)*18*dt; if(a.y>H+20){ a.y=-20; a.x=Math.random()*W; } }
     else { if(a.x<-20)a.x=W+20; if(a.x>W+20)a.x=-20; if(a.y<-20)a.y=H+20; if(a.y>H+20)a.y=-20; } }
@@ -825,6 +2120,8 @@ function update(dt){
       else if(p.state==='delivering'){ p.tState=(p.tState||0)+dt;
         p.x+=(p.dtx-p.x)*Math.min(1,dt*12); p.y+=(p.dty-24-p.y)*Math.min(1,dt*12); p.scale=Math.max(0,1-p.tState*2.2); }
     }
+    // safety: any package orphaned in 'dragging' (multi-touch / lost pointerup) returns to the belt — never deadlock
+    for(const p of packages){ if(p.state==='dragging' && p!==dragging){ p.state='returning'; p.scale=1; } }
     packages=packages.filter(p=>!(p.state==='sentoff'&&p.scale<=0.02));
     const beltCap=curLevel().mech.multi?3:2;
     const beltActive=packages.filter(p=>p.state==='belt'||p.state==='returning'||p.state==='dragging').length;
@@ -872,7 +2169,8 @@ function drawParticles(){
 function drawFloatTexts(){
   for(const ft of floatTexts){ const a=ft.t<1?1:Math.max(0,(1.4-ft.t)/0.4);
     ctx.save(); ctx.globalAlpha=a; ctx.translate(ft.x,ft.y-ft.t*50);
-    drawText(ft.text,0,0,ft.big?64:44,ft.color||'#E3A93E','#fff','center','800',8); ctx.restore(); }
+    const size=ft.big?64:(ft.small?26:44);
+    drawText(ft.text,0,0,size,ft.color||'#E3A93E','#fff','center','800',ft.small?5:8); ctx.restore(); }
 }
 function stampChip(x,y,align){
   const txt=(SAVE.stamps||0)+''; ctx.save();
@@ -902,6 +2200,90 @@ function pill(r,fill,strokeCol,strokeW,label,labelCol,sub){
   if(strokeW){ ctx.lineWidth=strokeW; ctx.strokeStyle=strokeCol; rr(r.x,r.y,r.w,r.h,r.h/2); ctx.stroke(); }
   drawText(label,r.x+r.w/2,r.y+r.h/2+(sub?-10:0),40,labelCol,null);
   if(sub) drawText(sub,r.x+r.w/2,r.y+r.h/2+24,24,labelCol,null,'center','700');
+  ctx.restore();
+}
+
+function drawVolumeButton(){
+  const b=VOLBTN, lvl=SAVE.volume, col='#4FA9D6';
+  ctx.save(); shadow(12,'rgba(0,0,0,0.14)',0,5); ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); noShadow();
+  ctx.strokeStyle='#8ECFEC'; ctx.lineWidth=5; ctx.stroke();
+  ctx.translate(b.x,b.y); ctx.lineJoin='round';
+  ctx.fillStyle=col; ctx.beginPath();
+  ctx.moveTo(-24,-10); ctx.lineTo(-10,-10); ctx.lineTo(4,-22); ctx.lineTo(4,22); ctx.lineTo(-10,10); ctx.lineTo(-24,10); ctx.closePath(); ctx.fill();
+  if(lvl===0){ ctx.strokeStyle='#E06A6A'; ctx.lineWidth=6; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(16,-14); ctx.lineTo(34,14); ctx.moveTo(34,-14); ctx.lineTo(16,14); ctx.stroke(); }
+  else { ctx.strokeStyle=col; ctx.lineWidth=5; ctx.lineCap='round';
+    ctx.beginPath(); ctx.arc(8,0,14,-0.7,0.7); ctx.stroke();
+    if(lvl>=2){ ctx.beginPath(); ctx.arc(8,0,26,-0.7,0.7); ctx.stroke(); } }
+  ctx.restore();
+}
+function drawHand(x,y){
+  ctx.save(); ctx.translate(x,y);
+  shadow(10,'rgba(0,0,0,0.25)',0,6);
+  ctx.strokeStyle='#C98A5A'; ctx.lineWidth=4; ctx.lineJoin='round';
+  ctx.fillStyle='#FFE0B8'; rr(-26,38,52,52,20); ctx.fill(); ctx.stroke(); noShadow();   // fist
+  ctx.fillStyle='#FFE0B8'; rr(-34,50,18,28,9); ctx.fill(); ctx.stroke();                // thumb
+  ctx.fillStyle='#FFEBD2'; rr(-12,-2,24,56,12); ctx.fill(); ctx.stroke();               // index finger (tip at ~0,-2)
+  ctx.restore();
+}
+function drawTutorial(){
+  if(!tutorial) return;
+  const a=tutorial.fading?Math.max(0,1-tutorial.ft/0.6):1;
+  ctx.save(); ctx.globalAlpha=a*0.5; ctx.fillStyle='#2a1c10'; ctx.fillRect(0,0,W,H); ctx.restore();
+  const _boxes=activeBoxes();
+  const _front=packages.filter(p=>p.state!=='delivering'&&p.state!=='sentoff').sort((a,b)=>b.x-a.x)[0];
+  let box=_front?_boxes.find(b=>b.type.id===_front.type.id):null; if(!box) box=_boxes[0]||{x:1600,y:262,w:290};
+  const A=_front?{x:_front.x,y:_front.y}:{x:905,y:600}, B={x:box.x,y:box.y};
+  ctx.save(); ctx.globalAlpha=a;
+  ctx.strokeStyle='#FFE79A'; ctx.lineWidth=8; ctx.setLineDash([18,14]); ctx.lineDashOffset=-time*40;
+  ctx.beginPath(); ctx.arc(B.x,B.y,box.w*0.6,0,7); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=6; ctx.setLineDash([3,20]); ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.stroke(); ctx.setLineDash([]);
+  const tt=(time*0.7)%1.6, t=Math.min(1,tt/1.1), e=t*t*(3-2*t);
+  const hx=A.x+(B.x-A.x)*e, hy=A.y+(B.y-A.y)*e;
+  if(tt>1.1){ const rp=(tt-1.1)/0.5; ctx.save(); ctx.globalAlpha=a*(1-rp);
+    ctx.strokeStyle='#FFE79A'; ctx.lineWidth=6; ctx.beginPath(); ctx.arc(B.x,B.y,20+rp*46,0,7); ctx.stroke(); ctx.restore(); }
+  drawHand(hx,hy);
+  // WORDLESS pictograph (no English caption — zero reading dependency): [package icon] -> [arrow] -> [box icon]
+  const cy=170, cw=560, ch=124, cx=W/2, gap=150;
+  shadow(20,'rgba(0,0,0,0.3)',0,8); ctx.fillStyle='#fffdf6'; rr(cx-cw/2,cy-ch/2,cw,ch,ch/2); ctx.fill(); noShadow();
+  const pkgType=(_front?_front.type:box.type);
+  drawIcon(pkgType.icon, cx-gap, cy, 56, pkgType.mid, pkgType.deep);
+  ctx.save(); ctx.globalAlpha=0.6+0.4*Math.sin(time*4); drawIcon('arrow', cx, cy, 50, '#F4A93E','#E3A93E'); ctx.restore();
+  drawIcon(box.type.icon, cx+gap, cy, 56, box.type.mid, box.type.deep);
+  ctx.restore();
+}
+function drawParentDashboard(){
+  ctx.save(); ctx.fillStyle='rgba(30,20,12,0.6)'; ctx.fillRect(0,0,W,H);
+  const P=PARENT_PANEL;
+  shadow(30,'rgba(0,0,0,0.35)',0,14); ctx.fillStyle='#fffdf6'; rr(P.x,P.y,P.w,P.h,44); ctx.fill(); noShadow();
+  ctx.lineWidth=8; ctx.strokeStyle='#B79BEA'; rr(P.x,P.y,P.w,P.h,44); ctx.stroke();
+  drawText('For Parents',W/2,P.y+66,58,'#7a5a34',null,'center','800');
+  drawText('Long-press Poppu any time to reach this page',W/2,P.y+120,26,'#a88a5c',null,'center','700');
+  const fav=favoriteChar();
+  const rows=[
+    ['Play sessions', (SAVE.sessions||0)+''],
+    ['Packages delivered', (SAVE.totalDelivered||0)+''],
+    ['Star Stamps earned', (SAVE.stamps||0)+''],
+    ['Current level', 'Level '+(SAVE.maxLevel||1)],
+    ['Day streak', (SAVE.streak||0)+' day'+((SAVE.streak||0)===1?'':'s')],
+    ['Favorite friend', fav?fav.name:'—'],
+  ];
+  const rx=P.x+70, rw=P.w-140, rh=60, gap=12; let ry=P.y+180;
+  for(const row of rows){
+    ctx.save(); ctx.fillStyle='#F7F1E4'; rr(rx,ry,rw,rh,18); ctx.fill(); ctx.restore();
+    drawText(row[0],rx+30,ry+rh/2,32,'#6a4a2a',null,'left','700');
+    drawText(row[1],rx+rw-30,ry+rh/2,34,'#8E6FD6',null,'right','800');
+    ry+=rh+gap;
+  }
+  const v=PARENT_VOL(), vlabel=['Sound: Off','Sound: Quiet','Sound: Normal'][SAVE.volume]||'Sound';
+  ctx.save(); ctx.fillStyle='#EDE2FF'; rr(v.x,v.y,v.w,v.h,v.h/2); ctx.fill(); ctx.lineWidth=4; ctx.strokeStyle='#B79BEA'; rr(v.x,v.y,v.w,v.h,v.h/2); ctx.stroke(); ctx.restore();
+  drawText(vlabel+'   (tap to change)',v.x+v.w/2,v.y+v.h/2,32,'#6a4a2a',null,'center','800');
+  drawText('All data stays on this device. No information is collected or shared.',W/2,P.y+P.h-56,26,'#8a7a5a',null,'center','700');
+  const c=PARENT_CLOSE;
+  ctx.save(); shadow(10,'rgba(0,0,0,0.2)',0,4); ctx.fillStyle='#FF9DB6'; ctx.beginPath(); ctx.arc(c.x,c.y,c.r,0,7); ctx.fill(); noShadow();
+  ctx.strokeStyle='#fff'; ctx.lineWidth=8; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(c.x-15,c.y-15); ctx.lineTo(c.x+15,c.y+15); ctx.moveTo(c.x+15,c.y-15); ctx.lineTo(c.x-15,c.y+15); ctx.stroke(); ctx.restore();
   ctx.restore();
 }
 
@@ -955,14 +2337,39 @@ function drawConveyorScroll(){
   for(let x=x0-70;x<x1+70;x+=70){ ctx.beginPath(); ctx.moveTo(x+off,yTop); ctx.lineTo(x+off-18,yBot); ctx.stroke(); }
   ctx.restore();
 }
+function fullBodyKey(type){ return type.id==='star' ? 'poppu_celebrate' : 'full_'+type.id; }
+function drawSpeech(x,y,txt,col){
+  ctx.save(); ctx.font='800 38px "Baloo 2",system-ui,sans-serif';
+  const w=ctx.measureText(txt).width+60, h=72, bx=x-w/2, by=y-h;
+  shadow(14,'rgba(0,0,0,0.16)',0,6); ctx.fillStyle='#fffdf6'; rr(bx,by,w,h,h/2); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x-16,by+h-6); ctx.lineTo(x-2,by+h+20); ctx.lineTo(x+18,by+h-6); ctx.closePath(); ctx.fill(); noShadow();
+  ctx.lineWidth=5; ctx.strokeStyle=col; rr(bx,by,w,h,h/2); ctx.stroke(); ctx.restore();
+  drawText(txt,x,by+h/2,36,col,null);
+}
 function drawPopups(){
-  for(const pu of popups){ const inT=Math.min(1,pu.t*4), e=easeOutBack(inT);
-    const rise=100*Math.min(1,pu.t*2.5), exit=pu.t>1.3?Math.min(1,(pu.t-1.3)/0.4):0;
-    const yy=pu.boxTop-rise+exit*rise*0.9, s=112*e*(1-exit*0.2), alpha=1-exit;
-    ctx.save(); ctx.globalAlpha=alpha; ctx.translate(pu.x,yy);
-    ctx.save(); shadow(18,'rgba(0,0,0,0.16)',0,6); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,s*1.02,0,7); ctx.fill(); noShadow();
-    ctx.lineWidth=s*0.12; ctx.strokeStyle=pu.type.deep; ctx.beginPath(); ctx.arc(0,0,s*1.02,0,7); ctx.stroke(); ctx.restore();
-    drawFaceCircle(pu.type,0,0,s*0.96); ctx.restore(); }
+  for(const pu of popups){
+    const key=fullBodyKey(pu.type);
+    const inT=Math.min(1,pu.t/0.35), bounce=inT<1?easeOutBack(inT):1;   // 0→~1.1→1.0
+    const exit=pu.t>1.3?Math.min(1,(pu.t-1.3)/0.4):0, alpha=1-exit;
+    if(has(key)){
+      const H_G=340, im=IMG[key].img, w=H_G*(im.naturalWidth/im.naturalHeight||0.75);
+      let feetY=pu.boxCy-pu.boxH*0.1;
+      if(feetY-H_G<28) feetY=28+H_G;               // keep head on-screen for top-row boxes
+      feetY+=exit*(pu.boxH*1.3);                    // slide back down on exit
+      ctx.save(); ctx.globalAlpha=alpha; ctx.translate(pu.x,feetY); ctx.scale(bounce,bounce);
+      ctx.save(); ctx.globalAlpha=alpha*0.16; ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(0,0,w*0.3,H_G*0.04,0,0,7); ctx.fill(); ctx.restore();
+      ctx.drawImage(im,-w/2,-H_G,w,H_G); ctx.restore();
+      if(pu.t>0.15 && pu.t<1.45){ const sa=pu.t<0.35?(pu.t-0.15)/0.2:alpha;
+        ctx.save(); ctx.globalAlpha=Math.max(0,Math.min(1,sa));
+        drawSpeech(pu.x, Math.max(feetY-H_G-6,96), 'Thank you!', pu.type.deep); ctx.restore(); }
+    } else {
+      const s=112*bounce*(1-exit*0.2), yy=pu.boxCy-pu.boxH*0.55-100*Math.min(1,pu.t*2.5)+exit*pu.boxH*0.9;
+      ctx.save(); ctx.globalAlpha=alpha; ctx.translate(pu.x,yy);
+      ctx.save(); shadow(18,'rgba(0,0,0,0.16)',0,6); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,s*1.02,0,7); ctx.fill(); noShadow();
+      ctx.lineWidth=s*0.12; ctx.strokeStyle=pu.type.deep; ctx.beginPath(); ctx.arc(0,0,s*1.02,0,7); ctx.stroke(); ctx.restore();
+      drawFaceCircle(pu.type,0,0,s*0.96); ctx.restore();
+    }
+  }
 }
 function drawStationTask(){
   if(!activeTask) return;
@@ -991,9 +2398,12 @@ function drawStationTask(){
     drawText('Which stamp?',sx,sy-148,40,'#7a5a34','#fff');
     const tray=stampTray();
     for(let i=0;i<3;i++){ const tb=tray[i], glyph=activeTask.opts[i], want=(glyph===activeTask.want);
-      ctx.save(); shadow(14,'rgba(0,0,0,0.16)',0,6);
+      ctx.save();
+      // visible PRE-TAP CUE: the matching stamp gets a gentle pulsing golden glow so a toddler can
+      // find it by matching the package's own icon, not by luck (fix C4)
+      if(want) shadow(16+Math.sin(time*5)*7,'rgba(255,213,84,0.6)'); else shadow(14,'rgba(0,0,0,0.16)',0,6);
       ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(tb.x,tb.y,tb.r,0,7); ctx.fill(); noShadow();
-      ctx.lineWidth=8; ctx.strokeStyle=(activeTask.flash>0&&want)?'#5FB985':'#e3d3b4'; ctx.stroke();
+      ctx.lineWidth=8; ctx.strokeStyle=(activeTask.flash>0&&want)?'#5FB985':(want?'#FFD54A':'#e3d3b4'); ctx.stroke();
       drawIcon(glyph,tb.x,tb.y,tb.r*1.2,['#FFD15C','#FF9DB6','#B79BEA'][i],'#5a3d24');
       ctx.restore(); }
   }
@@ -1012,11 +2422,23 @@ function drawPlayHUD(){
   ctx.fillStyle='#ece0c8'; rr(px,gy+18,pw,gh-36,14); ctx.fill();
   const g=ctx.createLinearGradient(px,0,px+pw,0); g.addColorStop(0,'#98D7B4'); g.addColorStop(1,'#5FB985');
   ctx.fillStyle=g; rr(px,gy+18,Math.max(14,pw*prog),gh-36,14); ctx.fill();
-  drawText('Lv '+L.n,gx+64,gy+gh/2,34,'#6a4a2a',null);
+  // WORDLESS level indicator (no "Lv N" text/numerals): a radial ring (fill = progress through all
+  // 10 levels) wrapped around an icon representing this level's current match hint (color/shape/friend)
+  const li_cx=gx+64, li_cy=gy+gh/2, li_r=26, li_prog=Math.min(1,L.n/LEVELS.length), repType=levelTypes()[0]||TYPES[0];
+  ctx.save();
+  ctx.lineWidth=6; ctx.strokeStyle='#ece0c8'; ctx.beginPath(); ctx.arc(li_cx,li_cy,li_r,0,7); ctx.stroke();
+  ctx.strokeStyle='#F4A93E'; ctx.beginPath(); ctx.arc(li_cx,li_cy,li_r,-Math.PI/2,-Math.PI/2+li_prog*2*Math.PI); ctx.stroke();
+  if(L.hint==='color'){ const cg=ctx.createLinearGradient(li_cx,li_cy-li_r*0.6,li_cx,li_cy+li_r*0.6);
+    cg.addColorStop(0,repType.light); cg.addColorStop(1,repType.deep); ctx.fillStyle=cg;
+    ctx.beginPath(); ctx.arc(li_cx,li_cy,li_r*0.62,0,7); ctx.fill(); }
+  else if(L.hint==='shape'){ drawIcon(repType.icon,li_cx,li_cy,li_r*1.1,repType.mid,repType.deep); }
+  else { drawFaceCircle(repType,li_cx,li_cy,li_r*0.72); }
+  ctx.restore();
   drawText(deliveredThisLevel+' / '+L.pkgs,gx+gw-70,gy+gh/2,32,'#6a4a2a',null);
   ctx.restore();
   stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
   homeButton();
+  drawVolumeButton();
 }
 function drawPlaying(){
   drawBackground(); drawAmbient();
@@ -1030,7 +2452,7 @@ function drawPlaying(){
   const poppuKey=poppuCelebrateT>0?'poppu_celebrate':'poppu_postal';
   const pj=poppuCelebrateT>0?-Math.abs(Math.sin(time*12))*18:0;
   const ppx=250, ppy=812+pj;
-  if(has(poppuKey)) sprite(poppuKey,ppx,ppy,380,380); else ph_poppu(poppuCelebrateT>0?'celebrate':'wave',ppx,ppy-10,250);
+  if(!drawPoppuSprite(poppuKey,ppx,ppy,380,poppuCelebrateT<=0)) ph_poppu(poppuCelebrateT>0?'celebrate':'wave',ppx,ppy-10,250);
   drawPoppuHat(ppx,ppy-150,150,equipped('hat'));
   packages.filter(p=>p.state!=='dragging'&&p.state!=='delivering').forEach(drawPackage);
   packages.filter(p=>p.state==='delivering').forEach(drawPackage);
@@ -1038,6 +2460,7 @@ function drawPlaying(){
   drawStationTask();
   drawParticles(); drawPopups();
   drawPlayHUD(); drawFloatTexts();
+  drawTutorial();
 }
 
 /* ------------------------------------------------------------- RENDER: START */
@@ -1046,7 +2469,7 @@ function drawStart(){
   ctx.save(); ctx.globalAlpha=0.22; ctx.fillStyle='#fff5e0'; ctx.fillRect(0,0,W,H); ctx.restore();
   drawAmbient(); drawDecor(equipped('decor'));
   const ppx=300, ppy=760;
-  if(has('poppu_wave')) sprite('poppu_wave',ppx,ppy,500,500); else ph_poppu('wave',ppx,ppy-40,300);
+  if(!drawPoppuSprite('poppu_wave',ppx,ppy,500,true)) ph_poppu('wave',ppx,ppy-40,300);
   drawPoppuHat(ppx,ppy-200,200,equipped('hat'));
   const tx=W/2, ty=170;
   const g=ctx.createLinearGradient(0,ty-64,0,ty+64); g.addColorStop(0,'#FFE79A'); g.addColorStop(1,'#F4A93E');
@@ -1067,6 +2490,20 @@ function drawStart(){
   drawText('Pick a place',W/2,H-208,30,'#7a5a34',null);
   for(const r of SCENE_BTNS()) drawSceneBtn(r);
   stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
+  drawDailyBar();
+}
+function drawDailyBar(){
+  const N=dailyGoal(), got=Math.min(SAVE.deliveredToday||0,N), done=SAVE.dailyGoalDone;
+  const x=40,y=40,w=440,h=64;
+  ctx.save(); shadow(12,'rgba(0,0,0,0.12)',0,4); ctx.fillStyle='rgba(255,252,244,0.95)'; rr(x,y,w,h,h/2); ctx.fill(); noShadow();
+  drawIcon('heart',x+40,y+h/2,44,'#FF9DB6','#F06A8E');
+  const px=x+72,pw=w-210; ctx.fillStyle='#ece0c8'; rr(px,y+22,pw,h-44,10); ctx.fill();
+  const g=ctx.createLinearGradient(px,0,px+pw,0); g.addColorStop(0,'#98D7B4'); g.addColorStop(1,'#5FB985');
+  ctx.fillStyle=g; rr(px,y+22,Math.max(12,pw*(got/N)),h-44,10); ctx.fill();
+  drawText(done?'Done!':got+' / '+N,px+pw/2,y+h/2,26,'#6a4a2a',null,'center','800');
+  drawText("Today's Mailbag",px+pw+58,y+h/2-10,20,'#a88a5c',null,'center','700');
+  if((SAVE.streak||0)>0) drawText('Streak '+SAVE.streak,px+pw+58,y+h/2+13,22,'#E3A93E',null,'center','800');
+  ctx.restore();
 }
 function drawSceneBtn(r){
   const S=r.S, on=currentScene===S.id, unlocked=sceneUnlocked(S.id);
@@ -1095,8 +2532,7 @@ function drawLevelMap(){
     ctx.save(); shadow(16,'rgba(0,0,0,0.16)',0,8);
     ctx.fillStyle=unlocked?'#fffdf6':'#e6ddca'; ctx.beginPath(); ctx.arc(nd.x,nd.y,nd.rad,0,7); ctx.fill(); noShadow();
     ctx.lineWidth=8; ctx.strokeStyle=unlocked?(nd.n===Math.min(SAVE.maxLevel,LEVELS.length)?'#F4A93E':'#8ECFEC'):'#c9bda2'; ctx.stroke();
-    if(unlocked){ drawText(nd.n+'',nd.x,nd.y-6,64,'#6a4a2a',null);
-      drawText(L.tag,nd.x,nd.y+40,22,'#a88a5c',null,'center','700');
+    if(unlocked){ drawIcon(levelIcon(L),nd.x,nd.y+10,68,'#F4CE7A','#E3A93E');
       for(let s=0;s<3;s++) drawIcon('star',nd.x-40+s*40,nd.y-64,34,s<stars?'#FFD15C':'#e3d3b4',s<stars?'#E3A93E':'#cbbd9c');
     } else { ctx.fillStyle='#9a8a6a'; rr(nd.x-26,nd.y-8,52,46,10); ctx.fill(); ctx.lineWidth=9; ctx.strokeStyle='#9a8a6a';
       ctx.beginPath(); ctx.arc(nd.x,nd.y-8,20,Math.PI,0); ctx.stroke(); }
@@ -1139,11 +2575,17 @@ function drawCosmeticCard(c){
   ctx.save(); shadow(16,'rgba(0,0,0,0.14)',0,8); ctx.fillStyle=on?'#EDE2FF':(owned?'#EAF7EE':'#fffdf6'); rr(c.x,c.y,c.w,c.h,28); ctx.fill(); noShadow();
   ctx.lineWidth=6; ctx.strokeStyle=on?'#B79BEA':(owned?'#5FB985':'#e3d3b4'); rr(c.x,c.y,c.w,c.h,28); ctx.stroke();
   const cx=c.x+c.w/2, py=c.y+96;
+  const spriteKey='cos-'+it.id.replace(/_/g,'-');
   ctx.save(); ctx.beginPath(); ctx.arc(cx,py,66,0,7); ctx.fillStyle='#F7F1E4'; ctx.fill(); ctx.clip();
-  if(it.cat==='hat') drawPoppuHat(cx,py+10,140,it.id);
+  if(has(spriteKey)){
+    // real IN-CONTEXT preview art has landed (a small composed scene: hat ON a mini Poppu, skin ON a
+    // mini mailbox/conveyor, decor in a room corner) — just draw it, no procedural fallback needed.
+    sprite(spriteKey,cx,py,150,150);
+  } else if(it.cat==='hat'){ drawMiniPoppuHead(cx,py+16,110); drawPoppuHat(cx,py-4,120,it.id); }
   else if(it.cat==='mailbox'){ const fake={x:cx,y:py,w:120,type:TYPES[3]}; mailboxSkinRing(fake,it.id); ph_mailbox(TYPES[3],cx,py,90,0); }
   else if(it.cat==='conveyor'){ ph_conveyor(cx,py,150,40); conveyorSkinOverlay(cx,py,150,40,it.id); }
-  else { if(it.id==='dec_plant') drawIcon('cloud',cx,py,90,'#5FB985','#3a6a4a');
+  else { drawRoomCorner(cx,py);
+    if(it.id==='dec_plant') drawIcon('cloud',cx,py,90,'#5FB985','#3a6a4a');
     else if(it.id==='dec_poster'){ ctx.fillStyle='#fffdf6'; rr(cx-30,py-42,60,84,8); ctx.fill(); drawIcon('heart',cx,py,50,'#FF9DB6','#F06A8E'); }
     else { ctx.fillStyle='#E39B6E'; ctx.beginPath(); ctx.ellipse(cx,py,60,26,0,0,7); ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=6; ctx.stroke(); } }
   ctx.restore();
@@ -1172,7 +2614,10 @@ function drawLevelDone(){
   for(let s=0;s<3;s++){ const filled=s<ds.stars, bob=filled?Math.sin(time*3+s)*10:0;
     ctx.save(); ctx.translate(W/2-180+s*180, 400+bob); const sc=filled?1.1:0.8; ctx.scale(sc,sc);
     drawIcon('star',0,0,150,filled?'#FFD15C':'#e3d3b4',filled?'#E3A93E':'#cbbd9c'); ctx.restore(); }
-  if(has('poppu_celebrate')) sprite('poppu_celebrate',W/2,700,300,300); else ph_poppu('celebrate',W/2,640,180);
+  // ---- LEVEL-DONE POLISH: Poppu shrunk + raised (was 300px @ y700, spilling down onto the "Next"
+  // button at y760); stamps pill kept where it was and now drawn AFTER Poppu so it still reads as a
+  // badge on her chest, but the two never overlap the button row (y760..870) ----
+  if(has('poppu_celebrate')) sprite('poppu_celebrate',W/2,560,220,220); else ph_poppu('celebrate',W/2,510,130);
   ctx.save(); shadow(14,'rgba(0,0,0,0.14)',0,6); ctx.fillStyle='#fffdf6'; rr(W/2-170,520,340,80,40); ctx.fill(); noShadow();
   drawIcon('star',W/2-110,560,54,'#FFD15C','#E3A93E'); drawText('+'+ds.stamps+' Stamps',W/2+30,560,40,'#6a4a2a',null); ctx.restore();
   for(const b of doneBtns()){
@@ -1188,7 +2633,7 @@ function drawLevelDone(){
 function drawSticker(){
   drawBackground(); ctx.save(); ctx.fillStyle='rgba(255,248,235,0.95)'; ctx.fillRect(0,0,W,H); ctx.restore();
   drawText('My Sticker Book',W/2,110,80,'#7a5a34','#fff','center','800',12);
-  drawText(SAVE.stickers.length+' stickers · '+SAVE.totalDelivered+' delivered',W/2,190,36,'#a88a5c',null,'center','700');
+  drawText(plural(SAVE.stickers.length,'sticker')+' · '+plural(SAVE.totalDelivered,'package')+' delivered',W/2,190,36,'#a88a5c',null,'center','700');
   const cols=8, rows=4, total=cols*rows, cw=180, ch=180, gx=(W-cols*cw)/2, gy=260;
   for(let i=0;i<total;i++){ const cx=gx+(i%cols)*cw+cw/2, cy=gy+Math.floor(i/cols)*ch+ch/2, earned=i<SAVE.stickers.length;
     ctx.save();
@@ -1201,15 +2646,596 @@ function drawSticker(){
   backButton();
 }
 function drawLoading(){
-  ph_background(); ctx.fillStyle='rgba(255,248,235,0.7)'; ctx.fillRect(0,0,W,H);
-  ph_poppu('wave',W/2,H/2-40,200);
-  drawText('Loading...',W/2,H/2+220,48,'#7a5a34',null,'center','700');
+  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#F6EAD6'); g.addColorStop(1,'#E7C79B');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // Poppu (real art if ready, else placeholder), gently breathing
+  if(!drawPoppuSprite('poppu_wave',W/2,H/2-70,320,true)) ph_poppu('wave',W/2,H/2-110,190);
+  drawText('Poppu is sorting the mail…',W/2,H/2+170,52,'#7a5a34','#fff','center','800',10);
+  const shown=Math.min(loadedCount,totalToLoad), frac=Math.min(1,shown/totalToLoad);
+  // track
+  const bw=760, bh=42, bx=W/2-bw/2, by=H/2+240;
+  ctx.save(); shadow(10,'rgba(0,0,0,0.12)',0,4); ctx.fillStyle='#fffdf6'; rr(bx,by,bw,bh,bh/2); ctx.fill(); noShadow();
+  ctx.lineWidth=4; ctx.strokeStyle='#e3d3b4'; rr(bx,by,bw,bh,bh/2); ctx.stroke();
+  const fillW=Math.max(bh, bw*frac);
+  ctx.save(); rr(bx,by,bw,bh,bh/2); ctx.clip();
+  const fg=ctx.createLinearGradient(bx,0,bx+bw,0); fg.addColorStop(0,'#98D7B4'); fg.addColorStop(1,'#5FB985');
+  ctx.fillStyle=fg; rr(bx,by,fillW,bh,bh/2); ctx.fill(); ctx.restore();
+  // envelope gliding along the fill
+  const ex=bx+Math.max(bh*0.5,fillW-24), ey=by+bh/2;
+  ctx.save(); ctx.translate(ex,ey); const ew=44,eh=30;
+  ctx.fillStyle='#fff'; ctx.strokeStyle='#E3A93E'; ctx.lineWidth=3; rr(-ew/2,-eh/2,ew,eh,5); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-ew/2,-eh/2); ctx.lineTo(0,3); ctx.lineTo(ew/2,-eh/2); ctx.stroke(); ctx.restore();
+  ctx.restore();
+  drawText(shown+' / '+totalToLoad,W/2,by+bh+42,32,'#a88a5c',null,'center','700');
+}
+
+/* ------------------------------------------------------------- RENDER: TOWN */
+function ph_townBackground(){
+  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#CDEBFA'); g.addColorStop(0.55,'#EAF6E3'); g.addColorStop(1,'#BFE8C4');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  ctx.save(); ctx.fillStyle='rgba(150,210,160,0.35)';
+  ctx.beginPath(); ctx.ellipse(280,H*0.56,420,150,0,0,7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(1650,H*0.4,480,170,0,0,7); ctx.fill(); ctx.restore();
+  ctx.save(); ctx.strokeStyle='#EDD9AE'; ctx.lineWidth=94; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath(); ctx.moveTo(420,960); ctx.quadraticCurveTo(700,830,980,800); ctx.quadraticCurveTo(1280,770,1540,610); ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,0.45)'; ctx.lineWidth=8; ctx.setLineDash([22,26]);
+  ctx.beginPath(); ctx.moveTo(420,960); ctx.quadraticCurveTo(700,830,980,800); ctx.quadraticCurveTo(1280,770,1540,610); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+}
+function ph_building(id,cx,groundY,w,h){
+  ctx.save(); ctx.translate(cx,groundY);
+  const friendInfo=FRIEND_UNLOCK[id], friendType=friendInfo?T[friendInfo.type]:null;
+  const cols = id==='post'? {body:'#F4CE7A',roof:'#E3A93E'}
+    : id==='wrap'? {body:'#FFC2D3',roof:'#F06A8E'}
+    : friendType? {body:friendType.light,roof:friendType.deep}
+    : {body:'#FFE79A',roof:'#E9A32E'};
+  const bw=w*0.86, bh=h*0.62;
+  ctx.strokeStyle='#5a3d24'; ctx.lineWidth=w*0.02; ctx.lineJoin='round';
+  ctx.fillStyle=cols.body; rr(-bw/2,-bh,bw,bh,w*0.05); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=cols.roof; ctx.beginPath(); ctx.moveTo(-w*0.52,-bh); ctx.lineTo(0,-h); ctx.lineTo(w*0.52,-bh); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#8a5a34'; rr(-w*0.09,-bh*0.42,w*0.18,bh*0.42,w*0.03); ctx.fill();
+  ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,-bh*0.68,w*0.13,0,7); ctx.fill(); ctx.stroke();
+  if(id==='post'){ drawIcon('star',0,-bh*0.68,w*0.14,cols.roof,'#5a3d24'); }
+  else if(friendType){ drawIcon(friendType.icon,0,-bh*0.68,w*0.14,cols.roof,'#5a3d24'); }
+  ctx.restore();
+}
+/* ---- locked-building "sleeping" tint — masked to the sprite's OWN alpha, never a hard rectangle ----
+   Real art: composited once on an offscreen canvas via source-atop (tint only lands on opaque pixels),
+   then cached (rebuilt only if the image finishes loading later). Procedural fallback: clipped to the
+   exact body+roof silhouette path used by ph_building, not its bounding box.
+   Two tint passes read as cool moonlight rather than a flat dark box: a desaturating darken, then a
+   ~15% shift toward moonlight blue (#A8C5E8) — "dozing under moonlight", not "broken/blacked out". */
+const _buildingTintCache={};
+function tintedLockedSprite(b){
+  const w=Math.ceil(b.w), h=Math.ceil(b.h), ready=has(b.key);
+  let c=_buildingTintCache[b.id];
+  if(!c || c.w!==w || c.h!==h || c.ready!==ready){
+    const off=document.createElement('canvas'); off.width=w; off.height=h;
+    const octx=off.getContext('2d');
+    if(ready) octx.drawImage(IMG[b.key].img,0,0,w,h);
+    octx.globalCompositeOperation='source-atop';
+    octx.fillStyle='rgba(70,66,64,0.30)'; octx.fillRect(0,0,w,h);        // desaturating darken
+    octx.fillStyle='rgba(168,197,232,0.16)'; octx.fillRect(0,0,w,h);     // ~15% moonlight-blue shift
+    octx.globalCompositeOperation='source-over';
+    c={ canvas:off, w, h, ready }; _buildingTintCache[b.id]=c;
+  }
+  return c.canvas;
+}
+function clipBuildingSilhouette(cx,groundY,w,h){
+  // exact body+roof shape drawn by ph_building() — union via one non-zero-winding path, both wound CW
+  const bw=w*0.86, bh=h*0.62, r=w*0.05, bx=cx-bw/2, by=groundY-bh;
+  ctx.beginPath();
+  ctx.moveTo(bx+r,by); ctx.arcTo(bx+bw,by,bx+bw,by+bh,r); ctx.arcTo(bx+bw,by+bh,bx,by+bh,r);
+  ctx.arcTo(bx,by+bh,bx,by,r); ctx.arcTo(bx,by,bx+bw,by,r); ctx.closePath();
+  ctx.moveTo(cx-w*0.52,by); ctx.lineTo(cx,groundY-h); ctx.lineTo(cx+w*0.52,by); ctx.closePath();
+  ctx.clip();
+}
+/* pre-bake the "new" badge to a small offscreen canvas at DISPLAY size — blitting a same-size source
+   (rather than downscaling the raw asset every frame while also rotating/scaling in the live 2D ctx)
+   is what kills the per-frame rotate/scale mush. Prefers the v2 (text-free) art if present. */
+let _newBadgeCache=null;
+function newBadgeCanvas(){
+  if(_newBadgeCache) return _newBadgeCache;
+  const key=has('new_badge_v2')?'new_badge_v2':(has('new_badge')?'new_badge':null);
+  if(!key) return null;
+  const s=200, c=document.createElement('canvas'); c.width=c.height=s;
+  const o=c.getContext('2d'); o.imageSmoothingEnabled=true; o.imageSmoothingQuality='high';
+  o.drawImage(IMG[key].img,0,0,s,s);
+  _newBadgeCache=c; return c;
+}
+/* small drifting "zzz" — universal sleep iconography (not reading-dependent), 3 staggered z's rising
+   and fading above the roof on a 3s loop. Reads "sleeping, not broken" with zero literal words. */
+function drawSleepingZzz(b,groundY){
+  const roofY=groundY-b.h*0.92, period=3.0;
+  for(let i=0;i<3;i++){
+    const ph=((time+i*period/3)%period)/period;
+    const y=roofY-ph*74, x=b.cx+b.w*0.14+i*13;
+    const a=Math.sin(ph*Math.PI); if(a<=0.02) continue;
+    ctx.save(); ctx.globalAlpha=a*0.9;
+    drawText('z',x,y,20+i*7,'#FFF6E0','#8a6a44','center','800',3.2);
+    ctx.restore();
+  }
+}
+function drawTownBuilding(b){
+  const bob=Math.sin(time*2*Math.PI/b.bobPeriod+b.bobPhase)*b.bobAmp;
+  const groundY=b.groundY+bob, unlocked=buildingUnlocked(b.id);
+  // contact shadow at the building's FIXED ground line — never the bobbed one, so it never "swims"
+  const S=TOWN_BUILDING_SHADOW[b.id];
+  if(S) bakedContactShadow(S.cx,S.cy,S.rw,S.rh,S.a);
+  const sq=(buildingSqueeze&&buildingSqueeze.id===b.id)?squeezeScale(buildingSqueeze.t):1;
+  // locked buildings get a slow 3s "breathing" scale (1.0→1.015→1.0) — sleeping, not static/broken
+  const breathe=unlocked?1:(1.0075+0.0075*Math.sin(time*2*Math.PI/3));
+  const totalScale=sq*breathe;
+  ctx.save(); ctx.translate(b.cx,groundY); ctx.scale(totalScale,totalScale); ctx.translate(-b.cx,-groundY);
+  if(unlocked){
+    if(has(b.key)) ctx.drawImage(IMG[b.key].img, b.cx-b.w/2, groundY-b.h, b.w, b.h);
+    else ph_building(b.id, b.cx, groundY, b.w, b.h);
+  } else if(has(b.key)){
+    // sprite + "sleeping" tint, pre-composited and masked to the art's own alpha — reads as the
+    // building dozing, not a gray box stamped over it.
+    ctx.drawImage(tintedLockedSprite(b), b.cx-b.w/2, groundY-b.h, b.w, b.h);
+  } else {
+    ph_building(b.id, b.cx, groundY, b.w, b.h);
+    ctx.save(); clipBuildingSilhouette(b.cx, groundY, b.w, b.h);
+    ctx.fillStyle='rgba(70,66,64,0.30)'; ctx.fillRect(b.cx-b.w/2, groundY-b.h, b.w, b.h);
+    ctx.fillStyle='rgba(168,197,232,0.16)'; ctx.fillRect(b.cx-b.w/2, groundY-b.h, b.w, b.h);
+    ctx.restore();
+  }
+  // wordless "happy visit" pop for an unlocked-but-teased building tap (e.g. Wrap Shop) — a bouncing
+  // star above the roof, same icon-first language as the locked path's star, just upbeat (no fade-to-sad)
+  if(unlocked && teasePulse && teasePulse.id===b.id){
+    const p=Math.min(1,teasePulse.t/0.32), e=easeOutBack(p), fade=teasePulse.t<0.45?1:Math.max(0,1-(teasePulse.t-0.45)/0.25);
+    ctx.save(); ctx.globalAlpha=Math.max(0,fade);
+    drawIcon('star', b.cx, groundY-b.h*0.92, 74*Math.max(0,e), '#FFD54A','#E3A93E');
+    ctx.restore();
+  }
+  if(!unlocked){
+    drawSleepingZzz(b, groundY);
+    // heart "not-yet" badge — lowered onto the door, not floating near the roofline
+    const badgeR=b.id==='wrap'?54:46, badgeX=b.cx+b.w*0.18, badgeY=groundY-b.h*0.5;
+    const pulseT=(lockedPulse&&lockedPulse.id===b.id)?lockedPulse.t:null;
+    const bump=pulseT!=null?1+Math.max(0,0.30-pulseT*0.55):1;   // quick tap-bounce on the heart badge
+    ctx.save(); ctx.translate(badgeX,badgeY); ctx.scale(bump,bump); ctx.translate(-badgeX,-badgeY);
+    shadow(12,'rgba(0,0,0,0.16)',0,4);
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(badgeX,badgeY,badgeR,0,7); ctx.fill(); noShadow();
+    drawIcon('heart',badgeX,badgeY,badgeR*0.9,'#FFC2D3','#F06A8E');
+    ctx.strokeStyle='#F06A8E'; ctx.lineWidth=badgeR*0.12; ctx.lineCap='round';
+    ctx.beginPath(); ctx.arc(badgeX,badgeY-badgeR*0.55,badgeR*0.5,Math.PI*1.05,Math.PI*1.95); ctx.stroke();
+    ctx.restore();
+    // one-shot filling-star "getting closer" pop on tap — icon-first, carries the message without text
+    if(pulseT!=null && pulseT<0.9){
+      const p=Math.min(1,pulseT/0.4), e=easeOutBack(p), fade=pulseT<0.55?1:Math.max(0,1-(pulseT-0.55)/0.35);
+      ctx.save(); ctx.globalAlpha=fade;
+      drawIcon('star', badgeX, badgeY+badgeR*1.7, badgeR*0.72*Math.max(0,e), '#FFD54A','#E3A93E');
+      ctx.restore();
+    }
+    if(FRIEND_UNLOCK[b.id]){   // picture-meter toward unlock — generalized to every locked friend house
+      const stars=houseMeterStars(b.id), size=36, gap=14, total=3*size+2*gap, x0=b.cx-total/2+size/2, sy=badgeY+70;
+      for(let i=0;i<3;i++){ const filled=i<stars;
+        drawIcon('star', x0+i*(size+gap), sy, size, filled?'#FFD15C':'#fffdf6', filled?'#E3A93E':'#E3C9A0'); }
+    }
+  }
+  ctx.restore();
+  if(SAVE.newBadge[b.id]){
+    const bx=Math.round(b.cx-b.w*0.24), by=Math.round(groundY-b.h*0.66);   // on the building's shoulder
+    const wiggleT=newBadgeAnimState[b.id]?newBadgeAnimState[b.id].t:null;
+    // one-shot ~500ms elastic "look at me!" wiggle the first time this badge is shown this session
+    const wiggle=wiggleT!=null?1+0.10*Math.sin((wiggleT/0.5)*Math.PI*2.2)*(1-wiggleT/0.5):1;
+    // continuous gentle pulse (1.0→1.08, 1.2s loop) for as long as the badge is unclaimed
+    const pulse=1.04+0.04*Math.sin(time*2*Math.PI/1.2);
+    const bs=176*wiggle;
+    groundShadow(bx,by+bs*0.42,40,12,0.14);
+    ctx.save(); ctx.translate(bx,by); ctx.scale(pulse,pulse);
+    const cache=newBadgeCanvas();
+    if(cache) ctx.drawImage(cache,-bs/2,-bs/2,bs,bs);
+    else { shadow(10,'rgba(0,0,0,0.2)',0,4); ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,0,bs*0.5,0,7); ctx.fill(); noShadow(); drawIcon('star',0,0,bs*0.73,'#FFD15C','#E3A93E'); }
+    ctx.restore();
+  }
+}
+/* how far along Poppu's non-blocking hop-toward-the-locked-building beat we are, 0..1 (0 = not pointing) */
+function poppuPointTravel(){
+  if(!poppuPoint) return {travel:0,dirSign:1};
+  const t=poppuPoint.t, tgt=poppuPoint.target, out=t<0.6;
+  const travel=out?Math.min(1,t/0.25):Math.max(0,1-(t-0.6)/0.3);
+  return { travel, dirSign:(tgt.cx>=POPPU_TOWN_HOME.x)?1:-1 };
+}
+/* Poppu only has wave/postal/celebrate poses (no dedicated "point" sprite), and a procedurally-grafted
+   arm risks landing across her face on art we don't control the rig of. Instead: her whole body leans
+   toward the target (applied by the caller) + a soft trail of chevrons drifts from beside her toward the
+   locked building — a universal, safe-to-render "look that way!" cue that can never clip the character. */
+function drawPoppuTownPointGesture(pp){
+  const {travel,dirSign}=poppuPointTravel(); if(travel<=0.02) return;
+  const t=poppuPoint?poppuPoint.t:0;
+  ctx.save();
+  for(let i=0;i<3;i++){
+    const off=(t*260+i*74)%220, a=Math.max(0,1-off/220)*travel*0.85;
+    if(a<=0.02) continue;
+    const x=pp.x+dirSign*(170+off), y=pp.y-150+Math.sin(t*3+i)*6;
+    ctx.save(); ctx.globalAlpha=a; ctx.translate(x,y); if(dirSign<0) ctx.scale(-1,1);
+    ctx.strokeStyle='#FFC2D3'; ctx.lineWidth=14; ctx.lineCap='round'; ctx.lineJoin='round';
+    ctx.beginPath(); ctx.moveTo(-14,-16); ctx.lineTo(10,0); ctx.lineTo(-14,16); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+function drawTown(){
+  let zoomed=false, overlayA=0;
+  if(townTransition){
+    const t=townTransition.t;
+    const zt=Math.max(0,Math.min(1,(t-0.18)/0.32));
+    overlayA=zt;
+    ctx.save(); ctx.translate(420,880); ctx.scale(1+0.35*zt,1+0.35*zt); ctx.translate(-420,-880); zoomed=true;
+  }
+  if(has('town_map')) ctx.drawImage(IMG.town_map.img,0,0,W,H); else ph_townBackground();
+  drawAmbient();
+  for(const id of TOWN_ORDER) drawTownBuilding(TOWN_BUILDINGS[id]);
+  const pp=poppuTownPos();
+  const {travel:pointTravel,dirSign:pointDir}=poppuPointTravel();
+  bakedContactShadow(pp.x,1016,132,28,0.36);   // fixed ground line — doesn't rotate/hop with her lean+point
+  ctx.save();
+  if(pointTravel>0.02){ ctx.translate(pp.x,pp.y); ctx.rotate(pointDir*0.09*pointTravel); ctx.translate(-pp.x,-pp.y); }
+  if(!drawPoppuSprite('poppu_wave',pp.x,pp.y,380,true)) ph_poppu('wave',pp.x,pp.y-60,250);
+  ctx.restore();
+  drawPoppuTownPointGesture(pp);
+  drawParticles();
+  if(zoomed) ctx.restore();
+  if(townTransition){ ctx.save(); ctx.globalAlpha=overlayA; ctx.fillStyle='#FFF8E8'; ctx.fillRect(0,0,W,H); ctx.restore(); }
+  drawFloatTexts();
+  backButton();
+  stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
+}
+
+/* ------------------------------------------------------------ RENDER: DRIVE */
+function drawDriveBackground(){
+  // per-destination biome (Phase 1): each arrival friend carries their own bg + tint wash so every
+  // run reads distinct, not just "the forest drive" every time — see DRIVE_BIOMES.
+  const biome=(drive&&drive.biome)||DRIVE_BIOMES.gear;
+  if(has(biome.bgKey)) ctx.drawImage(IMG[biome.bgKey].img,0,0,W,H);
+  else if(has('bg_forest')) ctx.drawImage(IMG.bg_forest.img,0,0,W,H);
+  else { const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#CDEBFA'); g.addColorStop(1,'#BFE8C4'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
+  if(biome.tint){ ctx.save(); ctx.fillStyle=biome.tint; ctx.fillRect(0,0,W,H); ctx.restore(); }
+}
+/* painted cozy lane that blends into the forest bg — no more flat tan strip + hard white dashed edges.
+   Body: real tiled texture (if the art pipeline has delivered one) else a warm dirt gradient. Edges get
+   a soft grass-bleed + dirt-shadow + a thin warm-brown outline (matches the outlined-illustration style
+   used everywhere else in bg-forest) instead of a hard cut. A faint center cart-track + drifting sun
+   dapples finish the "painted path", not "printed strip" read. Gradients/paths are cheap per-frame
+   (no shadowBlur) so this stays 60fps-safe. */
+function drawRoad(){
+  const D=drive; if(!D) return; const cy0=820, halfW=DRIVE_ROAD_HALFW, trackHalfW=86, step=30;
+  const dLo=D.scrollY-300, dHi=D.scrollY+900;
+  const left=[], right=[], trackL=[], trackR=[];
+  for(let d=dLo; d<=dHi; d+=step){
+    const y=cy0-(d-D.scrollY), cx=roadCenterX(d);
+    const taper=roadTaperAt(d,D.scrollY), hw=halfW*taper, thw=trackHalfW*taper;
+    left.push({x:cx-hw,y}); right.push({x:cx+hw,y});
+    trackL.push({x:cx-thw,y}); trackR.push({x:cx+thw,y});
+  }
+  const tracePoly=pts=>{ ctx.beginPath(); pts.forEach((pt,i)=>i===0?ctx.moveTo(pt.x,pt.y):ctx.lineTo(pt.x,pt.y)); };
+  const roadPath=()=>{ ctx.beginPath();
+    left.forEach((pt,i)=>i===0?ctx.moveTo(pt.x,pt.y):ctx.lineTo(pt.x,pt.y));
+    for(let i=right.length-1;i>=0;i--) ctx.lineTo(right[i].x,right[i].y);
+    ctx.closePath(); };
+
+  ctx.save();
+  // 1. road body
+  if(has('road_tex')){
+    roadPath(); ctx.save(); ctx.clip();
+    const pat=ctx.createPattern(IMG.road_tex.img,'repeat');
+    ctx.save(); ctx.translate(0,-(D.scrollY%512));
+    ctx.globalAlpha=0.92; ctx.fillStyle=pat; ctx.fillRect(-400,-H*3,W+800,H*6);
+    ctx.restore(); ctx.restore();
+  } else {
+    roadPath();
+    const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#E7D3A6'); g.addColorStop(1,'#DCC084');
+    ctx.globalAlpha=0.92; ctx.fillStyle=g; ctx.fill(); ctx.globalAlpha=1;
+  }
+  // 1b. per-biome road wash — subtle color identity per arrival friend (woodland/meadow/twilight/riverside/sky)
+  if(D.biome && D.biome.roadTint){ roadPath(); ctx.fillStyle=D.biome.roadTint; ctx.fill(); }
+  // 2. edge feather — grass bleed, dirt contact shadow, warm outline (no dash — kills the hard seam)
+  for(const edge of [left,right]){
+    tracePoly(edge); ctx.lineWidth=34; ctx.strokeStyle='rgba(126,152,90,0.22)'; ctx.stroke();
+    tracePoly(edge); ctx.lineWidth=12; ctx.strokeStyle='rgba(90,61,36,0.12)'; ctx.stroke();
+    tracePoly(edge); ctx.lineWidth=8; ctx.globalAlpha=0.85; ctx.strokeStyle='#6B4226'; ctx.stroke(); ctx.globalAlpha=1;
+  }
+  // 3. faint center cart-track — two parallel ruts
+  for(const track of [trackL,trackR]){ tracePoly(track); ctx.lineWidth=44; ctx.strokeStyle='rgba(120,92,54,0.10)'; ctx.stroke(); }
+  // 4. drifting sun dapples, scrolling with the road (deterministic, ~6 on screen at once)
+  ctx.save(); roadPath(); ctx.clip();
+  const rep=200;
+  for(let k=-1;k<=6;k++){
+    const base=Math.floor((D.scrollY-300)/rep)*rep, d=base+k*rep;
+    if(d<D.scrollY-320||d>D.scrollY+950) continue;
+    const seed=Math.round(d/rep);
+    const lane=(seededRand(seed)-0.5)*(halfW*1.6), rw=40+seededRand(seed+1)*50;
+    const x=roadCenterX(d)+lane, y=cy0-(d-D.scrollY);
+    ctx.fillStyle='rgba(255,248,220,0.10)'; ctx.beginPath(); ctx.ellipse(x,y,rw,rw*0.4,0,0,7); ctx.fill();
+  }
+  ctx.restore();
+  ctx.restore();
+}
+/* Foreground foliage shoulder — a play-lane frame of overhanging leaf clumps hugging both road edges,
+   drawn as the truck's OWN top-down play-layer (not part of the side-view forest bg). This is the
+   pragmatic Phase-0 fix for the top-down-road / side-view-forest perspective clash: it gives the road a
+   painted "cozy lane cut through the woods" frame instead of a flat strip laid over a fighting backdrop.
+   Deterministic per scroll-depth (seededRand) so clumps don't jitter frame-to-frame; cheap flat-fill
+   ellipses only, no shadowBlur. */
+function drawFoliageClump(x,y,side,seed){
+  const s=60+seededRand(seed+2)*28;
+  ctx.save(); ctx.translate(x,y);
+  ctx.fillStyle='rgba(58,42,26,0.16)'; ctx.beginPath(); ctx.ellipse(0,s*0.26,s*0.6,s*0.2,0,0,7); ctx.fill();
+  const cols=['#6FA35A','#5F8F4E','#7FA653'];
+  for(let i=0;i<3;i++){
+    const a=i*2.35+seededRand(seed+i)*1.4;
+    const ox=Math.cos(a)*s*0.3*side, oy=Math.sin(a)*s*0.16-s*0.06;
+    ctx.fillStyle=cols[i%cols.length]; ctx.strokeStyle='#3f6b38'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.ellipse(ox,oy,s*0.4,s*0.3,0,0,7); ctx.fill(); ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawRoadShoulderFoliage(){
+  const D=drive; if(!D) return;
+  const cy0=820, halfW=DRIVE_ROAD_HALFW, step=170;
+  const dLo=D.scrollY-300, dHi=D.scrollY+900;
+  const base=Math.floor(dLo/step)*step;
+  for(let d=base; d<=dHi; d+=step){
+    const y=cy0-(d-D.scrollY); if(y<-140||y>H+140) continue;
+    const cx=roadCenterX(d), hw=halfW*roadTaperAt(d,D.scrollY);
+    const seed=Math.round(d/step);
+    for(const side of [-1,1]){
+      const jitter=(seededRand(seed*3.1+side*7)-0.5)*40;
+      drawFoliageClump(cx+side*(hw-16)+jitter, y, side, seed+side*0.5);
+    }
+  }
+}
+/* soft atmospheric darkening where the road recedes into the distant tree-line — an unobtrusive
+   depth cue so the top of the road fades into the forest rather than cutting off abruptly. Drawn once
+   the road + shoulder foliage are down, BEFORE truck/items/critter so gameplay elements stay fully
+   vivid/readable — only the far background dims. */
+function drawDriveDepthVignette(){
+  const g=ctx.createLinearGradient(0,0,0,360);
+  g.addColorStop(0,'rgba(38,52,34,0.28)'); g.addColorStop(1,'rgba(38,52,34,0)');
+  ctx.save(); ctx.fillStyle=g; ctx.fillRect(0,0,W,360); ctx.restore();
+}
+function drawDriveItems(){
+  const D=drive; if(!D) return;
+  for(const it of D.items){ if(it.collected) continue;
+    const x=roadCenterX(it.d)+it.lane, y=820-(it.d-D.scrollY);
+    if(y<-100||y>H+100) continue;
+    const bob=Math.sin(time*4+it.d)*6;
+    groundShadow(x,y+34,25,8,0.12,0.55);   // fixed line — ignores the icon's own bob
+    if(it.missed){
+      // brief no-penalty "aww" wiggle + fade as it drops behind the truck, uncaught
+      const wob=Math.sin(it.missT*16)*0.3*Math.max(0,1-it.missT*1.4);
+      const fade=Math.max(0,1-it.missT*0.9);
+      ctx.save(); ctx.globalAlpha=fade; ctx.translate(x,y+bob); ctx.rotate(wob);
+      drawIcon(it.kind, 0,0, 84, it.kind==='star'?'#FFD15C':'#FF9DB6', it.kind==='star'?'#E3A93E':'#F06A8E');
+      ctx.restore();
+    } else {
+      drawIcon(it.kind, x, y+bob, 84, it.kind==='star'?'#FFD15C':'#FF9DB6', it.kind==='star'?'#E3A93E':'#F06A8E');
+    }
+  }
+}
+/* Roadside dressing (flowers/mushrooms/a signpost/a butterfly) — purely decorative, drawn outside the
+   drivable lane so it can never block or "hurt" the truck. Keeps the shoulders alive between pickups. */
+function drawRoadsideProp(p,x,y){
+  ctx.save(); ctx.translate(x,y);
+  if(p.kind==='flower'){
+    const bob=Math.sin(time*2+p.ph)*4; ctx.translate(0,bob);
+    ctx.strokeStyle='#6a8f4e'; ctx.lineWidth=5; ctx.beginPath(); ctx.moveTo(0,34); ctx.lineTo(0,4); ctx.stroke();
+    ctx.fillStyle=p.col; ctx.strokeStyle='#5a3d24'; ctx.lineWidth=2.5;
+    for(let i=0;i<5;i++){ const a=i*2*Math.PI/5; ctx.save(); ctx.rotate(a);
+      ctx.beginPath(); ctx.ellipse(0,-13,9,7,0,0,7); ctx.fill(); ctx.stroke(); ctx.restore(); }
+    ctx.beginPath(); ctx.arc(0,0,7,0,7); ctx.fillStyle='#FFE79A'; ctx.fill(); ctx.stroke();
+  } else if(p.kind==='mushroom'){
+    const bob=Math.sin(time*2+p.ph)*2; ctx.translate(0,bob);
+    ctx.fillStyle='#FFF3E4'; ctx.strokeStyle='#5a3d24'; ctx.lineWidth=4;
+    rr(-8,0,16,26,6); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(0,-2,22,16,0,Math.PI,0); ctx.fillStyle='#FF6B6B'; ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#fff'; [[-9,-6],[8,-9],[0,-15]].forEach(([dx,dy])=>{ ctx.beginPath(); ctx.arc(dx,dy,3.2,0,7); ctx.fill(); });
+  } else if(p.kind==='signpost'){
+    ctx.fillStyle='#C79A5B'; ctx.strokeStyle='#5a3d24'; ctx.lineWidth=4;
+    ctx.fillRect(-5,-8,10,58); ctx.strokeRect(-5,-8,10,58);
+    rr(-30,-44,60,36,10); ctx.fillStyle='#FFE9C0'; ctx.fill(); ctx.stroke();
+    drawIcon('heart',0,-26,26,'#FF9DB6','#5a3d24');
+  } else if(p.kind==='butterfly'){
+    const bob=Math.sin(time*2+p.ph)*6; ctx.translate(0,bob);
+    const flap=0.55+Math.sin(time*9+p.ph)*0.45;
+    ctx.fillStyle=p.col; ctx.strokeStyle='#5a3d24'; ctx.lineWidth=2.2;
+    ctx.save(); ctx.translate(-9,0); ctx.scale(flap,1); ctx.beginPath(); ctx.ellipse(0,0,11,8,0,0,7); ctx.fill(); ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.translate(9,0); ctx.scale(flap,1); ctx.beginPath(); ctx.ellipse(0,0,11,8,0,0,7); ctx.fill(); ctx.stroke(); ctx.restore();
+    ctx.fillStyle='#5a3d24'; ctx.beginPath(); ctx.ellipse(0,0,2.6,7,0,0,7); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawRoadsideProps(){
+  const D=drive; if(!D) return;
+  for(const p of D.props){
+    const y=820-(p.d-D.scrollY); if(y<-100||y>H+140) continue;
+    const x=roadCenterX(p.d)+p.side*(DRIVE_ROAD_HALFW+110+Math.abs(p.jitter));
+    drawRoadsideProp(p,x,y);
+  }
+}
+/* two reactive mid-drive beats: a bunny pops up RIGHT beside the driving lane and waves as the truck
+   passes, then ducks back down. Positioned close to roadCenterX (not tucked off at the screen edge) and
+   drawn at 1.6x scale so a child watching the center of the road can't miss it. Purely decorative — its
+   footprint sits just off the truck's own path, so it can never block/hurt the truck. */
+function drawOneCritter(c){
+  if(c.state==='idle') return;
+  const t=c.t;
+  let riseP;
+  if(t<0.3) riseP=easeOutBack(t/0.3);
+  else if(t<1.6) riseP=1;
+  else riseP=Math.max(0,1-(t-1.6)/0.4);
+  if(c.state==='done' && riseP<=0.01) return;
+  const D=drive, x=roadCenterX(c.d)+c.side*130, y=820-(c.d-D.scrollY);
+  if(y<-180||y>H+180) return;
+  const wave=Math.sin(t*7), S=1.6;   // bigger — clearly visible, per player-advocate feedback
+  groundShadow(x,y+38*S*0.5,42*S*0.5,13*S*0.5,0.16,0.5);
+  ctx.save(); ctx.translate(x,y); ctx.scale(S,S);
+  ctx.fillStyle='#6FA35A'; ctx.strokeStyle='#4d7a3c'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.ellipse(0,10,50,26,0,0,7); ctx.fill(); ctx.stroke();
+  ctx.save(); ctx.translate(0,(1-riseP)*46); ctx.scale(1,Math.max(0.12,riseP));
+  ctx.fillStyle='#FFF3E4'; ctx.strokeStyle='#5a3d24'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.ellipse(0,0,22,26,0,0,7); ctx.fill(); ctx.stroke();
+  ctx.save(); ctx.rotate(-0.2+wave*0.1); ctx.beginPath(); ctx.ellipse(-10,-40,8,26,0,0,7); ctx.fill(); ctx.stroke(); ctx.restore();
+  ctx.save(); ctx.rotate(0.2-wave*0.1); ctx.beginPath(); ctx.ellipse(10,-40,8,26,0,0,7); ctx.fill(); ctx.stroke(); ctx.restore();
+  ctx.save(); ctx.translate(18,-6); ctx.rotate(-0.6+wave*0.5); ctx.beginPath(); ctx.ellipse(10,0,7,14,0,0,7); ctx.fill(); ctx.stroke(); ctx.restore();
+  ctx.fillStyle='#3a2a1a'; ctx.beginPath(); ctx.arc(-6,-6,2.6,0,7); ctx.arc(6,-6,2.6,0,7); ctx.fill();
+  ctx.fillStyle='#FF9DB6'; ctx.beginPath(); ctx.arc(0,2,3,0,7); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+}
+function drawDriveCritter(){
+  const D=drive; if(!D) return;
+  for(const c of D.critters) drawOneCritter(c);
+}
+function ph_truck(){
+  ctx.strokeStyle='#5a3d24'; ctx.lineWidth=6; ctx.lineJoin='round';
+  ctx.fillStyle='#FFD15C'; rr(-90,-50,180,100,24); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#fff'; rr(-70,-40,60,50,10); ctx.fill(); ctx.stroke();
+  drawIcon('star',30,-4,60,'#F06A8E','#5a3d24');
+  ctx.fillStyle='#3a2a1a'; ctx.beginPath(); ctx.arc(-55,52,20,0,7); ctx.arc(55,52,20,0,7); ctx.fill();
+}
+function drawTruck(){
+  const D=drive; if(!D) return;
+  const cx=roadCenterX(D.scrollY), off=Math.abs(D.truck.x-cx);
+  let renderX=D.truck.x; if(off>350 && !D.arriving) renderX+=Math.sin(time*28)*6;
+  // flat contact shadow OUTSIDE the rotate block — stays flush on the road, never tilts with the truck
+  bakedContactShadow(renderX,890,100,24,0.36);
+  ctx.save(); ctx.translate(renderX,820); ctx.rotate(D.truck.rot);
+  if(has('mail_truck')) ctx.drawImage(IMG.mail_truck.img,-100,-80,200,160); else ph_truck();
+  ctx.restore();
+}
+/* The chosen friend (rotates — see startDrive) runs in from over the road and lands beside Poppu
+   (by the parked truck), close enough that their sprites visually overlap into a hug — not a
+   disconnected sky-drop + separate popup. Position/timing is friend-agnostic; only the sprite differs. */
+const DRIVE_FRIEND_LAND={ x:1090, y:762 }, DRIVE_POPPU_POS={ x:955, y:722 };
+function drawDriveArrival(){
+  const D=drive; if(!D||!D.arriving) return; const t=D.arriveT;
+  const friendType=D.friendType||T.gear, friendKey=fullBodyKey(friendType);
+  // 1. radial welcome glow — fades in first so the tableau doesn't pop into an empty peak
+  const glowA=Math.min(1,t/0.5)*0.55;
+  if(glowA>0.005){
+    const g=ctx.createRadialGradient(1000,800,0,1000,800,560);
+    g.addColorStop(0,'rgba(255,248,225,'+glowA+')'); g.addColorStop(1,'rgba(255,248,225,0)');
+    ctx.save(); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(1000,800,560,0,7); ctx.fill(); ctx.restore();
+  }
+  // 2. flattened arrival mat — cream-to-peach with an inner white ring, grounds the whole tableau
+  const matA=Math.min(1,t/0.3);
+  ctx.save(); ctx.globalAlpha=matA; ctx.translate(1000,930); ctx.scale(1,90/360);
+  const mg=ctx.createRadialGradient(0,0,20,0,0,360); mg.addColorStop(0,'#FFCFA0'); mg.addColorStop(1,'#E39B6E');
+  ctx.fillStyle=mg; ctx.beginPath(); ctx.arc(0,0,360,0,7); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=14; ctx.beginPath(); ctx.arc(0,0,280,0,7); ctx.stroke();
+  ctx.restore();
+  // 3. contact shadows for both characters — appear first, like a landing-spot preview
+  bakedContactShadow(DRIVE_POPPU_POS.x,890,155,32,0.32);
+  bakedContactShadow(DRIVE_FRIEND_LAND.x,912,125,28,0.30);
+  // 4. the chosen friend drops in and leans in close, overlapping into a real embrace (not
+  //    side-by-side arms-up) — a bigger close-in pull + an inward lean sells "wrapped together".
+  //    Every knob below (drop timing/ease/lean/squeeze/pull) comes from DRIVE_FLAIR so each friend's
+  //    arrival carries its own personality instead of one shared generic pose.
+  const DF=DRIVE_FLAIR[friendType.id]||DRIVE_FLAIR.gear;
+  let hugP=0;
+  if(t>=DF.dropStart){
+    const p=Math.max(0,Math.min(1,(t-DF.dropStart)/DF.dropDur));
+    const e=DF.ease==='quad'?(1-(1-p)*(1-p)):easeOutBack(p);
+    const y=-220+(DRIVE_FRIEND_LAND.y-(-220))*e;
+    hugP=Math.max(0,Math.min(1,(t-0.9)/0.4));                   // final close-in step, right into the hug
+    const x=DRIVE_FRIEND_LAND.x-DF.pullX*hugP;                  // pulls in tight — real overlap, not a gap
+    const hugSquash=1+Math.sin(Math.min(1,hugP)*Math.PI)*DF.squeeze;   // per-friend squeeze bounce
+    // Peeky's proud little stumble-wobble on the way down — settles out as he lands
+    const stumble=friendType.id==='gear'?Math.sin(p*16)*0.06*(1-p):0;
+    // Orby drifts in a slow dreamy sway rather than a hard lean, even once hugged in
+    const sway=friendType.id==='moon'?Math.sin(t*1.1)*0.05:0;
+    ctx.save(); ctx.translate(x,y); ctx.rotate(DF.lean*hugP+stumble+sway); ctx.scale(hugSquash,1/hugSquash);
+    if(has(friendKey)) sprite(friendKey,0,0,360,360); else ph_face(friendType,0,0,190);
+    ctx.restore();
+    drawDriveFriendAccent(friendType.id,t,hugP);
+  }
+  // 5. Poppu leans in to meet the friend too — both close the gap so they read as wrapped together,
+  //    overlapping. Puffy gets the longest, laziest lingering hug (hold denom stretched 0.5->0.8).
+  if(t>=0.9){
+    const holdDenom=friendType.id==='cloud'?0.8:0.5;
+    const hp=Math.min(1,(t-0.9)/holdDenom), squash=1+Math.sin(hp*Math.PI*3)*0.07*(1-hp);
+    const closeIn=Math.min(1,hp*1.6);
+    const px=DRIVE_POPPU_POS.x+30*closeIn;
+    ctx.save(); ctx.translate(px,DRIVE_POPPU_POS.y); ctx.rotate(0.10*closeIn); ctx.scale(squash,1/squash);
+    if(has('poppu_celebrate')) sprite('poppu_celebrate',0,0,470,470); else ph_poppu('celebrate',0,-40,270);
+    ctx.restore();
+  }
+}
+/* per-friend arrival-hug accent flourishes — layered on top of the shared drop/hug beat above so each
+   friend's embrace reads distinctly: Orby's staged twinkles, Zaza's drifting heart-puffs, Wavey's
+   second rebound ripple+splash, Puffy's soft drifting puffs. Purely decorative overlays, cheap fills. */
+function drawDriveFriendAccent(id,t,hugP){
+  if(id==='moon'){
+    for(let i=0;i<3;i++){ const ph=t-1.1-i*0.32; if(ph>0&&ph<0.6){ const e=easeOutBack(Math.min(1,ph/0.3)), fade=Math.max(0,1-ph/0.6);
+      ctx.save(); ctx.globalAlpha=fade; drawIcon('star',1010+(i-1)*60,380-i*20,26*Math.max(0,e),'#FFF3C4','#E6DBFF'); ctx.restore(); } }
+  } else if(id==='heart'){
+    for(let i=0;i<3;i++){ const ph=t-1.0-i*0.24; if(ph>0&&ph<0.7){ const rise=ph/0.7;
+      ctx.save(); ctx.globalAlpha=Math.max(0,1-rise); drawIcon('heart',1010+(i-1)*34,420-rise*80,22,'#FF9DB6','#F06A8E'); ctx.restore(); } }
+  } else if(id==='drop'){
+    if(hugP>=1){ const rp=Math.min(1,Math.max(0,(t-1.3)/0.4));
+      if(rp>0&&rp<1){ const rebHop=Math.sin(rp*Math.PI)*10;
+        ctx.save(); ctx.globalAlpha=1-rp; ctx.translate(0,-rebHop); ctx.strokeStyle='#8ECFEC'; ctx.lineWidth=5;
+        ctx.beginPath(); ctx.ellipse(DRIVE_FRIEND_LAND.x,912,20+rp*140,(20+rp*140)*0.3,0,0,7); ctx.stroke(); ctx.restore(); } }
+  } else if(id==='cloud'){
+    for(let i=0;i<2;i++){ const ph=t-1.0-i*0.3; if(ph>0){ const fade=Math.max(0,1-ph*1.2);
+      ctx.save(); ctx.globalAlpha=fade*0.7; drawIcon('cloud',1010+(i?60:-60),400-ph*50,36,'#fff','#C4E9D4'); ctx.restore(); } }
+  }
+}
+/* word-free hug payoff — a heart pop (every arrival) or a bigger heart+star pop on a full/near-full
+   catch run (see updateDrive's fullRun flourish) — replaces the old "Yay!" floatText entirely so the
+   payoff reads with zero reading dependency, per the 3-5 no-reading rule. */
+function drawDriveArrivalPop(){
+  const D=drive; if(!D||!D.arrivalPop) return;
+  const t=D.arrivalPop.t, dur=1.3; if(t>dur) return;
+  const p=Math.min(1,t/0.32), e=easeOutBack(p), fade=t<0.85?1:Math.max(0,1-(t-0.85)/(dur-0.85));
+  const cx=1010, cy=445;   // clear of both characters' heads — reads as a floating payoff pop, not a hat sticker
+  ctx.save(); ctx.globalAlpha=Math.max(0,fade);
+  if(D.arrivalPop.full){
+    drawIcon('heart',cx-64,cy,68*Math.max(0,e),'#FF9DB6','#F06A8E');
+    drawIcon('star', cx+64,cy,68*Math.max(0,e),'#FFD54A','#E3A93E');
+  } else {
+    drawIcon('heart',cx,cy,74*Math.max(0,e),'#FF9DB6','#F06A8E');
+  }
+  ctx.restore();
+}
+/* cream cross-fade so the cut into LEVELDONE's results card never reads as a stark white popup */
+function drawDriveFade(){
+  const D=drive; if(!D||!D.done) return;
+  const fa=Math.max(0,Math.min(1,(D.arriveT-1.6)/DRIVE_FADE_DUR))*0.94;
+  if(fa<=0) return;
+  ctx.save(); ctx.globalAlpha=fa; ctx.fillStyle='#FFF8E8'; ctx.fillRect(0,0,W,H); ctx.restore();
+}
+function drawDriveProgressDots(){
+  const progress=driveProgress(), filled=Math.floor(progress*9);
+  for(let i=0;i<9;i++){ const y=140+i*70, on=i>=(9-filled);
+    ctx.save(); ctx.fillStyle=on?'#FFD15C':'#fffdf6'; ctx.strokeStyle=on?'#E3A93E':'#E3C9A0'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.arc(80,y,12,0,7); ctx.fill(); ctx.stroke(); ctx.restore(); }
+}
+/* growing "getting closer" face-circle in the corner — now shows whichever friend this run is
+   actually visiting (was hardcoded to Peeky/gear). */
+function drawDriveFriendGrowth(){
+  const D=drive, type=(D&&D.friendType)||T.gear;
+  const r=40+driveProgress()*90;
+  ctx.save(); ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(1820,140,r+16,0,7); ctx.fill(); ctx.restore();
+  drawFaceCircle(type,1820,140,r);
+}
+function drawDrive(){
+  drawDriveBackground(); drawDriveAmbient(); drawRoad(); drawRoadShoulderFoliage(); drawDriveDepthVignette();
+  drawRoadsideProps(); drawDriveCritter(); drawDriveItems(); drawTruck(); drawDriveArrival(); drawDriveArrivalPop();
+  drawParticles(); drawDriveProgressDots(); drawDriveFriendGrowth(); drawFloatTexts();
+  drawDriveFade();
+  homeButton(); stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
 }
 
 /* ------------------------------------------------------------- MAIN LOOP */
 currentScene=Math.min(SCENES.length-1,Math.max(0,SAVE.currentScene||0));
 if(!sceneUnlocked(currentScene)) currentScene=0;
 buildAmbient(SCENES[currentScene].amb);
+SAVE.sessions=(SAVE.sessions||0)+1; persist();       // count this play session (parent dashboard)
+Audio_.setVolume(SAVE.volume!=null?SAVE.volume:2);   // restore saved volume preference
 let last=performance.now();
 function frame(now){
   const dt=Math.min(0.05,(now-last)/1000); last=now;
@@ -1218,13 +3244,18 @@ function frame(now){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.fillStyle='#e2d0b2'; ctx.fillRect(0,0,canvas.width,canvas.height);
   ctx.setTransform(scale*DPR,0,0,scale*DPR,offX*DPR,offY*DPR);
-  if(state==='LOADING'){ if(loadDone) state='START'; drawLoading(); }
+  if(state==='LOADING'){ if(loadDone && performance.now()-loadStart>=1500) state='START'; drawLoading(); }
   else if(state==='START') drawStart();
   else if(state==='LEVELMAP') drawLevelMap();
   else if(state==='SHOP') drawShop();
   else if(state==='PLAYING') drawPlaying();
   else if(state==='LEVELDONE') drawLevelDone();
   else if(state==='STICKER') drawSticker();
+  else if(state==='TOWN') drawTown();
+  else if(state==='WRAP') drawWrap();
+  else if(state==='FRIEND') drawFriend();
+  else if(state==='DRIVE') drawDrive();
+  if(parentOpen) drawParentDashboard();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -1248,7 +3279,91 @@ window.__t = {
     const cl=(sx,sy)=>({x:sx*scale+offX,y:sy*scale+offY});
     const a=cl(p.x,p.y); onDown(a.x,a.y);
     const c=cl(b.x,b.y); onMove(c.x,c.y); onUp(c.x,c.y); return true; },
-  levelInfo(){ return { level:currentLevel, delivered:deliveredThisLevel, target:curLevel().pkgs, spawned:spawnedThisLevel, done:levelDone }; }
+  levelInfo(){ return { level:currentLevel, delivered:deliveredThisLevel, target:curLevel().pkgs, spawned:spawnedThisLevel, done:levelDone }; },
+
+  /* ---- Poppu's Post Town (Phase 0) ---- */
+  openTown(){ enterTown(); },
+  tapBuilding(id){
+    const b=TOWN_BUILDINGS[id]; if(!b) return false;
+    if(state!=='TOWN') enterTown();
+    const cl=(sx,sy)=>({x:sx*scale+offX,y:sy*scale+offY});
+    const c=cl(b.hit.x+b.hit.w/2, b.hit.y+b.hit.h/2);
+    onDown(c.x,c.y); onUp(c.x,c.y); return true;
+  },
+  unlockPeeky(){ SAVE.unlocks.peekyHouse=true; persist(); },
+  setGearDeliveries(n){ SAVE.charDeliveries.gear=Math.max(0,n|0); persist(); },
+  get townBuildings(){ return TOWN_BUILDINGS; },
+  get unlocks(){ return SAVE.unlocks; },
+  get newBadge(){ return SAVE.newBadge; },
+  /* ---- generalized unlock ladder helpers (Phase 1) ---- */
+  get friendUnlockTable(){ return FRIEND_UNLOCK; },
+  /* force-unlocks building `id`'s friend house by setting its charDeliveries threshold, then runs the
+     same check the real game uses (checkTownUnlocks) — so newBadge/unlocks flip exactly as in play. */
+  unlockFriendHouse(id){
+    const info=FRIEND_UNLOCK[id]; if(!info) return false;
+    SAVE.charDeliveries[info.type]=info.need; checkTownUnlocks(); return true;
+  },
+  setCharDeliveries(typeId,n){ SAVE.charDeliveries[typeId]=Math.max(0,n|0); persist(); checkTownUnlocks(); },
+
+  /* ---- Wrap Shop (Phase 1) ---- */
+  enterWrap(){ enterWrap(); },
+  get wrapBox(){ return wrapBox; },
+  get wrapQueue(){ return SAVE.wrapQueue||0; },
+  wrapCycleColor(){ if(state!=='WRAP') enterWrap(); cycleWrapColor(); },
+  wrapDoRibbon(){ if(state!=='WRAP') enterWrap(); applyWrapRibbon(); },
+  wrapDoSticker(icon){ if(state!=='WRAP') enterWrap(); applyWrapSticker(icon||'star'); },
+  wrapShip(){ if(state!=='WRAP') return false; if(!wrapBox||!wrapBox.acted) return false; shipWrapBox(); return true; },
+
+  /* ---- Friend House (Phase 1) ---- */
+  enterFriend(id){ enterFriend(id||'peeky'); },
+  get friendScene(){ return friendScene; },
+  get friendHearts(){ return friendScene?friendHearts(friendScene.type.id):0; },
+  friendFeed(icon){ feedFriend(icon||'star'); },
+  friendPet(){ petFriend(); },
+  friendDress(hatId){ dressFriend(hatId||'hat_chef'); },
+
+  /* ---- Delivery Drive (Phase 0/1) ---- */
+  startDrive(){ startDrive(); },
+  /* force the next Drive to visit friend typeId ('gear'|'heart'|'moon'|'drop'|'cloud') — unlocks
+     whatever's needed for that friend to be in rotation first, then starts the drive. */
+  startDriveAs(typeId){
+    const chain=['gear','heart','moon','drop','cloud']; const target=chain.indexOf(typeId);
+    if(target<0) return null;
+    for(let i=1;i<=target;i++){ this.unlockFriendHouse(chain[i-1]==='gear'?'peeky':chain[i-1]); }
+    const ids=unlockedDriveFriendIds(); const idx=ids.indexOf(typeId);
+    SAVE.driveVisits=idx>=0?idx:0; startDrive(); return drive?drive.friendType.id:null;
+  },
+  get driveFriend(){ return drive?drive.friendType.id:null; },
+  get driveBiome(){ return drive?drive.biome.name:null; },
+  driveStep(px){ if(!drive) return false; if(px!=null) drive.dragActiveX=px; updateDrive(1/60); return true; },
+  steer(x){ if(drive) drive.dragActiveX=x; },
+  collectAll(){ if(!drive) return false; for(const it of drive.items) if(!it.collected) collectDriveItem(it); return true; },
+  driveArrive(){ if(!drive) return false; drive.scrollY=DRIVE_LENGTH; if(!drive.arriving) startArrival(); return true; },
+  get driveInfo(){ if(!drive) return null;
+    const caught=drive.items.filter(i=>i.collected).length, total=drive.items.length;
+    return { progress:driveProgress(), truckX:drive.truck.x, scrollY:drive.scrollY, arriving:drive.arriving,
+      itemsLeft:total-caught, itemsTotal:total, caught, total,
+      fullRun:drive.fullRun!=null?drive.fullRun:(total>0 && caught>=Math.max(1,Math.ceil(total*0.9))) }; },
+  /* one of: 'none' | 'decel' | 'peekyRun' | 'hug' | 'fadeOut' — for QA to assert the in-scene arrival beat actually plays */
+  get arrivalPhase(){
+    if(!drive || !drive.arriving) return 'none';
+    const t=drive.arriveT;
+    if(t<0.4) return 'decel';
+    if(t<0.9) return 'peekyRun';
+    if(!drive.done) return 'hug';
+    return 'fadeOut';
+  },
+  get gearDeliveries(){ return (SAVE.charDeliveries&&SAVE.charDeliveries.gear)||0; },
+  /* scene-bleed check: current floatText labels + count, so QA can assert nothing stale carried over */
+  get floatTexts(){ return floatTexts.map(f=>f.text); },
+  get lockedPulse(){ return lockedPulse; },
+
+  /* ---- Tutorial / LEVELDONE / stamp-task QA hooks ---- */
+  get tutorial(){ return tutorial; },
+  forceTutorial(){ SAVE.tutorialDone=false; startLevel(1); return tutorial; },
+  get doneScreen(){ return doneScreen; },
+  get stampTaskWant(){ return (activeTask&&activeTask.kind==='stamp')?activeTask.want:null; },
+  get cosmeticSpriteKeys(){ return COSMETICS.map(c=>'cos-'+c.id.replace(/_/g,'-')); },
 };
 </script>
 </body>
