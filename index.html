@@ -1846,6 +1846,18 @@ function drawWrapBoxScene(){
     ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,54,0,7); ctx.fill(); noShadow();
     ctx.lineWidth=5; ctx.strokeStyle=type.deep; ctx.stroke();
     glyphIcon(wrapBox.sticker,0,0,60,'#FFD15C','#E3A93E'); ctx.restore();
+  } else {
+    // ghost sticker affordance (review-board polish) — a faint dashed ring + a slowly cycling
+    // star→heart→moon preview at the EXACT landing spot, so a non-reader sees the three tray buttons'
+    // stickers belong HERE on the box before tapping (zero reading).
+    const cyc=['star','heart','moon'][Math.floor(time/1.3)%3], gp=WRAP_STICKER_PAL[cyc];
+    const gpulse=0.32+0.16*Math.sin(time*3);
+    ctx.save(); ctx.translate(s*0.28,-s*0.30);
+    // soft cream backing so the ghost reads on the box, then dashed ring + cycling glyph
+    ctx.globalAlpha=gpulse*0.6; ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,50,0,7); ctx.fill();
+    ctx.globalAlpha=gpulse; ctx.setLineDash([11,9]); ctx.lineWidth=4.5; ctx.strokeStyle=gp[1];
+    ctx.beginPath(); ctx.arc(0,0,52,0,7); ctx.stroke(); ctx.setLineDash([]);
+    glyphIcon(cyc,0,0,54,gp[0],gp[1]); ctx.restore();
   }
   ctx.restore();
   if(!wrapBox.acted){
@@ -3485,29 +3497,58 @@ function drawRoad(){
   ctx.restore();
   // 1b. per-biome road wash — subtle color identity per arrival friend (woodland/meadow/twilight/riverside)
   if(D.biome && D.biome.roadTint){ roadPath(); ctx.fillStyle=D.biome.roadTint; ctx.fill(); }
+  // 1c. de-tile dirt mottle (review-board polish) — large soft irregular dirt blotches keyed to ABSOLUTE
+  //     world-depth (not the 512px tile modulo), so they never line up with the tile repeat and break the
+  //     "visible tiling" read. Dirt biomes only; big, sparse, alternating lighter/darker earth.
+  if(surf!=='cloud'){
+    ctx.save(); roadPath(); ctx.clip();
+    const mrep=263;   // coprime-ish with the 512 tile so blotches drift across every seam
+    for(let k=-1;k<=8;k++){
+      const base=Math.floor((D.scrollY-300)/mrep)*mrep, d=base+k*mrep;
+      if(d<D.scrollY-340||d>D.scrollY+960) continue;
+      const seed=Math.round(d/mrep)*13;
+      const y=cy0-(d-D.scrollY), depth=Math.max(0.3,Math.min(1,(y+120)/(cy0+120)));
+      const tp=roadTaperAt(d,D.scrollY);
+      const x=roadCenterX(d)+(seededRand(seed)-0.5)*(halfW*1.5*tp);
+      const rw=(70+seededRand(seed+1)*120)*depth;
+      ctx.globalAlpha=0.05+seededRand(seed+2)*0.055;
+      ctx.fillStyle=(seededRand(seed+3)>0.5)?'#EAD9B0':'#B79A6A';
+      ctx.beginPath(); ctx.ellipse(x,y,rw,rw*(0.5+seededRand(seed+4)*0.35),seededRand(seed+5)*3,0,7); ctx.fill();
+    }
+    ctx.globalAlpha=1; ctx.restore();
+  }
   // 2. edge feather — biome-aware: soft cloud-blue rim on the sky path, warm grass+dirt rim elsewhere.
-  const edgeGrass = surf==='cloud' ? 'rgba(198,222,245,0.6)' : 'rgba(126,152,90,0.22)';
-  const edgeLine  = surf==='cloud' ? 'rgba(150,186,222,0.7)' : '#6B4226';
+  //    (review-board polish) the dirt verge is now FEATHERED — a wide soft grass rim + a mid transition
+  //    band + a thin, low-alpha SOFTENED outline, so the road/grass border no longer reads as a hard ruler.
+  const cloudy = surf==='cloud';
+  const edgeGrass = cloudy ? 'rgba(198,222,245,0.6)'  : 'rgba(126,152,90,0.26)';
+  const edgeMid   = cloudy ? 'rgba(198,222,245,0.34)' : 'rgba(150,170,104,0.22)';
+  const edgeLine  = cloudy ? 'rgba(150,186,222,0.7)'  : 'rgba(107,66,38,0.42)';
   for(const edge of [left,right]){
-    tracePoly(edge); ctx.lineWidth=34; ctx.strokeStyle=edgeGrass; ctx.stroke();
-    tracePoly(edge); ctx.lineWidth=12; ctx.strokeStyle='rgba(90,61,36,0.10)'; ctx.stroke();
-    tracePoly(edge); ctx.lineWidth=8; ctx.globalAlpha=0.85; ctx.strokeStyle=edgeLine; ctx.stroke(); ctx.globalAlpha=1;
+    tracePoly(edge); ctx.lineWidth=46; ctx.strokeStyle=edgeGrass; ctx.stroke();   // wide soft grass rim
+    tracePoly(edge); ctx.lineWidth=24; ctx.strokeStyle=edgeMid;   ctx.stroke();   // mid transition feather
+    tracePoly(edge); ctx.lineWidth=12; ctx.strokeStyle='rgba(90,61,36,0.08)'; ctx.stroke();
+    tracePoly(edge); ctx.lineWidth=cloudy?7:4; ctx.strokeStyle=edgeLine; ctx.stroke();  // thin softened outline
   }
   // 2b. organic grass-tuft verge (dirt biomes) — breaks the hard even road/grass border with small
   //     jittered blade clusters straddling the edge, so the shoulder reads as a feathered natural verge,
   //     not a ruler-straight line (review-board polish). Sparse/irregular + depth-scaled, deterministic.
   if(surf!=='cloud'){
     ctx.save(); ctx.lineCap='round';
+    const tuftCols=['rgba(108,150,78,0.62)','rgba(126,168,92,0.55)','rgba(94,134,66,0.60)'];
     for(const [edge,side] of [[left,-1],[right,1]]){
-      for(let i=2;i<edge.length-1;i+=2){ const pt=edge[i];
-        const seed=Math.round((pt.y+D.scrollY)*0.31)+side*11;
-        if(seededRand(seed)>0.60) continue;   // not every step — irregular spacing
+      for(let i=1;i<edge.length-1;i++){ const pt=edge[i];
+        const seed=Math.round((pt.y+D.scrollY)*0.37)+side*11;
+        if(seededRand(seed)>0.42) continue;   // denser but still irregular spacing
         const depth=Math.max(0.3,Math.min(1,(pt.y+120)/(cy0+120)));
-        const tx=pt.x+side*(3+seededRand(seed+1)*11), ty=pt.y;
-        const n=2+Math.floor(seededRand(seed+2)*3), h=(9+seededRand(seed+3)*15)*depth;
-        ctx.strokeStyle='rgba(108,150,78,0.55)'; ctx.lineWidth=3.2*depth;
-        for(let b=0;b<n;b++){ const bx=tx+(b-n/2)*4.2*depth, lean=(seededRand(seed*1.7+b+4)-0.5)*11;
-          ctx.beginPath(); ctx.moveTo(bx,ty); ctx.quadraticCurveTo(bx+lean*0.5,ty-h*0.6,bx+lean,ty-h); ctx.stroke(); }
+        // ~40% of clusters sit slightly INSIDE the dirt so blades straddle & break the border line
+        const inside=seededRand(seed+7)<0.4;
+        const off=inside? -side*(2+seededRand(seed+1)*7) : side*(2+seededRand(seed+1)*13);
+        const tx=pt.x+off, ty=pt.y;
+        const n=2+Math.floor(seededRand(seed+2)*4), h=(9+seededRand(seed+3)*17)*depth;
+        ctx.strokeStyle=tuftCols[i%tuftCols.length]; ctx.lineWidth=3.0*depth;
+        for(let b=0;b<n;b++){ const bx=tx+(b-n/2)*4.0*depth, lean=(seededRand(seed*1.7+b+4)-0.5)*13;
+          ctx.beginPath(); ctx.moveTo(bx,ty); ctx.quadraticCurveTo(bx+lean*0.5,ty-h*0.62,bx+lean,ty-h); ctx.stroke(); }
       }
     }
     ctx.restore();
@@ -3520,14 +3561,14 @@ function drawRoad(){
     const prep=150;
     for(let k=-1;k<=8;k++){
       const bandD=Math.floor((D.scrollY-300)/prep)*prep+k*prep;
-      for(let j=0;j<4;j++){ const seed=Math.round(bandD/prep)*17+j*29;
-        const d=bandD+(seededRand(seed+5)-0.5)*prep*1.35;   // scatter each pebble off the band grid
+      for(let j=0;j<5;j++){ const seed=Math.round(bandD/prep)*17+j*29;
+        const d=bandD+(seededRand(seed+5)-0.5)*prep*1.5;   // scatter each pebble off the band grid
         if(d<D.scrollY-320||d>D.scrollY+950) continue;
         const y=cy0-(d-D.scrollY), depth=Math.max(0.22,Math.min(1,(y+120)/(cy0+120)));
         const tp=roadTaperAt(d,D.scrollY);
-        const x=roadCenterX(d)+(seededRand(seed)-0.5)*(halfW*1.7*tp);
-        const big=seededRand(seed+3)>0.82;
-        const rw=(4+seededRand(seed+1)*(big?19:10))*depth*1.7;
+        const x=roadCenterX(d)+(seededRand(seed)-0.5)*(halfW*1.75*tp);
+        const big=seededRand(seed+3)>0.80;
+        const rw=(4+seededRand(seed+1)*(big?23:11))*depth*1.7;
         ctx.globalAlpha=0.09+seededRand(seed+2)*0.10;
         ctx.fillStyle=(j&1)?'#785a36':'#A38458';
         ctx.beginPath(); ctx.ellipse(x,y,rw,rw*(0.55+seededRand(seed+4)*0.3),seededRand(seed+6)*3,0,7); ctx.fill();
