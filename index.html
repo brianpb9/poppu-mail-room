@@ -101,7 +101,7 @@ const SCENES = [
 const UPGRADES = [
   { id:'speedBelt',   name:'Speed Belt',     cost:10, icon:'bolt',  desc:'Belt runs faster' },
   { id:'bigBoxes',    name:'Big Mailboxes',  cost:15, icon:'box',   desc:'Bigger, comfy boxes' },
-  { id:'autoSorter',  name:'Auto-Sorter',    cost:25, icon:'arrow', desc:'Wrong drops return' },
+  { id:'autoSorter',  name:'Auto-Sorter',    cost:25, icon:'replay', desc:'Wrong drops return' },
   { id:'scanner',     name:'Golden Scanner', cost:40, icon:'eye',   desc:'Glows the right box' },
   { id:'doubleStamps',name:'Double Stamps',  cost:50, icon:'x2',    desc:'Twice the stamps' },
 ];
@@ -507,9 +507,15 @@ COSMETICS.forEach(c=>{ ASSET_SRC['cos-'+c.id.replace(/_/g,'-')]='assets/cos-'+c.
 ['peeky','orby','zaza','wavey','puffy'].forEach(n=>{ ASSET_SRC['friendbg_'+n]='assets/bg-house-'+n+'.webp'; });
 /* Production raster pack (Phase 2) — 20 UI/glyph icons (ic_<name> -> assets/ic-<dashed>.png) and
    5 "My Garden" flower states, replacing procedural drawIcon()/drawSticker() call sites 1:1. Each
-   is has()-gated by the existing loader so a missing/loading PNG never breaks a frame. */
+   is has()-gated by the existing loader so a missing/loading PNG never breaks a frame.
+   Phase 3 (wordless UI pass) adds 3 more: shop_bag (Shop nav / Style tab), check (Owned/Wearing/
+   Wear-it, 3 states via opacity+fill at the call site), replay (LEVELDONE Replay + Auto-Sorter
+   upgrade — a circular restart arrow, deliberately distinct from the straight 'arrow' glyph).
+   Same has()-gated pattern: each ships with a procedural drawIcon() fallback (below) so nothing
+   waits on art — until assets/ic-shop-bag.png / ic-check.png / ic-replay.png land, has() is false
+   and every call site below already falls back through glyphIcon() automatically. */
 ['home','back','volume_on','volume_off','settings','close','star','heart','gear','moon','drop','cloud',
- 'speed','capacity','arrow','reveal','x2','seal','stamp','crown'].forEach(n=>{
+ 'speed','capacity','arrow','reveal','x2','seal','stamp','crown','shop_bag','check','replay'].forEach(n=>{
   ASSET_SRC['ic_'+n]='assets/ic-'+n.replace(/_/g,'-')+'.png';
 });
 ['flower_common','flower_rare','flower_special','flower_locked','flower_unlocked'].forEach(n=>{
@@ -586,6 +592,11 @@ function drawIcon(kind,cx,cy,s,fill,stroke){
   else if(kind==='box'){ rr(-s*0.4,-s*0.4,s*0.8,s*0.8,s*0.12); ctx.fill(); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,-s*0.4); ctx.lineTo(0,s*0.4); ctx.stroke(); }
   else if(kind==='arrow'){ ctx.beginPath(); ctx.moveTo(-s*0.4,0); ctx.lineTo(s*0.2,0); ctx.stroke(); ctx.beginPath(); ctx.moveTo(s*0.0,-s*0.24); ctx.lineTo(s*0.36,0); ctx.lineTo(s*0.0,s*0.24); ctx.stroke(); }
   else if(kind==='eye'){ ctx.beginPath(); ctx.ellipse(0,0,s*0.44,s*0.28,0,0,7); ctx.fill(); ctx.stroke(); ctx.beginPath(); ctx.arc(0,0,s*0.16,0,7); ctx.fillStyle=stroke||'#5a3d24'; ctx.fill(); }
+  else if(kind==='home'){   // simple house pictogram — glyphIcon() fallback for any Home button (the
+      // corner HOMEBTN keeps its own bespoke uiIcon()+fallback below; this covers other call sites, e.g. LEVELDONE)
+      ctx.fillStyle=fill; ctx.strokeStyle=stroke||'#5a3d24'; ctx.lineWidth=s*0.07; ctx.beginPath();
+      ctx.moveTo(0,-s*0.36); ctx.lineTo(-s*0.38,s*0.02); ctx.lineTo(-s*0.24,s*0.02); ctx.lineTo(-s*0.24,s*0.34);
+      ctx.lineTo(s*0.24,s*0.34); ctx.lineTo(s*0.24,s*0.02); ctx.lineTo(s*0.38,s*0.02); ctx.closePath(); ctx.fill(); ctx.stroke(); }
   /* ---- wordless LEVEL-MAP mechanic glyphs (A3) — deliberately distinct from the 6 character/type
      icons above (star/gear/moon/heart/drop/cloud already mean Poppu/Peeky/Orby/Zaza/Wavey/Puffy
      elsewhere) so a mechanic badge on the level path can never be mistaken for a friend/color. ---- */
@@ -605,6 +616,33 @@ function drawIcon(kind,cx,cy,s,fill,stroke){
       ctx.lineTo(-s*0.2,s*0.1); ctx.lineTo(0,-s*0.32); ctx.lineTo(s*0.2,s*0.1); ctx.lineTo(s*0.46,-s*0.06);
       ctx.lineTo(s*0.46,s*0.22); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.fillStyle=stroke||'#5a3d24'; ctx.beginPath(); ctx.arc(0,s*0.02,s*0.09,0,7); ctx.fill(); }
+  /* ---- wordless UI-pass (P2) glyphs — procedural fallbacks for the 3 new ic_ assets, shipped
+     now so the wordless pass never waits on art landing. ---- */
+  else if(kind==='shop_bag'){   // rounded tote/gift bag + star charm — Shop nav pill / Style tab.
+      // Deliberately a WIDE, tapered-out silhouette with a wide FLAT handle loop (not a tall narrow
+      // shackle) — reads as a gift bag, never mistaken for the padlock glyph used for "locked" elsewhere.
+      ctx.fillStyle=fill; ctx.strokeStyle=stroke||'#7a4a20'; ctx.lineWidth=s*0.08;
+      ctx.beginPath();
+      ctx.moveTo(-s*0.36,-s*0.06); ctx.lineTo(-s*0.46,s*0.4); ctx.quadraticCurveTo(-s*0.46,s*0.5,-s*0.36,s*0.5);
+      ctx.lineTo(s*0.36,s*0.5); ctx.quadraticCurveTo(s*0.46,s*0.5,s*0.46,s*0.4); ctx.lineTo(s*0.36,-s*0.06); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-s*0.36,-s*0.06); ctx.lineTo(s*0.36,-s*0.06); ctx.stroke();   // top hem fold
+      ctx.beginPath(); ctx.moveTo(-s*0.19,-s*0.06); ctx.quadraticCurveTo(-s*0.19,-s*0.3,0,-s*0.3);
+      ctx.quadraticCurveTo(s*0.19,-s*0.3,s*0.19,-s*0.06); ctx.stroke();
+      ctx.save(); ctx.translate(0,s*0.22); ctx.fillStyle='#FFD15C'; ctx.beginPath();
+      ctx.moveTo(0,-s*0.13); ctx.lineTo(s*0.045,-s*0.02); ctx.lineTo(s*0.15,0); ctx.lineTo(s*0.045,s*0.02);
+      ctx.lineTo(0,s*0.13); ctx.lineTo(-s*0.045,s*0.02); ctx.lineTo(-s*0.15,0); ctx.lineTo(-s*0.045,-s*0.02);
+      ctx.closePath(); ctx.fill(); ctx.restore(); }
+  else if(kind==='check'){   // bold rounded checkmark — Owned&Wearing (solid, caller passes full alpha)
+      // or the Wear-it CTA (caller passes 60% alpha + a muted color) — same glyph, 2 read states by opacity/fill
+      ctx.strokeStyle=fill; ctx.lineWidth=s*0.22; ctx.lineCap='round'; ctx.lineJoin='round';
+      ctx.beginPath(); ctx.moveTo(-s*0.32,s*0.02); ctx.lineTo(-s*0.06,s*0.28); ctx.lineTo(s*0.36,-s*0.30); ctx.stroke(); }
+  else if(kind==='replay'){   // circular restart arrow — deliberately a LOOP, never confusable with the straight 'arrow'
+      ctx.strokeStyle=stroke||fill; ctx.lineWidth=s*0.14; ctx.lineCap='round';
+      ctx.beginPath(); ctx.arc(0,0,s*0.36,0.5,Math.PI*1.7); ctx.stroke();
+      const ea=Math.PI*1.7, ex=Math.cos(ea)*s*0.36, ey=Math.sin(ea)*s*0.36;
+      ctx.save(); ctx.translate(ex,ey); ctx.rotate(ea+Math.PI/2); ctx.fillStyle=stroke||fill;
+      ctx.beginPath(); ctx.moveTo(0,-s*0.13); ctx.lineTo(s*0.13,s*0.09); ctx.lineTo(-s*0.13,s*0.09); ctx.closePath(); ctx.fill(); ctx.restore(); }
   ctx.restore();
 }
 /* Raster glyph helper (production art pack) — draws the real ic_<name> PNG centered at (cx,cy) at
@@ -701,6 +739,38 @@ function ph_poppu(pose,x,y,s){
 
 /* real asset if present, else placeholder */
 function sprite(key,x,y,w,h){ if(has(key)){ ctx.drawImage(IMG[key].img,x-w/2,y-h/2,w,h); return true; } return false; }
+/* draws an image FIT (preserve aspect, no crop) inside a maxW x maxH box, centered at (cx,cy) —
+   used for building/scene thumbnails whose source art isn't square, so pill/nav icons never stretch. */
+function fitImage(key,cx,cy,maxW,maxH){
+  if(!has(key)) return false;
+  const im=IMG[key].img, iw=im.naturalWidth||1, ih=im.naturalHeight||1;
+  const s=Math.min(maxW/iw,maxH/ih), w=iw*s, h=ih*s;
+  ctx.drawImage(im,cx-w/2,cy-h/2,w,h); return true;
+}
+/* draws an image CROPPED-TO-FILL a wxh box (CSS "background-size:cover" equivalent) — used for very
+   wide/flat source strips (e.g. the conveyor belt art) where fitImage() would letterbox down to an
+   unreadably thin sliver inside a roughly-square chip; this instead samples a centered square-ish
+   crop at full box coverage so the category thumbnail actually reads at a glance. */
+function coverImage(key,cx,cy,w,h){
+  if(!has(key)) return false;
+  const im=IMG[key].img, iw=im.naturalWidth||1, ih=im.naturalHeight||1;
+  const s=Math.max(w/iw,h/ih), sw=w/s, sh=h/s, sx=(iw-sw)/2, sy=(ih-sh)/2;
+  ctx.drawImage(im,sx,sy,sw,sh,cx-w/2,cy-h/2,w,h); return true;
+}
+/* simple procedural 5-petal flower — fallback for the flower_* "My Garden" glyph pack (reuses the
+   same bloom silhouette as the Delivery-Drive roadside flower prop, at icon scale). */
+function ph_flowerIcon(cx,cy,s,col){
+  ctx.save(); ctx.translate(cx,cy); ctx.fillStyle=col||'#FF9DB6'; ctx.strokeStyle='#5a3d24'; ctx.lineWidth=s*0.035;
+  for(let i=0;i<5;i++){ const a=i*2*Math.PI/5; ctx.save(); ctx.rotate(a);
+    ctx.beginPath(); ctx.ellipse(0,-s*0.26,s*0.18,s*0.14,0,0,7); ctx.fill(); ctx.stroke(); ctx.restore(); }
+  ctx.beginPath(); ctx.arc(0,0,s*0.15,0,7); ctx.fillStyle='#FFE79A'; ctx.fill(); ctx.stroke(); ctx.restore();
+}
+/* raster-first "My Garden" flower glyph (flower_common is a top-level ASSET_SRC key, not an ic_ glyph,
+   so it can't go through uiIcon()/glyphIcon() — same has()-gated pattern, own tiny wrapper). */
+function flowerGlyph(cx,cy,s){
+  if(has('flower_common')){ ctx.drawImage(IMG.flower_common.img,cx-s/2,cy-s/2,s,s); return true; }
+  ph_flowerIcon(cx,cy,s,'#FF9DB6'); return false;
+}
 /* subtle "alive" idle: breathing (2s sine, 1.0→1.02) + a blink squash every ~3.4s */
 function poppuIdle(){
   const breath = 1.01 + Math.sin(time*Math.PI)*0.01;   // 2s cycle
@@ -813,6 +883,25 @@ function conveyorSkinOverlay(cx,cy,cw,ch,skin){
       for(let i=0,x=cx-cw/2-80;x<cx+cw/2+80;x+=44,i++){ ctx.fillStyle=cols[i%cols.length]; ctx.save(); ctx.translate(x+off,cy); ctx.rotate(0.5); ctx.fillRect(-14,-ch*0.34,28,ch*0.68); ctx.restore(); } }
   else if(skin==='cv_cloud'){ ctx.globalAlpha=0.6; ctx.fillStyle='#eaf4ff';
       for(let x=cx-cw/2;x<cx+cw/2;x+=90){ ctx.beginPath(); ctx.arc(x+off*0.5,cy,ch*0.2,0,7); ctx.fill(); } }
+  ctx.restore();
+}
+/* wordless SHOP category pill content (P1) — a small representative-item thumbnail per cosmetic
+   category, replacing the "Hats/Mailbox Skins/Conveyor/Decorations" text label. Wraps existing art
+   1:1 per ui-ux-designer spec: hat = mini Poppu head wearing the crown hat, mailbox = the star
+   mailbox art (or its procedural fallback), conveyor = the conveyor belt art (or its fallback),
+   decor = the Plant decor's in-context preview art (or a generic decor glyph). Clipped to a circle
+   so every category reads as one consistent round "chip", independent of each source art's aspect. */
+function drawCategoryThumb(catId,cx,cy,r){
+  ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.clip();
+  if(catId==='hat'){ drawMiniPoppuHead(cx,cy+r*0.22,r*1.5); drawPoppuHat(cx,cy-r*0.05,r*1.7,'hat_crown'); }
+  else if(catId==='mailbox'){
+    if(!fitImage('mailbox_star',cx,cy,r*1.8,r*1.8)) ph_mailbox(TYPES[0],cx,cy,r*1.6,0); }
+  else if(catId==='conveyor'){
+    // the real strip is very wide/flat — CROP-fill (cover) rather than fit, or it shrinks to an
+    // unreadable sliver inside this square chip
+    if(!coverImage('conveyor',cx,cy,r*1.8,r*1.8)) ph_conveyor(cx,cy,r*1.8,r*0.6); }
+  else { // decor
+    if(!sprite('cos-dec-plant',cx,cy,r*1.7,r*1.7)) drawIcon('cloud',cx,cy,r*1.3,'#5FB985','#3a6a4a'); }
   ctx.restore();
 }
 /* raster-first decor piece — draws cos-dec-<name> at its natural aspect, fit to targetW, anchored per
@@ -2325,11 +2414,15 @@ function backButton(){
   }
   ctx.restore();
 }
-function pill(r,fill,strokeCol,strokeW,label,labelCol,sub){
+/* WORDLESS pill chrome (P1) — same rounded-pill fill/border/shadow as before (kept as the pill's
+   colored-border "secondary cue" per ui-ux-designer spec), but the content slot is now an ICON
+   renderer, not a text label. `content` is a function(cx,cy) that draws whatever glyph/thumbnail
+   belongs in this pill, called with the pill's own center — every call site below supplies its own
+   icon (glyphIcon/drawCategoryThumb/fitImage/etc.), so hit-rect geometry (r) is completely untouched. */
+function pill(r,fill,strokeCol,strokeW,content,labelCol){
   ctx.save(); shadow(12,'rgba(0,0,0,0.14)',0,6); ctx.fillStyle=fill; rr(r.x,r.y,r.w,r.h,r.h/2); ctx.fill(); noShadow();
   if(strokeW){ ctx.lineWidth=strokeW; ctx.strokeStyle=strokeCol; rr(r.x,r.y,r.w,r.h,r.h/2); ctx.stroke(); }
-  drawText(label,r.x+r.w/2,r.y+r.h/2+(sub?-10:0),40,labelCol,null);
-  if(sub) drawText(sub,r.x+r.w/2,r.y+r.h/2+24,24,labelCol,null,'center','700');
+  if(content) content(r.x+r.w/2,r.y+r.h/2,labelCol);
   ctx.restore();
 }
 
@@ -2524,15 +2617,22 @@ function drawStationTask(){
     const ax=-70+(Math.sin(time*3)*0.5+0.5)*140;
     ctx.globalAlpha=0.85; glyphIcon('arrow',ax,-h/2-46,60,'#F4A93E','#E3A93E'); ctx.globalAlpha=1;
     ctx.restore();
-    drawText('Swipe to seal!',sx,sy+150,40,'#7a5a34','#fff');
+    // wordless (P3): "Swipe to seal!" caption dropped — a mini seal icon + pulsing arrow + a swiping
+    // hand (reusing drawHand, the same pictograph language as the drag tutorial) replace it
+    { const capY=sy+150, sweep=Math.sin(time*2.2)*0.5+0.5;
+      glyphIcon('seal',sx-90,capY-10,50,'#F4A93E','#5a3d24');
+      ctx.save(); ctx.globalAlpha=0.55+0.45*sweep; glyphIcon('arrow',sx-14,capY-10,40,'#F4A93E','#E3A93E'); ctx.restore();
+      drawHand(sx+66+sweep*36,capY+28); }
   }
   else if(k==='stamp'){
     ctx.save(); ctx.translate(sx,sy-10);
     if(has('pkg_'+activeTask.type.id)) ctx.drawImage(IMG['pkg_'+activeTask.type.id].img,-90,-90,180,180); else ph_package(activeTask.type,0,0,180,activeTask.golden);
     ctx.fillStyle='#fff'; ctx.strokeStyle=activeTask.type.deep; ctx.lineWidth=6; ctx.beginPath(); ctx.arc(70,-70,44,0,7); ctx.fill(); ctx.stroke();
-    drawText('?',70,-66,60,activeTask.type.deep,null);
+    // wordless (P3): the mystery "?" badge is now the ic_stamp glyph — pairs with the existing
+    // pre-tap glow cue on the matching stamp below, so "this needs a stamp" reads without language
+    glyphIcon('stamp',70,-70,56,activeTask.type.deep,'#5a3d24');
     ctx.restore();
-    drawText('Which stamp?',sx,sy-148,40,'#7a5a34','#fff');
+    // wordless (P3): "Which stamp?" caption dropped — rely entirely on the pre-tap glow cue below
     const tray=stampTray();
     for(let i=0;i<3;i++){ const tb=tray[i], glyph=activeTask.opts[i], want=(glyph===activeTask.want);
       ctx.save();
@@ -2547,7 +2647,13 @@ function drawStationTask(){
   else if(k==='shake'){
     for(const it of activeTask.items){ ctx.save(); ctx.translate(sx+it.ox,sy+it.oy+Math.sin(time*20+it.ox)*3); ctx.rotate(it.rot+Math.sin(time*15)*0.05);
       const s=140; if(has('pkg_'+it.type.id)) ctx.drawImage(IMG['pkg_'+it.type.id].img,-s/2,-s/2,s,s); else ph_package(it.type,0,0,s,it.golden); ctx.restore(); }
-    drawText('Shake to sort! ('+activeTask.taps+'/3)',sx,sy+150,38,'#7a5a34','#fff');
+    // wordless (P3): "Shake to sort! (n/3)" caption dropped — a small pulsing motion glyph + 3 dots
+    // filling in (not a numeral fraction) replace it; the existing top-right pulsing bolt cue stays.
+    { const capY=sy+150;
+      ctx.save(); ctx.globalAlpha=0.6+0.4*Math.sin(time*8); glyphIcon('bolt',sx-96,capY,44,'#F4A93E','#E3A93E'); ctx.restore();
+      for(let i=0;i<3;i++){ const filled=i<activeTask.taps;
+        ctx.save(); ctx.fillStyle=filled?'#5FB985':'#e3d3b4'; ctx.strokeStyle=filled?'#3a6a4a':'#cbbd9c'; ctx.lineWidth=4;
+        ctx.beginPath(); ctx.arc(sx-24+i*44,capY,filled?16:13,0,7); ctx.fill(); ctx.stroke(); ctx.restore(); } }
     ctx.save(); ctx.globalAlpha=0.6+0.4*Math.sin(time*6); glyphIcon('bolt',sx+220,sy-130,60,'#F4A93E','#E3A93E'); ctx.restore();
   }
 }
@@ -2619,12 +2725,18 @@ function drawStart(){
     ctx.fillStyle=pg; ctx.beginPath(); ctx.arc(0,0,PLAYBTN.r,0,7); ctx.fill(); noShadow(); ctx.strokeStyle='#fff'; ctx.lineWidth=12; ctx.stroke();
     ctx.fillStyle='#fff'; ctx.beginPath(); ctx.moveTo(-36,-50); ctx.lineTo(-36,50); ctx.lineTo(56,0); ctx.closePath(); ctx.fill(); }
   ctx.restore();
-  drawText('Play Level '+Math.min(SAVE.maxLevel,LEVELS.length),PLAYBTN.x,PLAYBTN.y+PLAYBTN.r+36,32,'#7a5a34','#fff','center','700',8);
+  // wordless: the Play caption is dropped (P0) — the pulsing button + Poppu's wave already read as "go"
   for(const b of START_BTNS()){
     const col=b.id==='levels'?'#8ECFEC':b.id==='shop'?'#FFD15C':'#B79BEA';
-    pill(b,'#fffdf6',col,6, b.id==='levels'?'Levels':b.id==='shop'?'Shop':'Stickers','#6a4a2a');
+    // wordless nav pills (P1): Levels->post office thumbnail, Shop->tote-bag icon, Stickers->flower icon
+    const iconFn = b.id==='levels'
+      ? (cx,cy)=>{ if(!fitImage('post_office',cx,cy,76,76)) ph_building('post',cx,cy+34,66,72); }
+      : b.id==='shop'
+        ? (cx,cy)=>glyphIcon('shop_bag',cx,cy,60,'#FFE0A0','#7a4a20')
+        : (cx,cy)=>flowerGlyph(cx,cy,64);
+    pill(b,'#fffdf6',col,6, iconFn,'#6a4a2a');
   }
-  drawText('Pick a place',W/2,H-208,30,'#7a5a34',null);
+  // wordless: "Pick a place" caption dropped (P0) — the 3 scene thumbnails read on their own
   for(const r of SCENE_BTNS()) drawSceneBtn(r);
   stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
   drawDailyBar();
@@ -2644,16 +2756,18 @@ function drawDailyBar(){
 }
 function drawSceneBtn(r){
   const S=r.S, on=currentScene===S.id, unlocked=sceneUnlocked(S.id);
+  // wordless (P0): the "Mail Room/Forest/Space" caption is dropped — the thumbnail clip now fills
+  // almost the entire card (was r.h-52 to leave room for the label; now r.h-16, same as the outer
+  // card's own margin) so the scene art itself carries the identity.
   ctx.save(); shadow(on?20:12,on?'rgba(95,185,133,0.5)':'rgba(0,0,0,0.16)',0,6);
   rr(r.x,r.y,r.w,r.h,26); ctx.fillStyle='#fff'; ctx.fill(); noShadow();
-  ctx.save(); rr(r.x+8,r.y+8,r.w-16,r.h-52,20); ctx.clip();
-  if(has(S.bg)) ctx.drawImage(IMG[S.bg].img,r.x+8,r.y+8,r.w-16,r.h-52);
-  else { ctx.fillStyle=['#F4CE7A','#9ED89E','#B79BEA'][S.id]; ctx.fillRect(r.x+8,r.y+8,r.w-16,r.h-52); }
+  ctx.save(); rr(r.x+8,r.y+8,r.w-16,r.h-16,20); ctx.clip();
+  if(has(S.bg)) ctx.drawImage(IMG[S.bg].img,r.x+8,r.y+8,r.w-16,r.h-16);
+  else { ctx.fillStyle=['#F4CE7A','#9ED89E','#B79BEA'][S.id]; ctx.fillRect(r.x+8,r.y+8,r.w-16,r.h-16); }
   ctx.restore();
   ctx.lineWidth=on?7:4; ctx.strokeStyle=on?'#5FB985':'#e3d3b4'; rr(r.x,r.y,r.w,r.h,26); ctx.stroke();
-  drawText(S.name,r.x+r.w/2,r.y+r.h-24,30,unlocked?'#6a4a2a':'#b8a684',null);
-  if(!unlocked){ ctx.save(); rr(r.x+8,r.y+8,r.w-16,r.h-52,20); ctx.clip(); ctx.fillStyle='rgba(60,45,30,0.55)'; ctx.fillRect(r.x,r.y,r.w,r.h);
-    const cx=r.x+r.w/2, cy=r.y+(r.h-44)/2; ctx.fillStyle='#fff'; rr(cx-22,cy-2,44,38,8); ctx.fill(); ctx.lineWidth=9; ctx.strokeStyle='#fff';
+  if(!unlocked){ ctx.save(); rr(r.x+8,r.y+8,r.w-16,r.h-16,20); ctx.clip(); ctx.fillStyle='rgba(60,45,30,0.55)'; ctx.fillRect(r.x,r.y,r.w,r.h);
+    const cx=r.x+r.w/2, cy=r.y+r.h/2-14; ctx.fillStyle='#fff'; rr(cx-22,cy-2,44,38,8); ctx.fill(); ctx.lineWidth=9; ctx.strokeStyle='#fff';
     ctx.beginPath(); ctx.arc(cx,cy-2,17,Math.PI,0); ctx.stroke(); drawText('Lv '+S.unlockLevel,cx,cy+54,24,'#fff',null); ctx.restore(); }
   ctx.restore();
 }
@@ -2661,7 +2775,7 @@ function drawSceneBtn(r){
 /* ------------------------------------------------------------- RENDER: LEVELMAP */
 function drawLevelMap(){
   drawBackground(); ctx.save(); ctx.fillStyle='rgba(255,248,235,0.92)'; ctx.fillRect(0,0,W,H); ctx.restore();
-  drawText('Choose a Level',W/2,150,80,'#7a5a34','#fff','center','800',12);
+  // wordless (P0): "Choose a Level" header dropped — the level path + star/lock nodes already read
   const nodes=levelNodes();
   ctx.save(); ctx.strokeStyle='#E3C9A0'; ctx.lineWidth=14; ctx.lineCap='round'; ctx.setLineDash([6,26]);
   ctx.beginPath(); for(let i=0;i<nodes.length;i++){ const n=nodes[i]; if(i===0) ctx.moveTo(n.x,n.y); else ctx.lineTo(n.x,n.y); } ctx.stroke(); ctx.setLineDash([]); ctx.restore();
@@ -2682,12 +2796,17 @@ function drawLevelMap(){
 /* ------------------------------------------------------------- RENDER: SHOP */
 function drawShop(){
   drawBackground(); ctx.save(); ctx.fillStyle='rgba(255,248,235,0.95)'; ctx.fillRect(0,0,W,H); ctx.restore();
-  drawText("Poppu's Shop",W/2,90,64,'#7a5a34','#fff','center','800',10);
+  // wordless (P0): "Poppu's Shop" header dropped — the tabs + cards already read
   stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
+  // wordless (P1): Upgrades tab -> gear icon, Style tab -> the Crown hat's in-context preview thumbnail
   for(const t of shopTabRects()){ const on=shopTab===t.id;
-    pill(t,on?'#FFF3D6':'#fffdf6',on?'#F4A93E':'#e3d3b4',on?7:4, t.id==='upgrade'?'Upgrades':'Style','#6a4a2a'); }
+    const iconFn = t.id==='upgrade'
+      ? (cx,cy)=>glyphIcon('gear',cx,cy,52,'#F4A93E','#E3A93E')
+      : (cx,cy)=>{ if(!sprite('cos-hat-crown',cx,cy,64,64)) drawPoppuHat(cx,cy,74,'hat_crown'); };
+    pill(t,on?'#FFF3D6':'#fffdf6',on?'#F4A93E':'#e3d3b4',on?7:4, iconFn,'#6a4a2a'); }
   if(shopTab==='upgrade'){ for(const c of upgradeCards()) drawUpgradeCard(c); }
-  else { for(const r of shopCatRects()){ const on=shopCat===r.c; pill(r,on?'#EDE2FF':'#fffdf6',on?'#B79BEA':'#e3d3b4',on?6:4,COS_CAT_NAME[r.c],'#6a4a2a'); }
+  else { for(const r of shopCatRects()){ const on=shopCat===r.c;
+      pill(r,on?'#EDE2FF':'#fffdf6',on?'#B79BEA':'#e3d3b4',on?6:4,(cx,cy)=>drawCategoryThumb(r.c,cx,cy,r.h*0.42),'#6a4a2a'); }
     for(const c of cosmeticCards()) drawCosmeticCard(c); }
   backButton();
   drawFloatTexts();
@@ -2697,12 +2816,16 @@ function drawUpgradeCard(c){
   ctx.save(); shadow(16,'rgba(0,0,0,0.14)',0,8); ctx.fillStyle=owned?'#EAF7EE':'#fffdf6'; rr(c.x,c.y,c.w,c.h,28); ctx.fill(); noShadow();
   ctx.lineWidth=6; ctx.strokeStyle=owned?'#5FB985':'#e3d3b4'; rr(c.x,c.y,c.w,c.h,28); ctx.stroke();
   const cx=c.x+c.w/2;
-  ctx.save(); ctx.fillStyle=u.id==='doubleStamps'?'#FFF3D6':'#F3F7FF'; ctx.beginPath(); ctx.arc(cx,c.y+82,54,0,7); ctx.fill();
-  if(!glyphIcon(u.icon,cx,c.y+82,72,'#F4A93E','#E3A93E') && u.icon==='x2') drawText('2×',cx,c.y+82,52,'#E3A93E',null); ctx.restore();
-  drawText(u.name,cx,c.y+168,34,'#6a4a2a',null);
-  wrapText(u.desc,cx,c.y+206,c.w-48,24,'#a88a5c');
-  if(owned){ drawText('✓ Owned',cx,c.y+c.h-38,32,'#5FB985',null); }
-  else { const bw=c.w-70,bh=56,bx=cx-bw/2,by=c.y+c.h-72;
+  // wordless (P0): NAME + DESC text dropped — the icon IS the identity now, so its circle grows
+  // (r54->80) to fill the freed vertical space instead of sitting small above two lines of copy.
+  const iconCy=c.y+130, iconR=80;
+  ctx.save(); ctx.fillStyle=u.id==='doubleStamps'?'#FFF3D6':'#F3F7FF'; ctx.beginPath(); ctx.arc(cx,iconCy,iconR,0,7); ctx.fill();
+  if(!glyphIcon(u.icon,cx,iconCy,iconR*1.35,'#F4A93E','#E3A93E') && u.icon==='x2') drawText('2×',cx,iconCy,78,'#E3A93E',null); ctx.restore();
+  const bw=c.w-70,bh=56,bx=cx-bw/2,by=c.y+c.h-72;
+  if(owned){   // wordless: solid ic-check on a filled pill replaces the "✓ Owned" text
+    ctx.save(); ctx.fillStyle='#5FB985'; rr(bx,by,bw,bh,bh/2); ctx.fill();
+    glyphIcon('check',cx,by+bh/2,44,'#fff','#3a6a4a'); ctx.restore(); }
+  else {
     ctx.save(); ctx.fillStyle=afford?'#FFD15C':'#e6ddca'; rr(bx,by,bw,bh,bh/2); ctx.fill();
     glyphIcon('star',bx+40,by+bh/2,40,'#fff','#E3A93E'); drawText(u.cost+'',bx+bw/2+14,by+bh/2,34,afford?'#6a4a2a':'#b8a684',null); ctx.restore(); }
   ctx.restore();
@@ -2727,10 +2850,14 @@ function drawCosmeticCard(c){
     else { ctx.fillStyle='#E39B6E'; ctx.beginPath(); ctx.ellipse(cx,py,60,26,0,0,7); ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=6; ctx.stroke(); } }
   ctx.restore();
   ctx.lineWidth=5; ctx.strokeStyle='#e3d3b4'; ctx.beginPath(); ctx.arc(cx,py,66,0,7); ctx.stroke();
-  drawText(it.name,cx,c.y+192,32,'#6a4a2a',null);
+  // wordless (P0): NAME text dropped — the preview art above IS the identity now
   const bw=c.w-70,bh=54,bx=cx-bw/2,by=c.y+c.h-70;
-  if(on){ drawText('✓ Wearing',cx,by+bh/2,30,'#8E6FD6',null); }
-  else if(owned){ ctx.save(); ctx.fillStyle='#C9E8D4'; rr(bx,by,bw,bh,bh/2); ctx.fill(); drawText('Wear it',cx,by+bh/2,30,'#3a6a4a',null); ctx.restore(); }
+  // wordless (P2): ic-check 3-state CTA replaces "✓ Wearing"/"Wear it" text —
+  // solid+full-opacity = Owned & Wearing, 60%-opacity outline = Wear-it CTA (still owned, tap to equip)
+  if(on){ ctx.save(); ctx.fillStyle='#8E6FD6'; rr(bx,by,bw,bh,bh/2); ctx.fill();
+    glyphIcon('check',cx,by+bh/2,42,'#fff','#5a3d24'); ctx.restore(); }
+  else if(owned){ ctx.save(); ctx.fillStyle='#C9E8D4'; rr(bx,by,bw,bh,bh/2); ctx.fill();
+    ctx.globalAlpha=0.6; glyphIcon('check',cx,by+bh/2,38,'#3a6a4a','#3a6a4a'); ctx.restore(); }
   else { ctx.save(); ctx.fillStyle=afford?'#FFD15C':'#e6ddca'; rr(bx,by,bw,bh,bh/2); ctx.fill();
     glyphIcon('star',bx+36,by+bh/2,38,'#fff','#E3A93E'); drawText(it.cost+'',bx+bw/2+12,by+bh/2,32,afford?'#6a4a2a':'#b8a684',null); ctx.restore(); }
   ctx.restore();
@@ -2747,9 +2874,10 @@ function drawLevelDone(){
   drawBackground(); ctx.save(); ctx.fillStyle='rgba(255,248,235,0.92)'; ctx.fillRect(0,0,W,H); ctx.restore();
   drawAmbient();
   const ds=doneScreen||{stars:1,stamps:0,level:currentLevel};
-  drawText('Level '+ds.level+' Done!',W/2,220,88,'#7a5a34','#fff','center','800',14);
+  // wordless (P0): "Level N Done!" header dropped entirely — the star row rises ~50px into the
+  // freed space (was y400) so the result still reads instantly with no caption above it.
   for(let s=0;s<3;s++){ const filled=s<ds.stars, bob=filled?Math.sin(time*3+s)*10:0;
-    ctx.save(); ctx.translate(W/2-180+s*180, 400+bob); const sc=filled?1.1:0.8; ctx.scale(sc,sc);
+    ctx.save(); ctx.translate(W/2-180+s*180, 350+bob); const sc=filled?1.1:0.8; ctx.scale(sc,sc);
     glyphIcon('star',0,0,150,filled?'#FFD15C':'#e3d3b4',filled?'#E3A93E':'#cbbd9c'); ctx.restore(); }
   // ---- LEVEL-DONE POLISH: Poppu shrunk + raised (was 300px @ y700, spilling down onto the "Next"
   // button at y760); stamps pill kept where it was and now drawn AFTER Poppu so it still reads as a
@@ -2762,12 +2890,18 @@ function drawLevelDone(){
   // stamps pill lives in its OWN clear band below Poppu (~680-750) and above the button row (760+) —
   // never over her face/body, no matter her sprite height or an equipped hat riding above her.
   ctx.save(); shadow(14,'rgba(0,0,0,0.14)',0,6); ctx.fillStyle='#fffdf6'; rr(W/2-170,682,340,68,34); ctx.fill(); noShadow();
-  glyphIcon('star',W/2-110,716,48,'#FFD15C','#E3A93E'); drawText('+'+ds.stamps+' Stamps',W/2+30,716,38,'#6a4a2a',null); ctx.restore();
+  // wordless (P0): "Stamps" word dropped — star icon + numeral is the whole message
+  glyphIcon('star',W/2-110,716,48,'#FFD15C','#E3A93E'); drawText('+'+ds.stamps,W/2+30,716,38,'#6a4a2a',null); ctx.restore();
   for(const b of doneBtns()){
-    if(b.id==='next' && currentLevel>=LEVELS.length){ pill(b,'#E9DEC9','#cbbd9c',5,'✓ All done!','#8a7a5a'); continue; }
+    // wordless (P1): level-10 "all done" state -> a crown inside the muted pill, no "✓ All done!" text
+    if(b.id==='next' && currentLevel>=LEVELS.length){ pill(b,'#E9DEC9','#cbbd9c',5,(cx,cy)=>glyphIcon('crown',cx,cy,56,'#cbbd9c','#8a7a5a'),'#8a7a5a'); continue; }
     const col=b.id==='replay'?'#8ECFEC':b.id==='next'?'#5FB985':'#B79BEA';
-    const label=b.id==='replay'?'Replay':b.id==='next'?'Next →':'Home';
-    pill(b,'#fffdf6',col,6,label,'#6a4a2a');
+    // wordless (P1): Next -> straight ic_arrow, Home -> ic_home, Replay -> the NEW circular ic_replay
+    // (deliberately a loop, never confusable with Next's straight arrow)
+    const iconFn = b.id==='replay' ? (cx,cy)=>glyphIcon('replay',cx,cy,56,'#4FA9D6','#2a5a7a')
+      : b.id==='next' ? (cx,cy)=>glyphIcon('arrow',cx,cy,50,'#3a8a5a','#2a5a3a')
+      : (cx,cy)=>glyphIcon('home',cx,cy,52,'#8E6FD6','#5a3d7a');
+    pill(b,'#fffdf6',col,6,iconFn,'#6a4a2a');
     // FIX5: minimal, neutral auto-advance ring on the Next pill (icon-first — no text) so an older
     // kid/parent can see WHY the screen is about to change on its own. Functional placeholder only;
     // flagged for ui-ux-designer to restyle to the game's own visual language.
@@ -2795,8 +2929,9 @@ function gardenSlotFlower(i){
 }
 function drawSticker(){
   drawBackground(); ctx.save(); ctx.fillStyle='rgba(255,248,235,0.95)'; ctx.fillRect(0,0,W,H); ctx.restore();
-  drawText('My Garden',W/2,110,80,'#7a5a34','#fff','center','800',12);
-  drawText(plural(SAVE.stickers.length,'bloom')+' grown',W/2,190,36,'#a88a5c',null,'center','700');
+  // wordless (P0): "My Garden" header dropped — the flower grid reads on its own.
+  // wordless (P0): "N blooms grown" -> a flower icon + the bare numeral (no words).
+  flowerGlyph(W/2-30,190,48); drawText(''+SAVE.stickers.length,W/2+30,190,40,'#a88a5c',null,'left','800');
   const cols=8, rows=4, total=cols*rows, cw=180, ch=180, gx=(W-cols*cw)/2, gy=260;
   for(let i=0;i<total;i++){ const cx=gx+(i%cols)*cw+cw/2, cy=gy+Math.floor(i/cols)*ch+ch/2, earned=i<SAVE.stickers.length;
     ctx.save();
