@@ -1985,7 +1985,14 @@ function drawWrapQueue(){
     ctx.strokeStyle='#5a3d24'; ctx.lineWidth=5;
     if(i<n){ ctx.fillStyle=cols[i%cols.length]; rr(-56,-40,112,80,14); ctx.fill(); ctx.stroke();
       ctx.fillStyle='#fff'; rr(-56,-40,112,26,14); ctx.fill(); }
-    else { ctx.strokeStyle='rgba(90,61,36,0.25)'; ctx.setLineDash([8,8]); rr(-56,-40,112,80,14); ctx.stroke(); ctx.setLineDash([]); }
+    else {   // empty outbox slot: a faint GHOST wrapped-present (filled box + ribbon + soft bow) so it
+             // reads "a finished gift lands here", not an empty dashed form-field (board polish)
+      ctx.globalAlpha=0.32+0.12*Math.sin(time*3);
+      ctx.fillStyle='#F1E7D6'; rr(-56,-40,112,80,14); ctx.fill();
+      ctx.strokeStyle='rgba(90,61,36,0.30)'; ctx.lineWidth=4; rr(-56,-40,112,80,14); ctx.stroke();
+      ctx.strokeStyle='rgba(183,155,234,0.6)'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(0,-40); ctx.lineTo(0,40); ctx.stroke();
+      drawBow(0,-40,34,'#C9B3EA'); }
     ctx.restore();
   }
   ctx.restore();
@@ -3829,10 +3836,10 @@ function drawTruck(){
     const surf=(D.biome&&D.biome.roadSurface)||'dirt';
     const dcol = surf==='cloud' ? 'rgba(255,255,255,0.55)' : 'rgba(150,120,80,0.28)';
     ctx.save();
-    for(let i=0;i<3;i++){ const ph=((time*1.8+i*0.7)%1);
-      ctx.globalAlpha=(1-ph)*0.45; ctx.fillStyle=dcol;
-      const px=renderX+(i-1)*16, py=886+ph*46, pr=8+ph*22;
-      ctx.beginPath(); ctx.ellipse(px,py,pr,pr*0.6,0,0,7); ctx.fill(); }
+    for(let i=0;i<4;i++){ const ph=((time*1.9+i*0.55)%1);
+      ctx.globalAlpha=(1-ph)*0.55; ctx.fillStyle=dcol;
+      const px=renderX+(i-1.5)*20, py=884+ph*52, pr=13+ph*34;   // bigger, poofier puffs
+      ctx.beginPath(); ctx.ellipse(px,py,pr,pr*0.62,0,0,7); ctx.fill(); }
     ctx.restore();
   }
   // flat contact shadow OUTSIDE the rotate block — stays flush on the road, never tilts with the truck
