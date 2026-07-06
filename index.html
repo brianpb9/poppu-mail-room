@@ -1847,17 +1847,18 @@ function drawWrapBoxScene(){
     ctx.lineWidth=5; ctx.strokeStyle=type.deep; ctx.stroke();
     glyphIcon(wrapBox.sticker,0,0,60,'#FFD15C','#E3A93E'); ctx.restore();
   } else {
-    // ghost sticker affordance (review-board polish) — a faint dashed ring + a slowly cycling
-    // star→heart→moon preview at the EXACT landing spot, so a non-reader sees the three tray buttons'
-    // stickers belong HERE on the box before tapping (zero reading).
+    // inviting sticker PREVIEW affordance (board polish) — a FILLED soft sticker disc with a clearly
+    // visible slowly-cycling star→heart→moon preview + a gentle bob + a friendly "tap" halo, so a child
+    // reads "put a sticker HERE!" (not an empty/broken dashed hole). Links the tray buttons to the box.
     const cyc=['star','heart','moon'][Math.floor(time/1.3)%3], gp=WRAP_STICKER_PAL[cyc];
-    const gpulse=0.32+0.16*Math.sin(time*3);
-    ctx.save(); ctx.translate(s*0.28,-s*0.30);
-    // soft cream backing so the ghost reads on the box, then dashed ring + cycling glyph
-    ctx.globalAlpha=gpulse*0.6; ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,50,0,7); ctx.fill();
-    ctx.globalAlpha=gpulse; ctx.setLineDash([11,9]); ctx.lineWidth=4.5; ctx.strokeStyle=gp[1];
-    ctx.beginPath(); ctx.arc(0,0,52,0,7); ctx.stroke(); ctx.setLineDash([]);
-    glyphIcon(cyc,0,0,54,gp[0],gp[1]); ctx.restore();
+    const pulse=0.5+0.5*Math.sin(time*3), gb=Math.sin(time*2.4)*3;
+    ctx.save(); ctx.translate(s*0.28,-s*0.30+gb);
+    ctx.globalAlpha=0.22*pulse; ctx.fillStyle=gp[0];   // friendly tap-halo (grows/fades), not a cutout
+    ctx.beginPath(); ctx.arc(0,0,58+pulse*7,0,7); ctx.fill();
+    ctx.globalAlpha=0.9; shadow(8,'rgba(0,0,0,0.12)',0,3); ctx.fillStyle='#fffdf6';   // filled sticker disc
+    ctx.beginPath(); ctx.arc(0,0,50,0,7); ctx.fill(); noShadow();
+    ctx.globalAlpha=0.85; ctx.lineWidth=5; ctx.strokeStyle=gp[1]; ctx.beginPath(); ctx.arc(0,0,50,0,7); ctx.stroke();
+    ctx.globalAlpha=0.88; glyphIcon(cyc,0,0,56,gp[0],gp[1]); ctx.restore();
   }
   ctx.restore();
   if(!wrapBox.acted){
@@ -1871,6 +1872,14 @@ function drawWrapRibbonStrip(){
   ctx.save(); shadow(14,'rgba(0,0,0,0.12)',0,5); ctx.fillStyle='rgba(255,252,244,0.9)';
   rr(r.x-r.w/2,r.y-r.h/2,r.w,r.h,30); ctx.fill(); noShadow();
   ctx.lineWidth=5; ctx.strokeStyle='#F06A8E'; rr(r.x-r.w/2,r.y-r.h/2,r.w,r.h,30); ctx.stroke();
+  // faint ribbon 'material' band through the strip so it reads as a RIBBON to swipe, not an empty text
+  // field (product/player note). Sits under the progress fill + bow below.
+  if(!wrapBox.ribbon){ ctx.save(); rr(r.x-r.w/2,r.y-r.h/2,r.w,r.h,30); ctx.clip();
+    ctx.globalAlpha=0.32; ctx.fillStyle='#FFC2D3'; ctx.fillRect(r.x-r.w/2,r.y-r.h*0.30,r.w,r.h*0.60);
+    ctx.globalAlpha=0.55; ctx.strokeStyle='#FF9DB6'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(r.x-r.w/2,r.y-r.h*0.30); ctx.lineTo(r.x+r.w/2,r.y-r.h*0.30);
+    ctx.moveTo(r.x-r.w/2,r.y+r.h*0.30); ctx.lineTo(r.x+r.w/2,r.y+r.h*0.30); ctx.stroke();
+    ctx.restore(); }
   const prog=wrapBox.ribbon?1:wrapBox.ribbonProg;
   ctx.save(); rr(r.x-r.w/2,r.y-r.h/2,r.w,r.h,30); ctx.clip();
   ctx.fillStyle='rgba(255,157,182,0.35)'; ctx.fillRect(r.x-r.w/2,r.y-r.h/2,r.w*prog,r.h); ctx.restore();
@@ -3011,7 +3020,15 @@ function drawLevelMap(){
 
 /* ------------------------------------------------------------- RENDER: SHOP */
 function drawShop(){
-  drawBackground(); ctx.save(); ctx.fillStyle='rgba(255,248,235,0.95)'; ctx.fillRect(0,0,W,H); ctx.restore();
+  drawBackground();
+  // let the illustrated mail-room read THROUGH (board note: kill the flat-beige template screen) — a soft
+  // warm legibility wash + a gentle cream-to-wood vignette instead of an opaque fill.
+  ctx.save();
+  ctx.fillStyle='rgba(255,248,235,0.60)'; ctx.fillRect(0,0,W,H);
+  const vg=ctx.createRadialGradient(W/2,H*0.42,H*0.18,W/2,H*0.5,H*0.95);
+  vg.addColorStop(0,'rgba(255,250,240,0)'); vg.addColorStop(1,'rgba(120,86,54,0.13)');
+  ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+  ctx.restore();
   // wordless (P0): "Poppu's Shop" header dropped — the tabs + cards already read
   stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
   // wordless (P1): Upgrades tab -> gear icon, Style tab -> the Crown hat's in-context preview thumbnail
@@ -3020,7 +3037,16 @@ function drawShop(){
       ? (cx,cy)=>glyphIcon('gear',cx,cy,52,'#F4A93E','#E3A93E')
       : (cx,cy)=>{ if(!sprite('cos-hat-crown',cx,cy,64,64)) drawPoppuHat(cx,cy,74,'hat_crown'); };
     pill(t,on?'#FFF3D6':'#fffdf6',on?'#F4A93E':'#e3d3b4',on?7:4, iconFn,'#6a4a2a'); }
-  if(shopTab==='upgrade'){ for(const c of upgradeCards()) drawUpgradeCard(c); }
+  if(shopTab==='upgrade'){
+    // warm 'shop counter' tray behind the row so the cards sit IN the mail-room, not floating on beige
+    const cs=upgradeCards();
+    if(cs.length){ const first=cs[0], last=cs[cs.length-1];
+      const px=first.x-40, pw=(last.x+last.w)-first.x+80, py=first.y-70, ph=first.h+140;
+      ctx.save(); shadow(24,'rgba(90,60,30,0.18)',0,10); ctx.fillStyle='rgba(255,244,225,0.80)';
+      rr(px,py,pw,ph,40); ctx.fill(); noShadow();
+      ctx.lineWidth=6; ctx.strokeStyle='rgba(201,122,78,0.35)'; rr(px,py,pw,ph,40); ctx.stroke(); ctx.restore(); }
+    for(const c of upgradeCards()) drawUpgradeCard(c);
+  }
   else { for(const r of shopCatRects()){ const on=shopCat===r.c;
       pill(r,on?'#EDE2FF':'#fffdf6',on?'#B79BEA':'#e3d3b4',on?6:4,(cx,cy)=>drawCategoryThumb(r.c,cx,cy,r.h*0.42),'#6a4a2a'); }
     for(const c of cosmeticCards()) drawCosmeticCard(c); }
@@ -3794,9 +3820,24 @@ function drawTruck(){
   const D=drive; if(!D) return;
   const cx=roadCenterX(D.scrollY), off=Math.abs(D.truck.x-cx);
   let renderX=D.truck.x; if(off>350 && !D.arriving) renderX+=Math.sin(time*28)*6;
+  // continuous "driving" life so the truck reads as MOVING, not parked in a corridor (player/creative/
+  // gameplay note): a gentle bumpy-road bob + a soft body sway, plus little puffs kicked up behind it.
+  const driving=!D.arriving;
+  const bob = driving ? Math.sin(time*9)*3 + Math.sin(time*13.7)*1.4 : 0;
+  const sway = driving ? Math.sin(time*4.7)*0.02 : 0;
+  if(driving){
+    const surf=(D.biome&&D.biome.roadSurface)||'dirt';
+    const dcol = surf==='cloud' ? 'rgba(255,255,255,0.55)' : 'rgba(150,120,80,0.28)';
+    ctx.save();
+    for(let i=0;i<3;i++){ const ph=((time*1.8+i*0.7)%1);
+      ctx.globalAlpha=(1-ph)*0.45; ctx.fillStyle=dcol;
+      const px=renderX+(i-1)*16, py=886+ph*46, pr=8+ph*22;
+      ctx.beginPath(); ctx.ellipse(px,py,pr,pr*0.6,0,0,7); ctx.fill(); }
+    ctx.restore();
+  }
   // flat contact shadow OUTSIDE the rotate block — stays flush on the road, never tilts with the truck
   bakedContactShadow(renderX,890,100,24,0.36);
-  ctx.save(); ctx.translate(renderX,820); ctx.rotate(D.truck.rot);
+  ctx.save(); ctx.translate(renderX,820+bob); ctx.rotate(D.truck.rot+sway);
   if(has('mail_truck')) ctx.drawImage(IMG.mail_truck.img,-100,-80,200,160); else ph_truck();
   ctx.restore();
 }
