@@ -156,6 +156,14 @@ function defaultSave(){
     wrappedCount: 0,    // lifetime total wrapped, for parent-dashboard/future stats
     driveVisits: 0,     // rotates which unlocked friend the Delivery Drive visits next
     friendHats: {},      // { buildingId: cosmeticHatId } — purely-for-fun dress-up, session-persistent
+    /* ------ Between-run growth (P2 9->9.5 lever) ------
+       driveCollection: LIFETIME per-friend nature-gift tally (acorns/butterflies/fireflies/lilypads/
+       cloud-puffs caught across ALL Delivery Drive runs, keyed by friend TYPE id) — NEVER resets per
+       trip, unlike drive.jarCount etc. driveCollectionTier: the highest milestone tier already paid
+       out per friend (guards the one-time bonus so re-crossing the same tier boundary never re-fires).
+       friendGiftGiven: one-time "best friends" (5-heart) celebration+reward, fired exactly once per
+       friend and kept forever. */
+    driveCollection: {}, driveCollectionTier: {}, friendGiftGiven: {},
   };
 }
 let SAVE = loadSave();
@@ -171,6 +179,9 @@ function loadSave(){
     for(const k in base.unlocks) if(!(k in s.unlocks)) s.unlocks[k]=base.unlocks[k];
     if(!s.newBadge || typeof s.newBadge!=='object' || Array.isArray(s.newBadge)) s.newBadge={};
     if(!s.friendHats || typeof s.friendHats!=='object' || Array.isArray(s.friendHats)) s.friendHats={};
+    if(!s.driveCollection || typeof s.driveCollection!=='object' || Array.isArray(s.driveCollection)) s.driveCollection={};
+    if(!s.driveCollectionTier || typeof s.driveCollectionTier!=='object' || Array.isArray(s.driveCollectionTier)) s.driveCollectionTier={};
+    if(!s.friendGiftGiven || typeof s.friendGiftGiven!=='object' || Array.isArray(s.friendGiftGiven)) s.friendGiftGiven={};
     if(typeof s.wrapQueue!=='number' || s.wrapQueue<0) s.wrapQueue=0;
     if(typeof s.wrappedCount!=='number' || s.wrappedCount<0) s.wrappedCount=0;
     if(typeof s.driveVisits!=='number' || s.driveVisits<0) s.driveVisits=0;
@@ -1478,6 +1489,7 @@ function startDrive(){
     // biome finger-toy layer (P1 9-10 lever): each biome plays a DISTINCT verb (see DRIVE_BIOMES modes).
     floaters:[], floaterTimer:0.4, floatersCaught:0,
     jarCount:0, jarPop:0, jarFull:0, rainbowT:0, hop:null,   // per-mode state (jar count-goal / sky rainbow / riverside sequence)
+    basketFx:[], pileNudge:0,   // (C) woodland-tumble/twilight-drift decorative fx queue + the corner pile's catch-bounce
   };
   Audio_.startTruck(); Audio_.setMusicRoot(5);
 }
@@ -1502,6 +1514,118 @@ function missDriveItem(it){
    distinct per-biome chime + 1 Star Stamp. Always rewarding, never blocks/steers the truck, never a
    fail — a miss just drifts off the far edge with zero penalty. Sprites are has()-gated real PNGs. */
 const JAR_POS={ x:140, y:H-140 };
+/* ============================================================ BETWEEN-RUN NATURE COLLECTION (P2)
+   The Drive's per-run crescendo (jar/hop/etc.) resets every trip by design — good in-the-moment
+   pacing, but zero reason to come back tomorrow. This layer sits ALONGSIDE it: a LIFETIME tally per
+   friend (SAVE.driveCollection), fed by the same catch payoffs, that visibly piles up across every
+   run forever and never resets. Wordless: a growing row of the real illustrated sprite communicates
+   "more" without a single digit; a small count is decorative juice only, never required reading. */
+const DRIVE_COLLECTION_GOAL=15;                 // pips-per-"basket" — tunable; a full pile pays a bonus, then starts refilling toward the next one
+const DRIVE_PILE_CORNER={ x:W-160, y:H-110 };   // shared landing spot for the woodland tumble-fx + the small in-drive pile readout (kept clear of JAR_POS/steer-hint/friend-growth-face/stamp-chip)
+function driveCollectionSpriteKey(friendId){
+  const B=DRIVE_BIOMES[friendId]; if(!B) return null; const I=B.interact;
+  return I.mode==='bloom' ? (I.emit||I.key) : I.key;   // meadow's collectible is the emitted butterfly, not the flower prop
+}
+/* current tier's fill count (1..GOAL) — a just-completed tier still reads as a full pile for a beat
+   (n % GOAL === 0) rather than snapping to an empty one, so the payoff always feels earned, not erased. */
+function driveCollectionTierProgress(friendId){
+  const n=(SAVE.driveCollection&&SAVE.driveCollection[friendId])||0; if(n<=0) return 0;
+  const m=n%DRIVE_COLLECTION_GOAL; return m===0?DRIVE_COLLECTION_GOAL:m;
+}
+function driveCollectionTier(friendId){ return Math.floor(((SAVE.driveCollection&&SAVE.driveCollection[friendId])||0)/DRIVE_COLLECTION_GOAL); }
+/* +1 lifetime gift for `friendId`, called from EVERY biome's catch payoff below (fall/bloom/jar/hop/
+   gate) — one call site per verb, so every biome feeds the same persistent pile. Crossing a tier
+   boundary pays a one-time bonus (guarded by driveCollectionTier so re-entering the same tier from a
+   fresh save/replay never double-pays). Never resets — SAVE-persisted, carries across every future run. */
+function bumpDriveCollection(friendId,x,y){
+  if(!friendId) return;
+  SAVE.driveCollection=SAVE.driveCollection||{}; SAVE.driveCollectionTier=SAVE.driveCollectionTier||{};
+  const before=SAVE.driveCollection[friendId]||0, after=before+1;
+  SAVE.driveCollection[friendId]=after;
+  const tierBefore=Math.floor(before/DRIVE_COLLECTION_GOAL), tierAfter=Math.floor(after/DRIVE_COLLECTION_GOAL);
+  if(tierAfter>tierBefore && tierAfter>(SAVE.driveCollectionTier[friendId]||0)){
+    SAVE.driveCollectionTier[friendId]=tierAfter;
+    grantCollectionMilestone(friendId,x,y);
+  }
+  persist();
+}
+/* wordless "you filled it!" payoff — bigger sparkle + confetti + a one-time Star Stamp bonus. Position
+   is wherever the triggering catch happened (Drive scene), falling back to stage-center if unset. */
+function grantCollectionMilestone(friendId,x,y){
+  const cx=x!=null?x:W/2, cy=y!=null?y:H/2;
+  addStamps(5);
+  burst(cx,cy,'#FFD54A',22,7); burst(cx,cy,'#FFF3C4',12,5); confetti(cx,cy);
+  Audio_.golden();
+  floatTexts.push({ x:cx, y:cy-90, text:'+5⭐', t:0, color:'#E3A93E' });
+}
+/* wordless "the pile is growing" readout — a row of the REAL biome sprite (never a procedural stand-
+   in shape) filling left-to-right/top-to-bottom, dimmed-alpha for not-yet-earned slots (same pattern
+   as drawFriendHeartMeter's dimmed unfilled hearts). Reused by both the Drive corner + the Friend
+   House showcase so the same lifetime number reads identically everywhere it's shown. */
+function drawNatureGiftPile(friendId,cx,cy,scale,popScale){
+  const key=driveCollectionSpriteKey(friendId); if(!key||!has(key)) return;
+  const filled=driveCollectionTierProgress(friendId);
+  const cols=5, rows=Math.ceil(DRIVE_COLLECTION_GOAL/cols), gap=34*scale, sz=40*scale*(popScale||1);
+  const x0=cx-(cols-1)*gap/2, y0=cy-(rows-1)*gap*0.42;
+  for(let i=0;i<DRIVE_COLLECTION_GOAL;i++){
+    const col=i%cols, row=Math.floor(i/cols);
+    const jx=Math.sin(i*12.9)*6*scale, jy=Math.cos(i*7.3)*4*scale;
+    const x=x0+col*gap+jx, y=y0+row*gap*0.82+jy;
+    const on=i<filled;
+    ctx.save(); ctx.globalAlpha=on?1:0.22;
+    ctx.drawImage(IMG[key].img, x-sz/2, y-sz/2, sz, sz);
+    ctx.restore();
+  }
+}
+/* small always-on corner readout during the Drive itself (both driving + arrival) so the lifetime
+   pile is visible the moment it grows, not only after the run ends. */
+function drawDriveCollectionCorner(){
+  const D=drive; if(!D||!D.friendType) return;
+  const pop=1+(D.pileNudge||0)*0.16;
+  drawNatureGiftPile(D.friendType.id, DRIVE_PILE_CORNER.x, DRIVE_PILE_CORNER.y-30, 0.5, pop);
+}
+/* ---- (C) reward-grammar variety: physically distinct catch moments for the two flattest verbs ----
+   WOODLAND acorn: tumbles in a little arc + spins down into the corner pile (a real "plunk" landing,
+   not just fading in place). TWILIGHT firefly: doesn't just burst — it drifts up as a glowing light,
+   trailing a soft afterglow, before settling into the jar. Both are DECORATIVE overlays layered on top
+   of the existing instant burst/chime/stamp reward in catchFloater — they never gate or delay it. */
+function updateBasketFx(dt){
+  const D=drive; if(!D) return;
+  if(D.pileNudge>0) D.pileNudge=Math.max(0,D.pileNudge-dt*3);
+  const fx=D.basketFx; if(!fx||!fx.length) return;
+  for(let i=fx.length-1;i>=0;i--){
+    const f=fx[i]; f.t+=dt;
+    if(f.t>=f.dur){
+      D.pileNudge=1;
+      if(f.kind==='tumble') burst(f.tx,f.ty,'#DCC084',8,4);
+      fx.splice(i,1);
+    }
+  }
+}
+function drawBasketFx(){
+  const D=drive; if(!D||!D.basketFx||!D.basketFx.length) return;
+  for(const f of D.basketFx){
+    const p=Math.min(1,f.t/f.dur), img=has(f.img)?IMG[f.img].img:null;
+    if(f.kind==='tumble'){
+      const e=p*p, arc=-70*Math.sin(p*Math.PI);
+      const x=f.x+(f.tx-f.x)*p, y=f.y+(f.ty-f.y)*e+arc;
+      ctx.save(); ctx.globalAlpha=1-p*0.1; ctx.translate(x,y); ctx.rotate(f.rot+f.spin*f.t);
+      if(img) ctx.drawImage(img,-f.sz/2,-f.sz/2,f.sz,f.sz);
+      ctx.restore();
+    } else if(f.kind==='firefly'){
+      const orbit=Math.sin(p*Math.PI*2.2)*24*(1-p*0.4);
+      const x=f.x+(f.tx-f.x)*p+orbit, y=f.y+(f.ty-f.y)*p-46*Math.sin(p*Math.PI);
+      f.trail=f.trail||[]; f.trail.push({x,y}); if(f.trail.length>8) f.trail.shift();
+      for(let k=0;k<f.trail.length;k++){ const tp=f.trail[k], ta=(k+1)/f.trail.length*0.45;
+        ctx.save(); ctx.globalAlpha=ta; ctx.fillStyle='#FFE9A8'; ctx.beginPath(); ctx.arc(tp.x,tp.y,9*ta,0,7); ctx.fill(); ctx.restore(); }
+      ctx.save();
+      const gl=ctx.createRadialGradient(x,y,0,x,y,24); gl.addColorStop(0,'rgba(255,236,150,0.75)'); gl.addColorStop(1,'rgba(255,236,150,0)');
+      ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(x,y,24,0,7); ctx.fill();
+      if(img) ctx.drawImage(img,x-f.sz/2,y-f.sz/2,f.sz,f.sz);
+      ctx.restore();
+    }
+  }
+}
 function spawnFloater(D){
   const I=D.biome&&D.biome.interact; if(!I) return;
   const mode=I.mode||'catch';
@@ -1552,6 +1676,18 @@ function catchFloater(D,f){
   if(f.golden){ burst(f.x,y,'#FFD54A',18,7); confetti(f.x,y); Audio_.golden(); addStamps(3); }
   else { addStamps(1); }
   D.floatersCaught=(D.floatersCaught||0)+1;
+  bumpDriveCollection(D.friendType.id, f.x, y);   // (A) persistent lifetime nature-gift tally — never resets per trip
+  /* (C) reward-grammar variety — the two flattest verbs get a physically distinct catch moment,
+     layered on top of (never replacing) the instant burst/chime/stamp reward above. */
+  if(mode==='fall'){
+    D.basketFx=D.basketFx||[];
+    D.basketFx.push({ kind:'tumble', img:I.key, x:f.x, y, tx:DRIVE_PILE_CORNER.x, ty:DRIVE_PILE_CORNER.y,
+      t:0, dur:0.5+Math.random()*0.14, rot:Math.random()*7, spin:(Math.random()<0.5?-1:1)*(5+Math.random()*4), sz:f.sz*0.6 });
+  } else if(mode==='jar'){
+    D.basketFx=D.basketFx||[];
+    D.basketFx.push({ kind:'firefly', img:I.key, x:f.x, y, tx:JAR_POS.x, ty:JAR_POS.y,
+      t:0, dur:0.6+Math.random()*0.2, sz:f.sz*0.52, trail:[] });
+  }
   if(mode==='jar'){ D.jarCount=(D.jarCount||0)+1; D.jarPop=1;
     if(D.jarCount>=(I.goal||5)){ D.jarCount=0; D.jarFull=(D.jarFull||0)+1;
       burst(JAR_POS.x,JAR_POS.y,'#FFE9A8',22,7); burst(JAR_POS.x,JAR_POS.y,'#FFF3C4',12,5); confetti(JAR_POS.x,JAR_POS.y);
@@ -1569,14 +1705,14 @@ function popBloom(D,f){
   burst(x,y,'#FF9DB6',10,5); burst(x,y,'#FFE0EA',8,4);
   if(Audio_[I.chime]) Audio_[I.chime](); else Audio_.collect();
   if(f.golden){ confetti(x,y); Audio_.golden(); addStamps(3); } else addStamps(1);
-  D.floatersCaught=(D.floatersCaught||0)+1; persist();
+  D.floatersCaught=(D.floatersCaught||0)+1; bumpDriveCollection(D.friendType.id, x, y); persist();
 }
 /* SKY gate — resolved as the cloud wall reaches the truck: in the gap = whoosh + rainbow; else a soft puff (no penalty) */
 function resolveGate(D,f){
   const I=D.biome.interact, ok=Math.abs(D.truck.x-f.gapX)<f.gapW*0.5;
   if(ok){ burst(f.gapX,740,I.cols[0],14,6); burst(f.gapX,740,'#FFF3C4',8,4);
     if(Audio_[I.chime]) Audio_[I.chime](); addStamps(1);
-    D.floatersCaught=(D.floatersCaught||0)+1; D.rainbowT=1; persist(); }
+    D.floatersCaught=(D.floatersCaught||0)+1; D.rainbowT=1; bumpDriveCollection(D.friendType.id,f.gapX,740); persist(); }
   else { burst(D.truck.x,740,'#E7ECF2',7,3); Audio_.aww(); }
 }
 /* RIVERSIDE stepping-stones — a short row of lilypads; tap the glowing next one in sequence, a musical
@@ -1601,7 +1737,7 @@ function tryHopTap(D,px,py){
   if(Math.hypot(px-x,py-y)<132){
     p.lit=true; burst(x,y,'#8ECFEC',10,5); burst(x,y,'#BFE6F6',6,3);
     if(Audio_.plip) Audio_.plip();
-    H2.next++; D.floatersCaught=(D.floatersCaught||0)+1;
+    H2.next++; D.floatersCaught=(D.floatersCaught||0)+1; bumpDriveCollection(D.friendType.id,x,y);
     if(H2.next>=H2.pads.length){ H2.done=true; H2.doneT=0;
       burst(x,y,'#7EC77E',16,6); confetti(x,y); if(Audio_.arrival) Audio_.arrival(); addStamps(2); }
     else addStamps(1);
@@ -1670,6 +1806,7 @@ function updateDrive(dt){
   const D=drive; if(!D) return;
   updateDriveAmbient(dt);
   updateDriveFloaters(dt);
+  updateBasketFx(dt);
   if(!D.arriving){
     D.scrollY+=DRIVE_SPEED*dt;
     if(D.scrollY>=DRIVE_LENGTH){ D.scrollY=DRIVE_LENGTH; startArrival(); }
@@ -2158,6 +2295,27 @@ function friendHatTray(){
   return list.map((c,i)=>({ id:c.id, x:x0+i*gap, y, r }));
 }
 function friendHearts(typeId){ return Math.min(5, Math.floor((SAVE.charDeliveries[typeId]||0)/3)); }
+/* (B) entry-greeting motion, tiered by CURRENT friendship (captured once at enterFriend as
+   F.greetHearts so mid-visit heart gains don't retroactively change the beat already playing):
+   0-2 hearts = a quiet single side-sway ("hi again"); 3-4 = a happier double-bounce; 5 ("best
+   friends") = a big excited jump, timed to land right as checkFriendGift's gift-pop fires. Purely
+   an additive offset layered onto drawFriendBody's existing bob/squash — no new art, no state that
+   affects scoring. */
+function friendGreetOffset(F){
+  if(F.greetT==null) return {by:0,rot:0,sy:1};
+  const t=F.greetT, hearts=F.greetHearts||0;
+  if(hearts>=5){
+    const win=Math.min(1,t/0.9), hop=Math.sin(Math.min(1,t/0.55)*Math.PI)*46*(t<0.55?1:Math.max(0,1-(t-0.55)/0.5));
+    const squash=1+Math.sin(win*Math.PI*2)*0.10*Math.max(0,1-win);
+    return { by:-hop, rot:0, sy:squash };
+  }
+  if(hearts>=3){
+    const cyc=t%0.5, hop=t<1.0?Math.sin(Math.min(1,cyc/0.5)*Math.PI)*22:0;
+    return { by:-hop, rot:0, sy:1 };
+  }
+  const sway=Math.sin(Math.min(1,t/1.1)*Math.PI)*0.10*Math.max(0,1-t/1.1);
+  return { by:0, rot:sway, sy:1 };
+}
 /* per-friend flair table (animation-director spec) — every knob a Friend-House interaction touches
    (feed/pet timing+ease, idle bob speed, and the accent color used across their particle bursts). */
 const FRIEND_FLAIR={
@@ -2174,12 +2332,37 @@ const HAT_SCALE={ gear:1.0, moon:1.0, heart:1.0, drop:1.05, cloud:1.08 };
 function heartMeterPos(i){ const cx=W/2, y=60, gap=64, total=5*gap, x0=cx-total/2+gap/2; return { x:x0+i*gap, y }; }
 function enterFriend(id){
   const info=FRIEND_UNLOCK[id]; if(!info) return;
-  friendScene={ id, type:T[info.type], petT:0, breathing:true, feedAnim:null, hatDropT:null, hatLandT:null, hatLanded:true };
+  const hearts=friendHearts(info.type);
+  /* ---- (B) "a friend who remembers you" ---- the entry greeting scales with friendship: a quiet
+     wave at low hearts, a happier bounce once you've visited a few times, and an excited jump/hug
+     right at "best friends" (5 hearts) — reusing the shared bob/squash rig in drawFriendBody so no
+     new art is needed, just a bigger/warmer beat + a friendlier chime the more you've bonded. */
+  friendScene={ id, type:T[info.type], petT:0, breathing:true, feedAnim:null, hatDropT:null, hatLandT:null, hatLanded:true,
+    greetT:0, greetHearts:hearts,
+    giftPending: hearts>=5 && !SAVE.friendGiftGiven[info.type] };   // one-time "best friends" milestone gift, fires below in update()
   friendDragItem=null;
   state='FRIEND'; floatTexts=[]; popups=[]; particles=[];
-  Audio_.setFriendAmbience(true); Audio_.pop();
+  Audio_.setFriendAmbience(true);
+  if(hearts>=5) Audio_.friendJingle(T[info.type].index);
+  else if(hearts>=3) Audio_.heartFill();
+  else Audio_.pop();
+  burst(FRIEND_POS.x, FRIEND_POS.y-160, FRIEND_FLAIR[info.type].col, 5+hearts*3, 3+hearts*0.6);
 }
 function leaveFriend(){ friendDragItem=null; Audio_.setFriendAmbience(false); enterTown(); }
+/* one-time "best friends" celebration + reward — fires the FIRST time a friend house is entered after
+   crossing 5 hearts (never mid-visit, so it always reads as a clean, unmissable beat). Guarded by
+   SAVE.friendGiftGiven so it can only ever fire once per friend, and persists forever after. */
+function checkFriendGift(){
+  const F=friendScene; if(!F||!F.giftPending) return;
+  F.giftPending=false;
+  if(SAVE.friendGiftGiven[F.type.id]) return;   // already claimed (defensive — should be impossible to reach twice)
+  SAVE.friendGiftGiven[F.type.id]=true; persist();
+  addStamps(15); persist();
+  confetti(FRIEND_POS.x-140,FRIEND_POS.y-140); confetti(FRIEND_POS.x+140,FRIEND_POS.y-140);
+  burst(FRIEND_POS.x,FRIEND_POS.y-220,'#FFD54A',26,8);
+  Audio_.celebrate();
+  floatTexts.push({ x:FRIEND_POS.x, y:FRIEND_POS.y-340, text:'+15⭐', t:0, color:'#E3A93E' });
+}
 function bumpFriendship(typeId){
   const before=friendHearts(typeId);
   SAVE.charDeliveries[typeId]=(SAVE.charDeliveries[typeId]||0)+1; persist();
@@ -2263,13 +2446,16 @@ function drawFriendBody(){
   const F=friendScene, t=F.type, flair=FRIEND_FLAIR[t.id];
   const pt=F.petT>0?Math.min(1,F.petT/flair.petDur):0;
   let squishY=F.petT>0 ? 1-flair.squish*Math.sin(pt*Math.PI) : 1;
-  const giggle=F.petT>0 ? Math.sin(F.petT*38)*0.04*(1-pt) : 0;
+  let giggle=F.petT>0 ? Math.sin(F.petT*38)*0.04*(1-pt) : 0;
   let extraBob=0;
   if(F.feedAnim){
     const ft=F.feedAnim.t;
     if(ft>=0.32 && ft<0.58){ const eatP=(ft-0.32)/0.26; squishY*=1-0.14*Math.abs(Math.sin(eatP*2*Math.PI)); }        // chomp
     else if(ft>=0.58){ const r=friendFeedReaction(t.id,ft-0.58); squishY*=r.sy; extraBob+=r.by; }
   }
+  // (B) "a friend who remembers you" — the one-shot entry greeting (wave / bounce / excited jump),
+  // tiered by friendship, layered on top of the pet/feed motion above so nothing fights for control.
+  const greet=friendGreetOffset(F); squishY*=greet.sy; giggle+=greet.rot; extraBob+=greet.by;
   const squishX=squishY!==0?1/squishY:1;   // volume-preserving — never looks like it lost mass
   const breathe=F.breathing?1.02+0.02*Math.sin(time*2*Math.PI/1.2):1;   // A8 entry breathing (cancels on first touch)
   const bob=Math.sin(time*1.6*flair.speed)*10+extraBob, key=fullBodyKey(t);
@@ -2368,6 +2554,7 @@ function drawFriend(){
   }
   drawFriendHeartMeter(); drawFriendBody(); drawFriendFeedAnim(); drawFriendWantBubble();
   drawFriendItemTray(); drawFriendHatTray(); drawFriendDraggedItem();
+  drawNatureGiftPile(t.id, 1650, 300, 0.9);   // (A) this friend's lifetime pile of gathered Drive gifts — empty wall area, clear of the round window/heart meter/hat tray/stamp chip (placement is a first pass; flag to ui-ux-designer for a proper "shelf" treatment)
   drawParticles(); drawFloatTexts();
   backButton(); stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
 }
@@ -2643,6 +2830,14 @@ function update(dt){
   if(friendHeartFlash>0){ friendHeartFlash=Math.max(0,friendHeartFlash-dt*1.5); if(friendHeartFlash<=0) friendHeartNewIdx=null; }
   if(friendScene){
     const F=friendScene, flair=FRIEND_FLAIR[F.type.id];
+    if(F.greetT!=null){
+      F.greetT+=dt;
+      // guarded by state==='FRIEND' so a toddler mashing "back" within the first ~0.65s can never make
+      // the gift-pop/confetti/stamps fire over whatever scene they've already moved on to — it simply
+      // stays pending (giftPending is recomputed fresh, safely, on the next enterFriend) and fires then.
+      if(F.giftPending && F.greetT>=0.65 && state==='FRIEND') checkFriendGift();
+      if(F.greetT>1.3) F.greetT=null;
+    }
     if(F.petT>0){ F.petT+=dt; if(F.petT>flair.petDur) F.petT=0; }
     if(F.feedAnim){
       F.feedAnim.t+=dt;
@@ -4228,8 +4423,8 @@ function drawDriveFriendGrowth(){
 }
 function drawDrive(){
   drawDriveBackground(); drawDriveAmbient(); drawRoad(); drawRoadShoulderFoliage(); drawDriveDepthVignette();
-  drawRoadsideProps(); drawDriveCritter(); drawDriveItems(); drawTruck(); drawDriveFloaters(); drawDriveArrival(); drawDriveArrivalPop();
-  drawParticles(); drawDriveProgressDots(); drawDriveFriendGrowth(); drawFloatTexts();
+  drawRoadsideProps(); drawDriveCritter(); drawDriveItems(); drawTruck(); drawDriveFloaters(); drawBasketFx(); drawDriveArrival(); drawDriveArrivalPop();
+  drawParticles(); drawDriveProgressDots(); drawDriveFriendGrowth(); drawDriveCollectionCorner(); drawFloatTexts();
   drawDriveFade();
   homeButton(); stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
 }
