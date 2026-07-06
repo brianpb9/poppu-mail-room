@@ -99,11 +99,11 @@ const SCENES = [
 
 /* ------------------------------------------------------------- UPGRADE SHOP */
 const UPGRADES = [
-  { id:'speedBelt',   name:'Speed Belt',     cost:10, icon:'bolt',  desc:'Belt runs faster' },
-  { id:'bigBoxes',    name:'Big Mailboxes',  cost:15, icon:'box',   desc:'Bigger, comfy boxes' },
-  { id:'autoSorter',  name:'Auto-Sorter',    cost:25, icon:'replay', desc:'Wrong drops return' },
-  { id:'scanner',     name:'Golden Scanner', cost:40, icon:'eye',   desc:'Glows the right box' },
-  { id:'doubleStamps',name:'Double Stamps',  cost:50, icon:'x2',    desc:'Twice the stamps' },
+  { id:'speedBelt',   name:'Speed Belt',     cost:10, icon:'bolt',  spr:'up_speed',    desc:'Belt runs faster' },
+  { id:'bigBoxes',    name:'Big Mailboxes',  cost:15, icon:'box',   spr:'up_capacity', desc:'Bigger, comfy boxes' },
+  { id:'autoSorter',  name:'Auto-Sorter',    cost:25, icon:'replay', spr:'up_sorter',  desc:'Wrong drops return' },
+  { id:'scanner',     name:'Golden Scanner', cost:40, icon:'eye',   spr:'up_scanner',  desc:'Glows the right box' },
+  { id:'doubleStamps',name:'Double Stamps',  cost:50, icon:'x2',    spr:'up_x2',       desc:'Twice the stamps' },
 ];
 
 /* ---------------------------------------------------------- COSMETIC SHOP */
@@ -535,6 +535,9 @@ ASSET_SRC['shop_banner']='assets/shop-counter-banner.png';
 ASSET_SRC['wrap_ribbon_spool']='assets/wrap-ribbon-spool.png';
 ASSET_SRC['wrap_bow']='assets/wrap-bow.png';
 ASSET_SRC['wrap_sticker_sheet']='assets/wrap-sticker-sheet.png';
+/* Upgrade prop icons (creative lever) — real cozy Poppu-world objects (wind-up key / mail sack /
+   catch-basket / spyglass / double star-coins) replacing the generic UI glyphs on the shop tags. */
+['up_speed','up_capacity','up_sorter','up_scanner','up_x2'].forEach(k=>{ ASSET_SRC[k]='assets/'+k.replace(/_/g,'-')+'.png'; });
 /* Cosmetic shop IN-CONTEXT preview art — each is a small composed scene (hat ON a mini Poppu,
    skin ON a mini mailbox/conveyor swatch, decor in a room corner), not a floating icon. Falls back
    to the existing procedural in-context placeholder (drawCosmeticCard) until real art lands. */
@@ -1500,11 +1503,12 @@ const JAR_POS={ x:140, y:H-140 };
 function spawnFloater(D){
   const I=D.biome&&D.biome.interact; if(!I) return;
   const mode=I.mode||'catch';
+  const p=driveProgress();   // 0..1 — in-run crescendo: the biome toy escalates as the truck nears the friend
   if(mode==='fall'){
-    // WOODLAND: acorns tumble from the canopy straight down onto the road — a vertical timing catch
+    // WOODLAND: acorns tumble from the canopy straight down — they fall FASTER as we near the friend
     const cx=roadCenterX(D.scrollY), golden=Math.random()<0.10;
     D.floaters.push({ fall:true, x:cx+(Math.random()-0.5)*(DRIVE_ROAD_HALFW*1.1), y:-70-Math.random()*140,
-      vx:(Math.random()-0.5)*44, vy:150+Math.random()*95, phase:Math.random()*7, spin:(Math.random()-0.5)*2.4,
+      vx:(Math.random()-0.5)*44, vy:(150+Math.random()*95)*(1+p*0.55), phase:Math.random()*7, spin:(Math.random()-0.5)*2.4,
       sz:I.sz*(golden?1.14:1)*(0.9+Math.random()*0.25), golden, caught:false, popT:0, life:0, maxLife:99 });
     return;
   }
@@ -1516,8 +1520,8 @@ function spawnFloater(D){
     return;
   }
   if(mode==='gap'){
-    // SKY: a wall of cloud banks with a GAP; the child STEERS the truck through it (no tap)
-    const cx=roadCenterX(D.scrollY), gapW=250+Math.random()*70;
+    // SKY: a wall of cloud banks with a GAP; the child STEERS through it — the gap NARROWS as we near the friend
+    const cx=roadCenterX(D.scrollY), gapW=(250+Math.random()*70)*(1-p*0.30);
     const gapX=Math.max(cx-DRIVE_DRAG_HALFW*0.7,Math.min(cx+DRIVE_DRAG_HALFW*0.7,cx+(Math.random()-0.5)*DRIVE_DRAG_HALFW*1.2));
     D.floaters.push({ gate:true, y:-160, gapX, gapW, resolved:false, phase:Math.random()*7, caught:false, life:0, maxLife:99 });
     return;
@@ -1527,11 +1531,13 @@ function spawnFloater(D){
   const y=I.band[0]+Math.random()*(I.band[1]-I.band[0]);
   const d=D.scrollY+(820-y), cx=roadCenterX(d);
   const golden=(mode!=='jar')&&Math.random()<0.12;   // rare 3x pull (jar keeps its own fill-bonus beat instead)
+  // TWILIGHT: the last firefly before the jar fills glows bigger + brighter — a mini-crescendo cue
+  const nearFull=(mode==='jar')&&((D.jarCount||0)>=((I.goal||5)-1));
   D.floaters.push({
     x: cx+(Math.random()-0.5)*(DRIVE_ROAD_HALFW*1.15), y,
     vx: dir*(I.spd*(0.4+Math.random()*0.5)),
     phase: Math.random()*7, bobAmp:I.bobAmp*(0.7+Math.random()*0.6),
-    sz: I.sz*(golden?1.12:1)*(0.86+Math.random()*0.3), flip:dir<0, golden,
+    sz: I.sz*(golden?1.12:nearFull?1.28:1)*(0.86+Math.random()*0.3), flip:dir<0, golden, nearFull,
     life:0, maxLife:6.5+Math.random()*2.5,
     caught:false, popT:0,
   });
@@ -1554,7 +1560,7 @@ function catchFloater(D,f){
 function popBloom(D,f){
   if(f.popped) return; f.popped=true; f.popT=0;
   const I=D.biome.interact, x=roadCenterX(f.d)+f.side, y=820-(f.d-D.scrollY);
-  const n=f.golden?7:4+Math.floor(Math.random()*2);
+  const n=(f.golden?7:4+Math.floor(Math.random()*2))+Math.round(driveProgress()*3);   // bigger swarm as we near the friend
   for(let k=0;k<n;k++){ const a=-Math.PI/2+(Math.random()-0.5)*2.0, sp=150+Math.random()*130;
     D.floaters.push({ flit:true, x, y:y-24, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp-30,
       phase:Math.random()*7, sz:66+Math.random()*30, life:0, maxLife:1.1+Math.random()*0.5 }); }
@@ -1574,8 +1580,9 @@ function resolveGate(D,f){
 /* RIVERSIDE stepping-stones — a short row of lilypads; tap the glowing next one in sequence, a musical
    plip per step, the whole row lit = happy bonus. Wrong/early taps do nothing (never a fail). */
 function spawnHopRow(D){
-  const d=D.scrollY+900+Math.random()*220, nP=3+(Math.random()<0.5?1:0), pads=[];
-  for(let k=0;k<nP;k++) pads.push({ d, off:(k-(nP-1)/2)*185, lit:false, phase:Math.random()*7 });
+  // RIVERSIDE: the stepping-stone row gets LONGER as we near the friend (3 → 5 pads) — a rising sequence
+  const d=D.scrollY+900+Math.random()*220, nP=Math.min(5,3+Math.round(driveProgress()*2)), pads=[];
+  for(let k=0;k<nP;k++) pads.push({ d, off:(k-(nP-1)/2)*175, lit:false, phase:Math.random()*7 });
   D.hop={ pads, next:0, done:false, doneT:0 };
 }
 function updateHop(D,dt){
@@ -1612,7 +1619,7 @@ function updateDriveFloaters(dt){
     const live=D.floaters.filter(f=>!f.caught&&!f.flit&&!f.popped).length;
     const cap=mode==='gap'?2:3;
     if(D.floaterTimer<=0 && live<cap){ spawnFloater(D);
-      D.floaterTimer=(mode==='gap'?1.4:0.85)+Math.random()*0.9; }
+      D.floaterTimer=((mode==='gap'?1.4:0.85)+Math.random()*0.9)*(1-driveProgress()*0.32); }   // quicker cadence near the friend
   }
   for(let i=D.floaters.length-1;i>=0;i--){ const f=D.floaters[i];
     f.phase+=dt*1.6;
@@ -1623,7 +1630,7 @@ function updateDriveFloaters(dt){
       if(f.y>H+90) D.floaters.splice(i,1); continue; }
     if(f.bloom){ const y=820-(f.d-D.scrollY); if(y>H+150) D.floaters.splice(i,1); continue; }
     if(f.gate){ f.y+=DRIVE_SPEED*1.15*dt;
-      if(!f.resolved && f.y>=735){ f.resolved=true; resolveGate(D,f); }
+      if(!f.resolved && !D.arriving && f.y>=735){ f.resolved=true; resolveGate(D,f); }   // no stray reward over the hug
       if(f.y>H+170) D.floaters.splice(i,1); continue; }
     f.x+=f.vx*dt; f.life+=dt;   // default catch drift
     if(f.x<-140||f.x>W+140||f.life>f.maxLife) D.floaters.splice(i,1);
@@ -3195,9 +3202,9 @@ function drawShopTag(c,key,ownedTint){
   const cx=c.x+c.w/2, TS=c.h*1.30, tagCY=c.y+0.34*TS;
   if(has(key)){
     // owned/equipped state reads via a soft colored glow behind the tag (clean, no full-canvas tint bleed)
-    if(ownedTint){ ctx.save(); ctx.globalAlpha=0.5; const gg=ctx.createRadialGradient(cx,tagCY,TS*0.2,cx,tagCY,TS*0.52);
+    if(ownedTint){ ctx.save(); ctx.globalAlpha=0.42; const gg=ctx.createRadialGradient(cx,tagCY,TS*0.16,cx,tagCY,TS*0.40);
       gg.addColorStop(0,ownedTint); gg.addColorStop(1,'rgba(255,255,255,0)'); ctx.fillStyle=gg;
-      ctx.beginPath(); ctx.arc(cx,tagCY,TS*0.52,0,7); ctx.fill(); ctx.restore(); }
+      ctx.beginPath(); ctx.arc(cx,tagCY,TS*0.40,0,7); ctx.fill(); ctx.restore(); }
     ctx.save(); shadow(16,'rgba(90,60,30,0.20)',0,9);
     ctx.drawImage(IMG[key].img,cx-TS/2,tagCY-TS/2,TS,TS); noShadow(); ctx.restore(); }
   else { ctx.save(); shadow(16,'rgba(0,0,0,0.14)',0,8); ctx.fillStyle=ownedTint?'#EAF7EE':'#fffdf6'; rr(c.x,c.y,c.w,c.h,28); ctx.fill(); noShadow();
@@ -3208,9 +3215,11 @@ function drawShopTag(c,key,ownedTint){
 function drawUpgradeCard(c){
   const u=c.u, owned=hasUp(u.id), afford=(SAVE.stamps||0)>=u.cost;
   const F=drawShopTag(c,'shop_tag_kraft', owned?'#5FB985':null);
-  const iconCy=F.py-F.ph*0.13, iconSize=F.pw*0.86;
+  const iconCy=F.py-F.ph*0.12, iconSize=F.pw*0.94;
   ctx.save();
-  if(!glyphIcon(u.icon,F.cx,iconCy,iconSize,'#F4A93E','#E3A93E') && u.icon==='x2') drawText('2×',F.cx,iconCy,iconSize*0.9,'#E3A93E',null);
+  // real illustrated Poppu-world prop icon on the tag; procedural glyph only as pre-load fallback
+  if(has(u.spr)) sprite(u.spr,F.cx,iconCy,iconSize,iconSize);
+  else if(!glyphIcon(u.icon,F.cx,iconCy,iconSize*0.9,'#F4A93E','#E3A93E') && u.icon==='x2') drawText('2×',F.cx,iconCy,iconSize*0.8,'#E3A93E',null);
   ctx.restore();
   const bw=Math.min(c.w-150,F.pw*0.98),bh=48,bx=F.cx-bw/2,by=F.py+F.ph*0.24;
   if(owned){ ctx.save(); shadow(8,'rgba(0,0,0,0.12)',0,3); ctx.fillStyle='#5FB985'; rr(bx,by,bw,bh,bh/2); ctx.fill(); noShadow();
@@ -3659,7 +3668,10 @@ function drawRoad(){
   far.addColorStop(0,'rgba(250,249,242,0.5)'); far.addColorStop(0.6,'rgba(250,249,242,0)');
   ctx.fillStyle=far; ctx.fillRect(0,0,W,cy0);
   const near=ctx.createLinearGradient(0,cy0-160,0,H);
-  near.addColorStop(0,'rgba(70,50,30,0)'); near.addColorStop(1,'rgba(70,50,30,0.13)');
+  // on the cloud path, "near" BRIGHTENS to airy white instead of browning to grey (creative note: the sky
+  // lane was reading as a muddy UI gradient because a warm-brown near-grade sat over the pale blue).
+  const nearC=(surf==='cloud')?'255,255,255':'70,50,30', nearA=(surf==='cloud')?0.42:0.13;
+  near.addColorStop(0,'rgba('+nearC+',0)'); near.addColorStop(1,'rgba('+nearC+','+nearA+')');
   ctx.fillStyle=near; ctx.fillRect(0,cy0-160,W,H-(cy0-160));
   ctx.restore();
   // 1b. per-biome road wash — subtle color identity per arrival friend (woodland/meadow/twilight/riverside)
@@ -3858,11 +3870,13 @@ function drawDriveFloaters(){
     if(!f.fall && f.maxLife<50){ if(f.life<0.4) a=f.life/0.4; else if(f.life>f.maxLife-1) a=Math.max(0,(f.maxLife-f.life)); }
     if(f.fall && by<0) a=Math.max(0,1+by/70);   // fade in as it drops into frame
     if(f.caught){ const p=Math.min(1,f.popT/0.24); s=f.sz*(1+p*0.9); a=1-p; }
-    if(!f.caught && a>0.6){   // wordless "tap me!" pulsing ring
-      const pr=((time*0.75)+f.phase*0.3)%1;
-      ctx.save(); ctx.globalAlpha=a*0.32*(1-pr); ctx.lineWidth=5;
-      ctx.strokeStyle=f.golden?'#FFD54A':I.cols[0];
-      ctx.beginPath(); ctx.arc(f.x,by,s*0.48+pr*s*0.5,0,7); ctx.stroke(); ctx.restore();
+    if(!f.caught && a>0.6){   // wordless "tap me!" pulsing ring — stronger for fireflies so the catchable one stands out from the ambient dusk glow
+      const pr=((time*0.75)+f.phase*0.3)%1, jarBoost=(mode==='jar')?1.7:1;
+      ctx.save(); ctx.globalAlpha=a*0.32*jarBoost*(1-pr); ctx.lineWidth=(mode==='jar'?6.5:5);
+      ctx.strokeStyle=f.golden?'#FFD54A':(f.nearFull?'#FFD54A':I.cols[0]);
+      ctx.beginPath(); ctx.arc(f.x,by,s*0.48+pr*s*0.5,0,7); ctx.stroke();
+      if(f.nearFull){ ctx.globalAlpha=a*0.5*(1-pr); ctx.beginPath(); ctx.arc(f.x,by,s*0.36+pr*s*0.4,0,7); ctx.stroke(); }
+      ctx.restore();
     }
     const sway=f.fall? (f.spin2||0) : Math.sin(f.phase*0.8)*0.06;
     ctx.save(); ctx.translate(f.x,by); ctx.globalAlpha=a; ctx.rotate(sway);
@@ -3875,6 +3889,18 @@ function drawDriveFloaters(){
     ctx.restore();
   }
   if(mode==='jar') drawDriveJar(D);
+  if(mode==='gap') drawSteerHint(D);
+}
+/* SKY: since every other biome trained "tap the cute thing", the steer verb needs its own affordance —
+   two pulsing chevrons flank the truck whenever a cloud gate is approaching, saying "slide me sideways". */
+function drawSteerHint(D){
+  if(D.arriving) return;
+  const gate=D.floaters.find(f=>f.gate&&!f.resolved&&f.y>-40&&f.y<680); if(!gate) return;
+  const tx=D.truck.x, ty=762, pr=(time*1.8)%1, off=52+pr*24;
+  ctx.save(); ctx.globalAlpha=(0.32+0.34*Math.sin(time*4))*(1-pr*0.5); ctx.strokeStyle='#7FB8E8'; ctx.lineWidth=9; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(tx-off+16,ty-18); ctx.lineTo(tx-off-6,ty); ctx.lineTo(tx-off+16,ty+18); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(tx+off-16,ty-18); ctx.lineTo(tx+off+6,ty); ctx.lineTo(tx+off-16,ty+18); ctx.stroke();
+  ctx.restore();
 }
 /* MEADOW flower prop drawn anchored to its road depth (scrolls up with the road) */
 function drawBloom(D,f,img){
