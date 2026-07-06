@@ -637,12 +637,16 @@ function drawIcon(kind,cx,cy,s,fill,stroke){
       // or the Wear-it CTA (caller passes 60% alpha + a muted color) — same glyph, 2 read states by opacity/fill
       ctx.strokeStyle=fill; ctx.lineWidth=s*0.22; ctx.lineCap='round'; ctx.lineJoin='round';
       ctx.beginPath(); ctx.moveTo(-s*0.32,s*0.02); ctx.lineTo(-s*0.06,s*0.28); ctx.lineTo(s*0.36,-s*0.30); ctx.stroke(); }
-  else if(kind==='replay'){   // circular restart arrow — deliberately a LOOP, never confusable with the straight 'arrow'
-      ctx.strokeStyle=stroke||fill; ctx.lineWidth=s*0.14; ctx.lineCap='round';
-      ctx.beginPath(); ctx.arc(0,0,s*0.36,0.5,Math.PI*1.7); ctx.stroke();
-      const ea=Math.PI*1.7, ex=Math.cos(ea)*s*0.36, ey=Math.sin(ea)*s*0.36;
-      ctx.save(); ctx.translate(ex,ey); ctx.rotate(ea+Math.PI/2); ctx.fillStyle=stroke||fill;
-      ctx.beginPath(); ctx.moveTo(0,-s*0.13); ctx.lineTo(s*0.13,s*0.09); ctx.lineTo(-s*0.13,s*0.09); ctx.closePath(); ctx.fill(); ctx.restore(); }
+  else if(kind==='replay'){   // circular restart arrow — a near-full ring (small top gap) with a
+      // correctly tangent-oriented triangular arrowhead at the leading tip, so it always reads as
+      // "circular restart" and never as a bare letter "C" (the previous build's arrowhead was rotated
+      // 90deg off-tangent, so it read as a faint mark near an open ring — i.e. a literal "C").
+      const r=s*0.34, gap=55*Math.PI/180, start=-Math.PI/2+gap/2, end=start+(Math.PI*2-gap);
+      ctx.strokeStyle=stroke||fill; ctx.lineWidth=s*0.16; ctx.lineCap='round';
+      ctx.beginPath(); ctx.arc(0,0,r,start,end); ctx.stroke();
+      const hx=Math.cos(end)*r, hy=Math.sin(end)*r;
+      ctx.save(); ctx.translate(hx,hy); ctx.rotate(end+Math.PI); ctx.fillStyle=stroke||fill;
+      ctx.beginPath(); ctx.moveTo(0,-s*0.24); ctx.lineTo(s*0.22,s*0.13); ctx.lineTo(-s*0.22,s*0.13); ctx.closePath(); ctx.fill(); ctx.restore(); }
   ctx.restore();
 }
 /* Raster glyph helper (production art pack) — draws the real ic_<name> PNG centered at (cx,cy) at
@@ -770,6 +774,22 @@ function ph_flowerIcon(cx,cy,s,col){
 function flowerGlyph(cx,cy,s){
   if(has('flower_common')){ ctx.drawImage(IMG.flower_common.img,cx-s/2,cy-s/2,s,s); return true; }
   ph_flowerIcon(cx,cy,s,'#FF9DB6'); return false;
+}
+/* Garden "not-yet-bloomed" bud, warmed once and cached (never re-tinted per frame — zero per-frame
+   allocation). flower-locked.png ships as a cool gray/silver bud; source-atop-tinting it warm
+   cream/peach here (baked into an offscreen canvas the first time it's needed) keeps its sculpted
+   shading while killing the "gray placeholder" read Creative/Player flagged in the garden grid. */
+let FLOWER_LOCKED_WARM=null;
+function warmFlowerLocked(){
+  if(FLOWER_LOCKED_WARM) return FLOWER_LOCKED_WARM;
+  if(!has('flower_locked')) return null;
+  const src=IMG.flower_locked.img, w=src.naturalWidth||128, h=src.naturalHeight||128;
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const cx2=c.getContext('2d');
+  cx2.drawImage(src,0,0,w,h);
+  cx2.globalCompositeOperation='source-atop'; cx2.globalAlpha=0.45;
+  cx2.fillStyle='#FFC98A'; cx2.fillRect(0,0,w,h);
+  FLOWER_LOCKED_WARM=c; return c;
 }
 /* subtle "alive" idle: breathing (2s sine, 1.0→1.02) + a blink squash every ~3.4s */
 function poppuIdle(){
@@ -2112,6 +2132,7 @@ function onDown(cx,cy){
   }
   if(state==='WRAP'){
     if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ leaveWrap(); return; }
+    if(!wrapBox) return;   // ship-flight in progress (wrapBox is null between startWrapShip and finalizeWrapShip) — graceful no-op
     if(wrapBox.acted && dist(p.x,p.y,WRAP_SHIP_BTN.x,WRAP_SHIP_BTN.y)<WRAP_SHIP_BTN.r){ startWrapShip(); return; }
     { const r=WRAP_RIBBON_STRIP;
       if(Math.abs(p.x-r.x)<r.w/2 && Math.abs(p.y-r.y)<r.h/2){ wrapRibbonSwipe={x0:p.x,dx:0}; return; } }
@@ -2935,16 +2956,22 @@ function drawSticker(){
   const cols=8, rows=4, total=cols*rows, cw=180, ch=180, gx=(W-cols*cw)/2, gy=260;
   for(let i=0;i<total;i++){ const cx=gx+(i%cols)*cw+cw/2, cy=gy+Math.floor(i/cols)*ch+ch/2, earned=i<SAVE.stickers.length;
     ctx.save();
-    if(has('ui_sticker')){ ctx.save(); if(!earned) ctx.globalAlpha=0.4; ctx.drawImage(IMG.ui_sticker.img,cx-80,cy-80,160,160); ctx.restore(); }
-    else { ctx.fillStyle='rgba(0,0,0,0.05)'; ctx.strokeStyle='#d9c3a0'; ctx.lineWidth=4; ctx.setLineDash([12,10]); rr(cx-70,cy-70,140,140,20); ctx.fill(); ctx.stroke(); ctx.setLineDash([]); }
+    if(has('ui_sticker')){ ctx.save(); if(!earned) ctx.globalAlpha=0.55; ctx.drawImage(IMG.ui_sticker.img,cx-80,cy-80,160,160); ctx.restore(); }
+    else { ctx.fillStyle=earned?'rgba(0,0,0,0.05)':'rgba(255,201,138,0.16)'; ctx.strokeStyle=earned?'#d9c3a0':'#F0B87E'; ctx.lineWidth=4; ctx.setLineDash([12,10]); rr(cx-70,cy-70,140,140,20); ctx.fill(); ctx.stroke(); ctx.setLineDash([]); }
     if(earned){
       const bob=Math.sin(time*2+i)*3, key=gardenSlotFlower(i);
       if(has(key)) ctx.drawImage(IMG[key].img,cx-58,cy-58+bob,116,116);
       else { const type=T[SAVE.stickers[i]]||TYPES[i%6]; if(has('pkg_'+type.id)) ctx.drawImage(IMG['pkg_'+type.id].img,cx-58,cy-58+bob,116,116); else ph_face(type,cx,cy,110); }
     } else {
-      // not-yet-grown: the closed bud, dimmed — same wordless "keep going" language as locked buildings
-      if(has('flower_locked')){ ctx.save(); ctx.globalAlpha=0.55; ctx.drawImage(IMG.flower_locked.img,cx-52,cy-52,104,104); ctx.restore(); }
-      else { ctx.save(); ctx.globalAlpha=0.35; ctx.fillStyle='#9ED89E'; ctx.beginPath(); ctx.arc(cx,cy,44,0,7); ctx.fill(); ctx.restore(); }
+      // not-yet-grown: a warm, lush "waiting to bloom" bud — same wordless "keep going" language as
+      // locked buildings, but alive: a soft cream/peach glow, a slow bob, and a staggered twinkle so
+      // the collection reads as a garden filling in, never a flat gray homework grid.
+      const lbob=Math.sin(time*1.2+i*0.7)*3, warm=warmFlowerLocked();
+      ctx.save(); ctx.fillStyle='rgba(255,201,138,0.30)'; ctx.beginPath(); ctx.arc(cx,cy,56,0,7); ctx.fill(); ctx.restore();
+      if(warm){ ctx.save(); ctx.globalAlpha=0.85; ctx.drawImage(warm,cx-52,cy-52+lbob,104,104); ctx.restore(); }
+      else { ctx.save(); ctx.globalAlpha=0.55; ctx.fillStyle='#FFC98A'; ctx.beginPath(); ctx.arc(cx,cy+lbob,44,0,7); ctx.fill(); ctx.restore(); }
+      const sp=(Math.sin(time*1.6+i*2.1)+1)/2;   // 0..1, staggered per slot so twinkles don't blink in unison
+      if(sp>0.74){ ctx.save(); ctx.globalAlpha=(sp-0.74)/0.26; drawIcon('star',cx-46,cy-46+lbob,26,'#FFD15C','#fff'); ctx.restore(); }
     }
     ctx.restore();
   }
