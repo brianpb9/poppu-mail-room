@@ -1051,7 +1051,7 @@ const DRIVE_BIOMES = {
   gear:  { name:'woodland',  bgKey:'bg_forest',    tint:'rgba(120,180,120,0.04)', roadTint:'rgba(110,150,90,0.10)',  particleKind:'leaf',   particleCol:['#9ED89E','#7EC77E','#C6E89A'],
            interact:{ key:'drive_acorn',     band:[430,720], spd:34, sz:120, bobAmp:9,  chime:'acornPop',     cols:['#DCC084','#C6A15A','#FFE9A8'] } },
   heart: { name:'meadow',    bgKey:'bg_meadow',    tint:'rgba(255,180,205,0.05)', roadTint:'rgba(230,140,170,0.12)', particleKind:'petal',  particleCol:['#FFC2D3','#FF9DB6','#FFE0EA'],
-           interact:{ key:'drive_butterfly', band:[210,560], spd:66, sz:128, bobAmp:26, chime:'butterflyPop', cols:['#FFC2D3','#B79BEA','#FFE0EA'] } },
+           interact:{ key:'drive_butterfly', band:[330,660], spd:58, sz:132, bobAmp:24, chime:'butterflyPop', cols:['#C8A2F0','#FF9DB6','#FFE0EA'], flutter:true } },
   moon:  { name:'twilight',  bgKey:'bg_space',     tint:'rgba(150,130,220,0.05)', roadTint:'rgba(140,120,190,0.14)', particleKind:'star',   particleCol:['#FFE9A8','#E6DBFF','#FFF3C4'],
            interact:{ key:'drive_firefly',   band:[170,620], spd:48, sz:104, bobAmp:20, chime:'fireflyPop',   cols:['#FFE9A8','#FFF3C4','#E6DBFF'] } },
   drop:  { name:'riverside', bgKey:'bg_riverside', tint:'rgba(120,190,220,0.05)', roadTint:'rgba(100,170,210,0.13)', particleKind:'bubble', particleCol:['#BFE6F6','#8ECFEC','#E0F5FF'],
@@ -1393,14 +1393,18 @@ function advanceFromLevelDone(){
    A short (~19s), lose-proof scenic drive between "level cleared" and the
    results screen. No timer pressure, no obstacles that hurt, no dead-ends —
    purely a cozy breather + a few bonus collectibles + a Peeky greeting.     */
-function buildDriveItems(){
+function buildDriveItems(friendId){
   // dense, near-continuous trail (~190px apart, ~0.86s at DRIVE_SPEED — was 300px/~1.36s) so 3-5 are always
   // visible/reachable ahead — no dead beats between pickups. Gentle weave across two lanes + center so
   // catching one naturally lines the truck up to catch the next, right along the road's own curve.
+  // LANE THEMING (creative-director veto fix): the streaming lane pickups now carry the DESTINATION
+  // FRIEND'S OWN icon (gear/heart/moon/drop/cloud) with an occasional gold Poppu star, so the drivable
+  // corridor itself reads as "this friend's world," not a generic heart/star chute in every biome.
   const items=[]; let idx=0;
   const LANES=[-170,0,170,0];
+  const fk=(friendId&&T[friendId])?friendId:'heart';
   for(let d=280; d<DRIVE_LENGTH-200; d+=190){
-    items.push({ d, lane:LANES[idx%LANES.length], kind:(idx%2===0?'star':'heart'), collected:false });
+    items.push({ d, lane:LANES[idx%LANES.length], kind:(idx%4===3?'star':fk), collected:false });
     idx++;
   }
   return items;
@@ -1432,7 +1436,7 @@ function startDrive(){
     scrollY:0,
     truck:{ x:roadCenterX(0), rot:0 },
     dragActiveX:null,
-    items:buildDriveItems(),
+    items:buildDriveItems(chosenId),
     props:buildRoadsideProps(),
     arriving:false, arriveT:0, peekyTriggered:false, hugTriggered:false, done:false,
     lastRattle:-999,
@@ -1455,7 +1459,7 @@ function driveProgress(){ return drive?Math.max(0,Math.min(1,drive.scrollY/DRIVE
 function collectDriveItem(it){
   if(it.collected) return; it.collected=true;
   const x=roadCenterX(it.d)+it.lane, y=820-(it.d-drive.scrollY);
-  const color=it.kind==='star'?'#FFD15C':'#FF9DB6';
+  const color=(T[it.kind]&&T[it.kind].mid)||'#FFD15C';
   burst(x,y,color,16,7); Audio_.collect(); addStamps(1); persist();
 }
 /* NO-PENALTY "aww, so close!" feedback when the truck rolls past a collectible without catching it —
@@ -1475,23 +1479,29 @@ function spawnFloater(D){
   const I=D.biome&&D.biome.interact; if(!I) return;
   const dir=Math.random()<0.5?1:-1;
   const y=I.band[0]+Math.random()*(I.band[1]-I.band[0]);
-  // scatter across the scene (not just off an edge) with a gentle drift + a lifetime, so cozy creatures
-  // appear distributed over the whole biome and every one is reachable regardless of drift speed.
+  // LANE-CENTERED spawn (creative-director veto fix): the biome creature is placed ON the drivable
+  // corridor — centered on the road at its own depth (roadCenterX at d = scrollY + 820 - y) with a
+  // spread just inside the lane — so the creatures POPULATE the road you drive through, not the side
+  // scenery. Gentle drift + a lifetime keeps them alive and reachable; a miss just fades (no penalty).
+  const d=D.scrollY+(820-y), cx=roadCenterX(d);
+  const golden=Math.random()<0.12;   // gameplay-director inch: rare 3x "golden" creature for a little vertical pull
   D.floaters.push({
-    x: 240+Math.random()*(W-480), y,
+    x: cx+(Math.random()-0.5)*(DRIVE_ROAD_HALFW*1.15), y,
     vx: dir*(I.spd*(0.4+Math.random()*0.5)),
     phase: Math.random()*7, bobAmp:I.bobAmp*(0.7+Math.random()*0.6),
-    sz: I.sz*(0.86+Math.random()*0.3), flip:dir<0,
-    life:0, maxLife:6.5+Math.random()*2.5,   // drifts a while, then softly fades if never tapped (no-penalty)
+    sz: I.sz*(golden?1.12:1)*(0.86+Math.random()*0.3), flip:dir<0, golden,
+    life:0, maxLife:6.5+Math.random()*2.5,
     caught:false, popT:0,
   });
 }
 function catchFloater(D,f){
   if(f.caught) return; f.caught=true; f.popT=0;
   const I=D.biome.interact, y=f.y+Math.sin(f.phase)*f.bobAmp;
-  burst(f.x, y, I.cols[0], 14, 6); burst(f.x, y, I.cols[2], 8, 4);
+  burst(f.x, y, I.cols[0], f.golden?22:14, f.golden?8:6); burst(f.x, y, I.cols[2], 8, 4);
   if(Audio_[I.chime]) Audio_[I.chime](); else Audio_.collect();
-  addStamps(1); D.floatersCaught=(D.floatersCaught||0)+1; persist();
+  if(f.golden){ burst(f.x,y,'#FFD54A',18,7); confetti(f.x,y); Audio_.golden(); addStamps(3); }
+  else { addStamps(1); }
+  D.floatersCaught=(D.floatersCaught||0)+1; persist();
 }
 function updateDriveFloaters(dt){
   const D=drive; if(!D||!D.biome||!D.biome.interact) return;
@@ -1511,7 +1521,7 @@ function updateDriveFloaters(dt){
 /* tap resolution — generous toddler-friendly hit radius around the drifting sprite; returns true if a
    floater was caught (so the drive tap doesn't also start a steer). */
 function tryCatchFloaterAt(px,py){
-  const D=drive; if(!D||!D.biome||!D.biome.interact) return false;
+  const D=drive; if(!D||!D.biome||!D.biome.interact||D.arriving) return false;   // hands off during the arrival hug (QA)
   for(const f of D.floaters){ if(f.caught) continue;
     const y=f.y+Math.sin(f.phase)*f.bobAmp, hit=Math.max(96,f.sz*0.62);
     if(Math.hypot(px-f.x,py-y)<hit){ catchFloater(D,f); return true; }
@@ -1520,6 +1530,9 @@ function tryCatchFloaterAt(px,py){
 }
 function startArrival(){
   const D=drive; D.arriving=true; D.arriveT=0; D.peekyTriggered=false; D.hugTriggered=false; D.done=false; D.arrivalPop=null;
+  // fast-fade any still-drifting biome creatures so they clear the frame (softly, no pop) before the hug
+  // beat — the arrival is Poppu's moment, not a catch window (QA: floaters were live through the hug).
+  for(const f of D.floaters){ if(!f.caught && f.maxLife) f.maxLife=Math.min(f.maxLife,f.life+0.4); }
 }
 function updateDrive(dt){
   const D=drive; if(!D) return;
@@ -3598,16 +3611,17 @@ function drawDriveItems(){
     const x=roadCenterX(it.d)+it.lane, y=820-(it.d-D.scrollY);
     if(y<-100||y>H+100) continue;
     const bob=Math.sin(time*4+it.d)*6;
+    const tt=T[it.kind]||T.star, gf=tt.mid, gs=tt.deep;   // per-friend themed glyph color
     groundShadow(x,y+34,25,8,0.12,0.55);   // fixed line — ignores the icon's own bob
     if(it.missed){
       // brief no-penalty "aww" wiggle + fade as it drops behind the truck, uncaught
       const wob=Math.sin(it.missT*16)*0.3*Math.max(0,1-it.missT*1.4);
       const fade=Math.max(0,1-it.missT*0.9);
       ctx.save(); ctx.globalAlpha=fade; ctx.translate(x,y+bob); ctx.rotate(wob);
-      glyphIcon(it.kind, 0,0, 84, it.kind==='star'?'#FFD15C':'#FF9DB6', it.kind==='star'?'#E3A93E':'#F06A8E');
+      glyphIcon(it.kind, 0,0, 84, gf, gs);
       ctx.restore();
     } else {
-      glyphIcon(it.kind, x, y+bob, 84, it.kind==='star'?'#FFD15C':'#FF9DB6', it.kind==='star'?'#E3A93E':'#F06A8E');
+      glyphIcon(it.kind, x, y+bob, 84, gf, gs);
     }
   }
 }
@@ -3624,11 +3638,20 @@ function drawDriveFloaters(){
     let s=f.sz, a=1;
     if(f.maxLife){ if(f.life<0.4) a=f.life/0.4; else if(f.life>f.maxLife-1) a=Math.max(0,(f.maxLife-f.life)); }  // soft fade in/out
     if(f.caught){ const p=Math.min(1,f.popT/0.24); s=f.sz*(1+p*0.9); a=1-p; }
-    const sway=Math.sin(f.phase*0.8)*0.06;
+    // wordless "tap me!" affordance (product + player advocate) — a soft pulsing ring expands out of each
+    // catchable creature so a non-reader's eye is drawn straight to it and the touch verb is legible.
+    if(!f.caught && a>0.6){
+      const pr=((time*0.75)+f.phase*0.3)%1;
+      ctx.save(); ctx.globalAlpha=a*0.32*(1-pr); ctx.lineWidth=5;
+      ctx.strokeStyle=f.golden?'#FFD54A':I.cols[0];
+      ctx.beginPath(); ctx.arc(f.x,by,s*0.48+pr*s*0.5,0,7); ctx.stroke(); ctx.restore();
+    }
+    const sway=Math.sin(f.phase*0.8)*0.06 + (I.flutter?Math.sin(f.phase*5)*0.10:0);   // butterflies get a lively flutter-tilt
     ctx.save(); ctx.translate(f.x,by); ctx.globalAlpha=a; ctx.rotate(sway);
-    if(I.key==='drive_firefly'){ const gl=ctx.createRadialGradient(0,0,0,0,0,s*0.7);
-      gl.addColorStop(0,'rgba(255,236,150,'+(0.55*a)+')'); gl.addColorStop(1,'rgba(255,236,150,0)');
-      ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(0,0,s*0.7,0,7); ctx.fill(); }
+    if(I.key==='drive_firefly'||f.golden){ const c=f.golden?'255,213,74':'255,236,150';
+      const gl=ctx.createRadialGradient(0,0,0,0,0,s*0.72);
+      gl.addColorStop(0,'rgba('+c+','+((f.golden?0.5:0.55)*a)+')'); gl.addColorStop(1,'rgba('+c+',0)');
+      ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(0,0,s*0.72,0,7); ctx.fill(); }
     if(f.flip) ctx.scale(-1,1);
     ctx.drawImage(img,-s/2,-s/2,s,s);
     ctx.restore();
@@ -3691,7 +3714,13 @@ function drawOneCritter(c){
   const wave=Math.sin(t*7), S=1.6;   // bigger — clearly visible, per player-advocate feedback
   groundShadow(x,y+38*S*0.5,42*S*0.5,13*S*0.5,0.16,0.5);
   ctx.save(); ctx.translate(x,y); ctx.scale(S,S);
-  ctx.fillStyle='#6FA35A'; ctx.strokeStyle='#4d7a3c'; ctx.lineWidth=3;
+  // biome-aware base the critter sits on (creative-director: a green pad in the SKY read as a stray
+  // lilypad) — a soft cloud puff over the sky path, a warm sand bank by the river, grass elsewhere.
+  const bsurf=(D.biome&&D.biome.roadSurface)==='cloud'?'cloud':(D.biome&&D.biome.name==='riverside'?'sand':'grass');
+  if(bsurf==='cloud'){ ctx.fillStyle='#FFFFFF'; ctx.strokeStyle='#BCD3E8'; }
+  else if(bsurf==='sand'){ ctx.fillStyle='#E7D3A6'; ctx.strokeStyle='#C4A15A'; }
+  else { ctx.fillStyle='#6FA35A'; ctx.strokeStyle='#4d7a3c'; }
+  ctx.lineWidth=3;
   ctx.beginPath(); ctx.ellipse(0,10,50,26,0,0,7); ctx.fill(); ctx.stroke();
   ctx.save(); ctx.translate(0,(1-riseP)*46); ctx.scale(1,Math.max(0.12,riseP));
   ctx.fillStyle='#FFF3E4'; ctx.strokeStyle='#5a3d24'; ctx.lineWidth=3;
