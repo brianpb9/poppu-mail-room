@@ -3834,7 +3834,9 @@ function drawTruck(){
   const sway = driving ? Math.sin(time*4.7)*0.02 : 0;
   if(driving){
     const surf=(D.biome&&D.biome.roadSurface)||'dirt';
-    const dcol = surf==='cloud' ? 'rgba(255,255,255,0.55)' : 'rgba(150,120,80,0.28)';
+    // lighter, warmer dust so it pops off the same-tone road at a glance (player note); globalAlpha
+    // below does the fading, so keep the colour near-opaque here.
+    const dcol = surf==='cloud' ? 'rgb(255,255,255)' : 'rgb(233,216,180)';
     ctx.save();
     // big poofy dust: opacity PEAKS mid-life (sin bell) so the LARGEST puffs stay visible (not faded
     // out just as they grow) — a frozen frame now clearly reads 'vroom, bumpy dirt road'.
