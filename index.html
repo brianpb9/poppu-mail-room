@@ -1016,7 +1016,7 @@ function roadCenterX(scrollY){ return 960+Math.sin(scrollY*0.0009)*260; }
    visible stretch — a cheap depth hint that helps the top-down road unify with the side-view forest
    without a full art re-render. Visual only: steering bounds / item collection stay full-width so this
    can never make the lane feel narrower to actually drive. */
-function roadTaperAt(d, scrollY){ const ahead=Math.max(0,Math.min(1,(d-scrollY)/900)); return 1-ahead*0.22; }
+function roadTaperAt(d, scrollY){ const ahead=Math.max(0,Math.min(1,(d-scrollY)/900)); return 1-ahead*0.34; }
 
 /* per-destination biome (ip-director table) — each arrival friend now carries their OWN bespoke
    full backdrop (P1 fun-lever: woodland / meadow / riverside / twilight star-deck / sky), so every
@@ -3382,6 +3382,26 @@ function drawRoad(){
     tracePoly(edge); ctx.lineWidth=34; ctx.strokeStyle=edgeGrass; ctx.stroke();
     tracePoly(edge); ctx.lineWidth=12; ctx.strokeStyle='rgba(90,61,36,0.10)'; ctx.stroke();
     tracePoly(edge); ctx.lineWidth=8; ctx.globalAlpha=0.85; ctx.strokeStyle=edgeLine; ctx.stroke(); ctx.globalAlpha=1;
+  }
+  // 2c. scale-graded dirt pebbles (dirt biomes only) — dabs are LARGER near the bottom (close) and
+  //     smaller/fainter toward the top (far), so the plane itself sells recession instead of reading as
+  //     a uniform isotropic texture (creative-director: the last drive seam). Deterministic per depth.
+  if(surf!=='cloud'){
+    ctx.save(); roadPath(); ctx.clip();
+    const prep=150;
+    for(let k=-1;k<=8;k++){
+      const base=Math.floor((D.scrollY-300)/prep)*prep, d=base+k*prep;
+      if(d<D.scrollY-320||d>D.scrollY+950) continue;
+      const y=cy0-(d-D.scrollY), depth=Math.max(0.22,Math.min(1,(y+120)/(cy0+120)));
+      const tp=roadTaperAt(d,D.scrollY);
+      for(let j=0;j<2;j++){ const seed=Math.round(d/prep)*7+j*13;
+        const lane=(seededRand(seed)-0.5)*(halfW*1.5*tp);
+        const x=roadCenterX(d)+lane, rw=(6+seededRand(seed+1)*10)*depth*1.7;
+        ctx.fillStyle = j? 'rgba(120,92,54,0.15)' : 'rgba(163,132,88,0.13)';
+        ctx.beginPath(); ctx.ellipse(x,y,rw,rw*0.66,0,0,7); ctx.fill();
+      }
+    }
+    ctx.restore();
   }
   // 3. faint center cart-track — two parallel ruts
   for(const track of [trackL,trackR]){ tracePoly(track); ctx.lineWidth=44; ctx.strokeStyle='rgba(120,92,54,0.10)'; ctx.stroke(); }
