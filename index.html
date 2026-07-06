@@ -530,6 +530,11 @@ ASSET_SRC['shop_tag_kraft']='assets/shop-tag-kraft.png';
 ASSET_SRC['shop_tag_wood']='assets/shop-tag-wood.png';
 ASSET_SRC['shop_shelf']='assets/shop-shelf.png';
 ASSET_SRC['shop_banner']='assets/shop-counter-banner.png';
+/* Wrap Shop illustrated props (creative lever) — real ribbon spool + bow + sticker sheet replace the
+   flat pink strip / plain sticker circles so the wrap station reads as tactile craft materials. */
+ASSET_SRC['wrap_ribbon_spool']='assets/wrap-ribbon-spool.png';
+ASSET_SRC['wrap_bow']='assets/wrap-bow.png';
+ASSET_SRC['wrap_sticker_sheet']='assets/wrap-sticker-sheet.png';
 /* Cosmetic shop IN-CONTEXT preview art — each is a small composed scene (hat ON a mini Poppu,
    skin ON a mini mailbox/conveyor swatch, decor in a room corner), not a floating icon. Falls back
    to the existing procedural in-context placeholder (drawCosmeticCard) until real art lands. */
@@ -1995,8 +2000,10 @@ function drawWrapRibbonStrip(){
   const prog=wrapBox.ribbon?1:wrapBox.ribbonProg;
   ctx.save(); rr(r.x-r.w/2,r.y-r.h/2,r.w,r.h,30); ctx.clip();
   ctx.fillStyle='rgba(255,157,182,0.35)'; ctx.fillRect(r.x-r.w/2,r.y-r.h/2,r.w*prog,r.h); ctx.restore();
+  // illustrated wooden ribbon spool anchoring the LEFT end — the strip reads as ribbon feeding off it
+  if(has('wrap_ribbon_spool')) sprite('wrap_ribbon_spool', r.x-r.w/2-6, r.y-4, 128,128);
   const ix = wrapBox.ribbon? r.x+r.w*0.5-50 : r.x-r.w*0.5+50+prog*(r.w-100);
-  drawBow(ix,r.y,70,'#F06A8E');
+  if(has('wrap_bow')) sprite('wrap_bow', ix, r.y, 92,92); else drawBow(ix,r.y,70,'#F06A8E');
   if(!wrapBox.ribbon){ ctx.save(); ctx.globalAlpha=0.7+0.3*Math.sin(time*3);
     glyphIcon('arrow',r.x,r.y-r.h*0.6-30,46,'#F4A93E','#E3A93E'); ctx.restore(); }
   ctx.restore();
