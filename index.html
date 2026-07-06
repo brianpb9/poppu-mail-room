@@ -400,6 +400,19 @@ const Audio_ = (()=>{
     setTruck(on){ startTruckNodes(); if(truckGain&&ac){ truckGain.gain.cancelScheduledValues(now()); truckGain.gain.setTargetAtTime(on?0.045:0.0, now(), 0.5); } },
     startTruck(){ this.setTruck(true); }, stopTruck(){ this.setTruck(false); },
     collect(){ const t=now(); tone(1400+Math.random()*120,t,0.055,'sine',0.16,2000); tone(2100,t+0.02,0.045,'sine',0.10); },
+    /* ---- per-biome finger-toy catch chimes (P1 9-10 lever) — each a soft, distinct, always-happy
+       "caught it!" keyed to the friend's world, built from the same synth palette so they sit in one
+       cozy sound-world. All gentle, never sharp, never a fail. ---- */
+    /* firefly (twilight/Orby): airy glimmer — a soft high shimmer rising into a twinkle */
+    fireflyPop(){ const t=now(); tone(1568,t,0.09,'sine',0.15,2349); tone(2637,t+0.06,0.12,'sine',0.11); noise(t,0.10,0.02,4200,1.4); },
+    /* butterfly (meadow/Zaza): light flutter — three quick tender rising sine blips */
+    butterflyPop(){ const t=now(); [880,1174.66,1567.98].forEach((f,i)=>tone(f,t+i*0.045,0.09,'sine',0.14-i*0.02,f*1.06)); },
+    /* lilypad+frog (riverside/Wavey): a watery "plip" — a sine drop-blip + a tiny splash */
+    plip(){ const t=now(); tone(1046.5,t,0.09,'sine',0.18,523.25); noise(t+0.02,0.06,0.05,1600,1); tone(1568,t+0.10,0.07,'sine',0.10); },
+    /* cloud-puff (sky/Puffy): a soft airy "poof" — breathy lowpassed puff + a high sleepy sine */
+    puffPop(){ const t=now(); noise(t,0.14,0.06,700,0.7); tone(1318.5,t+0.03,0.14,'sine',0.10,1046.5); },
+    /* acorn (woodland/Peeky): a woody "tok" — short bandpassed knock + a warm kalimba ping */
+    acornPop(){ const t=now(); noise(t,0.05,0.13,520,3.2); tone(260,t,0.06,'sine',0.14,200); kalimbaNote(1046.5,t+0.05,0.16); },
     arrival(){ const t=now(); [PENTA[0],PENTA[2],PENTA[3],PENTA[4],PENTA[4]*2].forEach((f,i)=>{ kalimbaNote(f,t+i*0.11,0.22-i*0.02); }); tone(PENTA[4]*2,t+0.55,0.5,'sine',0.16); noise(t+0.05,0.4,0.04,2600,1.2); },
     /* ---- Wrap Shop / Friend house (Phase 1) — bespoke synthesis, built from the same
        kalimba/tone/noise palette as the rest of the game so it sits in one cozy sound-world.
@@ -497,6 +510,12 @@ ASSET_SRC['new_badge']='assets/new-badge.png';
 ASSET_SRC['new_badge_v2']='assets/new-badge-v2.png';
 ASSET_SRC['mail_truck']='assets/mail-truck.png';
 ASSET_SRC['road_tex']='assets/road-path-texture-tile.png';
+/* Delivery-Drive biome finger-toys (Phase 1 9-10 lever) — one tappable illustrated creature/prop per
+   biome (acorn/butterfly/firefly/lilypad+frog/cloud-puff), clean-alpha PNG, has()-gated so a missing
+   file simply skips drawing (never a procedural stand-in — hard style rule). */
+['drive_acorn','drive_butterfly','drive_firefly','drive_lilypad','drive_cloudpuff'].forEach(k=>{
+  ASSET_SRC[k]='assets/'+k.replace(/_/g,'-')+'.png';
+});
 /* Poppu's Post Town (Phase 1) — Wrap Shop interior + the four new friend houses (Peeky/gear's
    house_peeky above predates this naming convention; every other friend follows house_<typeId>) */
 ASSET_SRC['wrap_bg']='assets/wrap-bg.webp';
@@ -1023,12 +1042,22 @@ function roadTaperAt(d, scrollY){ const ahead=Math.max(0,Math.min(1,(d-scrollY)/
    Drive run reads as a genuinely NEW place, not one tinted forest. The `tint` is now only a whisper-
    thin atmospheric wash (≤0.06) to seat the road into each palette — the distinct art carries the
    identity, not the tint. moon/orby = the cozy twilight "Star Deck" (bg_space re-arted to dusk, no sci-fi). */
+/* `interact` (P1 9-10 lever): each biome carries its OWN cozy, no-fail, single-TAP finger-toy layered
+   onto the drive — tap the drifting creature/prop to catch it (sparkle burst + a soft distinct per-biome
+   chime + 1 Star Stamp). Every trip now feels like a different PLACE to DO something, not one corridor.
+   `key` = real illustrated sprite (clean-alpha PNG, NO procedural shapes); `band`=[yTop,yBottom] air/water
+   layer it drifts through; `spd` = drift px/s; `chime` = Audio_ method; `cols` = catch-burst palette. */
 const DRIVE_BIOMES = {
-  gear:  { name:'woodland',  bgKey:'bg_forest',    tint:'rgba(120,180,120,0.04)', roadTint:'rgba(110,150,90,0.10)',  particleKind:'leaf',   particleCol:['#9ED89E','#7EC77E','#C6E89A'] },
-  heart: { name:'meadow',    bgKey:'bg_meadow',    tint:'rgba(255,180,205,0.05)', roadTint:'rgba(230,140,170,0.12)', particleKind:'petal',  particleCol:['#FFC2D3','#FF9DB6','#FFE0EA'] },
-  moon:  { name:'twilight',  bgKey:'bg_space',     tint:'rgba(150,130,220,0.05)', roadTint:'rgba(140,120,190,0.14)', particleKind:'star',   particleCol:['#FFE9A8','#E6DBFF','#FFF3C4'] },
-  drop:  { name:'riverside', bgKey:'bg_riverside', tint:'rgba(120,190,220,0.05)', roadTint:'rgba(100,170,210,0.13)', particleKind:'bubble', particleCol:['#BFE6F6','#8ECFEC','#E0F5FF'] },
-  cloud: { name:'sky',       bgKey:'bg_sky',       tint:'rgba(235,245,255,0.06)', roadSurface:'cloud',              particleKind:'puff',   particleCol:['#FFFFFF','#EAF4FF','#DCEBF7'] },
+  gear:  { name:'woodland',  bgKey:'bg_forest',    tint:'rgba(120,180,120,0.04)', roadTint:'rgba(110,150,90,0.10)',  particleKind:'leaf',   particleCol:['#9ED89E','#7EC77E','#C6E89A'],
+           interact:{ key:'drive_acorn',     band:[430,720], spd:34, sz:120, bobAmp:9,  chime:'acornPop',     cols:['#DCC084','#C6A15A','#FFE9A8'] } },
+  heart: { name:'meadow',    bgKey:'bg_meadow',    tint:'rgba(255,180,205,0.05)', roadTint:'rgba(230,140,170,0.12)', particleKind:'petal',  particleCol:['#FFC2D3','#FF9DB6','#FFE0EA'],
+           interact:{ key:'drive_butterfly', band:[210,560], spd:66, sz:128, bobAmp:26, chime:'butterflyPop', cols:['#FFC2D3','#B79BEA','#FFE0EA'] } },
+  moon:  { name:'twilight',  bgKey:'bg_space',     tint:'rgba(150,130,220,0.05)', roadTint:'rgba(140,120,190,0.14)', particleKind:'star',   particleCol:['#FFE9A8','#E6DBFF','#FFF3C4'],
+           interact:{ key:'drive_firefly',   band:[170,620], spd:48, sz:104, bobAmp:20, chime:'fireflyPop',   cols:['#FFE9A8','#FFF3C4','#E6DBFF'] } },
+  drop:  { name:'riverside', bgKey:'bg_riverside', tint:'rgba(120,190,220,0.05)', roadTint:'rgba(100,170,210,0.13)', particleKind:'bubble', particleCol:['#BFE6F6','#8ECFEC','#E0F5FF'],
+           interact:{ key:'drive_lilypad',   band:[470,760], spd:30, sz:130, bobAmp:7,  chime:'plip',         cols:['#BFE6F6','#8ECFEC','#7EC77E'] } },
+  cloud: { name:'sky',       bgKey:'bg_sky',       tint:'rgba(235,245,255,0.06)', roadSurface:'cloud',              particleKind:'puff',   particleCol:['#FFFFFF','#EAF4FF','#DCEBF7'],
+           interact:{ key:'drive_cloudpuff', band:[150,520], spd:44, sz:138, bobAmp:16, chime:'puffPop',      cols:['#FFFFFF','#EAF4FF','#CDEBFA'] } },
 };
 /* per-friend arrival-hug flourish table (animation-director spec) — drives the drop-in ease/lean/
    squeeze/pull of drawDriveArrival's embrace beat + the color/count of its landing sparkle burst, so
@@ -1417,6 +1446,8 @@ function startDrive(){
       { d:DRIVE_LENGTH*0.68, side:1,  state:'idle', t:0 },
     ],
     arrivalPop:null,   // {t,full} — wordless hug payoff, set at the hug beat (see updateDrive)
+    // biome finger-toy layer (P1 9-10 lever): drifting tappable creatures, one species per biome.
+    floaters:[], floaterTimer:0.4, floatersCaught:0,
   };
   Audio_.startTruck(); Audio_.setMusicRoot(5);
 }
@@ -1435,12 +1466,65 @@ function missDriveItem(it){
   const x=roadCenterX(it.d)+it.lane, y=820-(it.d-drive.scrollY);
   burst(x,y,'#D8C8C0',6,3); Audio_.aww();
 }
+/* ---- Biome finger-toy (P1 9-10 lever) — renewable single-TAP interaction per biome ------------
+   A drifting illustrated creature/prop (acorn/butterfly/firefly/lilypad/cloud-puff) spawns from one
+   side and floats across its biome's air/water band. A single tap catches it: sparkle burst + a soft
+   distinct per-biome chime + 1 Star Stamp. Always rewarding, never blocks/steers the truck, never a
+   fail — a miss just drifts off the far edge with zero penalty. Sprites are has()-gated real PNGs. */
+function spawnFloater(D){
+  const I=D.biome&&D.biome.interact; if(!I) return;
+  const dir=Math.random()<0.5?1:-1;
+  const y=I.band[0]+Math.random()*(I.band[1]-I.band[0]);
+  // scatter across the scene (not just off an edge) with a gentle drift + a lifetime, so cozy creatures
+  // appear distributed over the whole biome and every one is reachable regardless of drift speed.
+  D.floaters.push({
+    x: 240+Math.random()*(W-480), y,
+    vx: dir*(I.spd*(0.4+Math.random()*0.5)),
+    phase: Math.random()*7, bobAmp:I.bobAmp*(0.7+Math.random()*0.6),
+    sz: I.sz*(0.86+Math.random()*0.3), flip:dir<0,
+    life:0, maxLife:6.5+Math.random()*2.5,   // drifts a while, then softly fades if never tapped (no-penalty)
+    caught:false, popT:0,
+  });
+}
+function catchFloater(D,f){
+  if(f.caught) return; f.caught=true; f.popT=0;
+  const I=D.biome.interact, y=f.y+Math.sin(f.phase)*f.bobAmp;
+  burst(f.x, y, I.cols[0], 14, 6); burst(f.x, y, I.cols[2], 8, 4);
+  if(Audio_[I.chime]) Audio_[I.chime](); else Audio_.collect();
+  addStamps(1); D.floatersCaught=(D.floatersCaught||0)+1; persist();
+}
+function updateDriveFloaters(dt){
+  const D=drive; if(!D||!D.biome||!D.biome.interact) return;
+  // spawn cadence — keep ~2-3 catchable on screen while driving; stop spawning once arriving
+  if(!D.arriving){
+    D.floaterTimer-=dt;
+    const live=D.floaters.filter(f=>!f.caught).length;
+    if(D.floaterTimer<=0 && live<3){ spawnFloater(D); D.floaterTimer=0.85+Math.random()*0.9; }
+  }
+  for(let i=D.floaters.length-1;i>=0;i--){ const f=D.floaters[i];
+    f.phase+=dt*1.6;
+    if(f.caught){ f.popT+=dt; if(f.popT>0.24) D.floaters.splice(i,1); continue; }
+    f.x+=f.vx*dt; f.life+=dt;
+    if(f.x<-140||f.x>W+140||f.life>f.maxLife) D.floaters.splice(i,1);
+  }
+}
+/* tap resolution — generous toddler-friendly hit radius around the drifting sprite; returns true if a
+   floater was caught (so the drive tap doesn't also start a steer). */
+function tryCatchFloaterAt(px,py){
+  const D=drive; if(!D||!D.biome||!D.biome.interact) return false;
+  for(const f of D.floaters){ if(f.caught) continue;
+    const y=f.y+Math.sin(f.phase)*f.bobAmp, hit=Math.max(96,f.sz*0.62);
+    if(Math.hypot(px-f.x,py-y)<hit){ catchFloater(D,f); return true; }
+  }
+  return false;
+}
 function startArrival(){
   const D=drive; D.arriving=true; D.arriveT=0; D.peekyTriggered=false; D.hugTriggered=false; D.done=false; D.arrivalPop=null;
 }
 function updateDrive(dt){
   const D=drive; if(!D) return;
   updateDriveAmbient(dt);
+  updateDriveFloaters(dt);
   if(!D.arriving){
     D.scrollY+=DRIVE_SPEED*dt;
     if(D.scrollY>=DRIVE_LENGTH){ D.scrollY=DRIVE_LENGTH; startArrival(); }
@@ -1771,13 +1855,25 @@ function drawWrapRibbonStrip(){
     glyphIcon('arrow',r.x,r.y-r.h*0.6-30,46,'#F4A93E','#E3A93E'); ctx.restore(); }
   ctx.restore();
 }
+/* each sticker button now PREVIEWS its own distinct sticker in its true canonical color (gold star /
+   pink heart / lavender moon) instead of three identical gold glyphs — so a non-reader can tell the
+   three choices apart before tapping. When nothing's stuck on the box yet, a soft pulsing tap-cue floats
+   over the row (mirrors the ribbon strip's arrow) so the buttons visibly signal "tap one of us". */
+const WRAP_STICKER_PAL={ star:['#FFD15C','#E3A93E'], heart:['#FF9DB6','#F06A8E'], moon:['#C4A7F0','#7a5bbf'] };
 function drawWrapStickerTray(){
   if(!wrapBox) return;
+  const none=!wrapBox.sticker, pulse=0.7+0.3*Math.sin(time*3);
   for(const st of wrapStickerTray()){
+    const pal=WRAP_STICKER_PAL[st.icon]||['#FFD15C','#E3A93E'], on=(wrapBox.sticker===st.icon);
     ctx.save(); shadow(12,'rgba(0,0,0,0.14)',0,5); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(st.x,st.y,st.r,0,7); ctx.fill(); noShadow();
-    ctx.lineWidth=6; ctx.strokeStyle=(wrapBox.sticker===st.icon)?'#FFD54A':'#e3d3b4'; ctx.stroke();
-    glyphIcon(st.icon,st.x,st.y,st.r*1.1,'#FFD15C','#E3A93E'); ctx.restore();
+    ctx.lineWidth=6; ctx.strokeStyle=on?'#FFD54A':pal[1]; ctx.globalAlpha=on?1:0.75; ctx.stroke(); ctx.globalAlpha=1;
+    if(none){ ctx.globalAlpha=0.55+0.25*Math.sin(time*3); }   // gently breathe untapped choices so they invite a tap
+    glyphIcon(st.icon,st.x,st.y,st.r*1.1,pal[0],pal[1]); ctx.restore();
   }
+  if(none){ ctx.save(); ctx.globalAlpha=pulse;
+    const cx=WRAP_BOX_POS.x, cy=WRAP_STICKER_Y-WRAP_STICKER_R-30+Math.sin(time*3)*4;
+    ctx.translate(cx,cy); ctx.rotate(Math.PI/2);   // point the cue DOWN at the sticker choices
+    glyphIcon('arrow',0,0,44,'#F4A93E','#E3A93E'); ctx.restore(); }
 }
 /* the flying package during the 1d ship animation — Beat A (proud wiggle in place) then Beat B (plop
    arc into the queue); Beat C (land) is handled by finalizeWrapShip() + drawWrapQueue's landing squash. */
@@ -2219,6 +2315,7 @@ function onDown(cx,cy){
   }
   if(state==='DRIVE'){
     if(dist(p.x,p.y,HOMEBTN.x,HOMEBTN.y)<HOMEBTN.r){ Audio_.stopTruck(); Audio_.setMusicRoot(SCENES[currentScene].music.root); drive=null; state='START'; floatTexts=[]; popups=[]; return; }
+    if(tryCatchFloaterAt(p.x,p.y)) return;   // biome finger-toy tap wins over steer (discrete, air-layer)
     if(drive && !drive.arriving) drive.dragActiveX=p.x;
     return;
   }
@@ -3383,25 +3480,47 @@ function drawRoad(){
     tracePoly(edge); ctx.lineWidth=12; ctx.strokeStyle='rgba(90,61,36,0.10)'; ctx.stroke();
     tracePoly(edge); ctx.lineWidth=8; ctx.globalAlpha=0.85; ctx.strokeStyle=edgeLine; ctx.stroke(); ctx.globalAlpha=1;
   }
-  // 2c. scale-graded dirt pebbles (dirt biomes only) — dabs are LARGER near the bottom (close) and
-  //     smaller/fainter toward the top (far), so the plane itself sells recession instead of reading as
-  //     a uniform isotropic texture (creative-director: the last drive seam). Deterministic per depth.
+  // 2b. organic grass-tuft verge (dirt biomes) — breaks the hard even road/grass border with small
+  //     jittered blade clusters straddling the edge, so the shoulder reads as a feathered natural verge,
+  //     not a ruler-straight line (review-board polish). Sparse/irregular + depth-scaled, deterministic.
+  if(surf!=='cloud'){
+    ctx.save(); ctx.lineCap='round';
+    for(const [edge,side] of [[left,-1],[right,1]]){
+      for(let i=2;i<edge.length-1;i+=2){ const pt=edge[i];
+        const seed=Math.round((pt.y+D.scrollY)*0.31)+side*11;
+        if(seededRand(seed)>0.60) continue;   // not every step — irregular spacing
+        const depth=Math.max(0.3,Math.min(1,(pt.y+120)/(cy0+120)));
+        const tx=pt.x+side*(3+seededRand(seed+1)*11), ty=pt.y;
+        const n=2+Math.floor(seededRand(seed+2)*3), h=(9+seededRand(seed+3)*15)*depth;
+        ctx.strokeStyle='rgba(108,150,78,0.55)'; ctx.lineWidth=3.2*depth;
+        for(let b=0;b<n;b++){ const bx=tx+(b-n/2)*4.2*depth, lean=(seededRand(seed*1.7+b+4)-0.5)*11;
+          ctx.beginPath(); ctx.moveTo(bx,ty); ctx.quadraticCurveTo(bx+lean*0.5,ty-h*0.6,bx+lean,ty-h); ctx.stroke(); }
+      }
+    }
+    ctx.restore();
+  }
+  // 2c. scale-graded dirt pebbles (dirt biomes only) — dabs LARGER near the bottom (close), smaller/
+  //     fainter toward the top (far). Each pebble is JITTERED in depth WITHIN its band + varied size/
+  //     alpha/rotation (with an occasional bigger stone) so the scatter never reads as a repeating row.
   if(surf!=='cloud'){
     ctx.save(); roadPath(); ctx.clip();
     const prep=150;
     for(let k=-1;k<=8;k++){
-      const base=Math.floor((D.scrollY-300)/prep)*prep, d=base+k*prep;
-      if(d<D.scrollY-320||d>D.scrollY+950) continue;
-      const y=cy0-(d-D.scrollY), depth=Math.max(0.22,Math.min(1,(y+120)/(cy0+120)));
-      const tp=roadTaperAt(d,D.scrollY);
-      for(let j=0;j<2;j++){ const seed=Math.round(d/prep)*7+j*13;
-        const lane=(seededRand(seed)-0.5)*(halfW*1.5*tp);
-        const x=roadCenterX(d)+lane, rw=(6+seededRand(seed+1)*10)*depth*1.7;
-        ctx.fillStyle = j? 'rgba(120,92,54,0.15)' : 'rgba(163,132,88,0.13)';
-        ctx.beginPath(); ctx.ellipse(x,y,rw,rw*0.66,0,0,7); ctx.fill();
+      const bandD=Math.floor((D.scrollY-300)/prep)*prep+k*prep;
+      for(let j=0;j<4;j++){ const seed=Math.round(bandD/prep)*17+j*29;
+        const d=bandD+(seededRand(seed+5)-0.5)*prep*1.35;   // scatter each pebble off the band grid
+        if(d<D.scrollY-320||d>D.scrollY+950) continue;
+        const y=cy0-(d-D.scrollY), depth=Math.max(0.22,Math.min(1,(y+120)/(cy0+120)));
+        const tp=roadTaperAt(d,D.scrollY);
+        const x=roadCenterX(d)+(seededRand(seed)-0.5)*(halfW*1.7*tp);
+        const big=seededRand(seed+3)>0.82;
+        const rw=(4+seededRand(seed+1)*(big?19:10))*depth*1.7;
+        ctx.globalAlpha=0.09+seededRand(seed+2)*0.10;
+        ctx.fillStyle=(j&1)?'#785a36':'#A38458';
+        ctx.beginPath(); ctx.ellipse(x,y,rw,rw*(0.55+seededRand(seed+4)*0.3),seededRand(seed+6)*3,0,7); ctx.fill();
       }
     }
-    ctx.restore();
+    ctx.globalAlpha=1; ctx.restore();
   }
   // 3. faint center cart-track — two parallel ruts
   for(const track of [trackL,trackR]){ tracePoly(track); ctx.lineWidth=44; ctx.strokeStyle='rgba(120,92,54,0.10)'; ctx.stroke(); }
@@ -3490,6 +3609,29 @@ function drawDriveItems(){
     } else {
       glyphIcon(it.kind, x, y+bob, 84, it.kind==='star'?'#FFD15C':'#FF9DB6', it.kind==='star'?'#E3A93E':'#F06A8E');
     }
+  }
+}
+/* biome finger-toy layer — the tappable creature/prop per biome. Real illustrated sprite (has()-gated,
+   never a procedural stand-in). Gentle sway + bob idle; on catch, a quick scale-up + fade "pop" of the
+   sprite itself (the sparkle burst carries the rest of the juice — see catchFloater). A soft glow disc
+   sits under fireflies so they read as luminous in the twilight. */
+function drawDriveFloaters(){
+  const D=drive; if(!D||!D.biome||!D.biome.interact) return;
+  const I=D.biome.interact; if(!has(I.key)) return;
+  const img=IMG[I.key].img;
+  for(const f of D.floaters){
+    const by=f.y+Math.sin(f.phase)*f.bobAmp;
+    let s=f.sz, a=1;
+    if(f.maxLife){ if(f.life<0.4) a=f.life/0.4; else if(f.life>f.maxLife-1) a=Math.max(0,(f.maxLife-f.life)); }  // soft fade in/out
+    if(f.caught){ const p=Math.min(1,f.popT/0.24); s=f.sz*(1+p*0.9); a=1-p; }
+    const sway=Math.sin(f.phase*0.8)*0.06;
+    ctx.save(); ctx.translate(f.x,by); ctx.globalAlpha=a; ctx.rotate(sway);
+    if(I.key==='drive_firefly'){ const gl=ctx.createRadialGradient(0,0,0,0,0,s*0.7);
+      gl.addColorStop(0,'rgba(255,236,150,'+(0.55*a)+')'); gl.addColorStop(1,'rgba(255,236,150,0)');
+      ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(0,0,s*0.7,0,7); ctx.fill(); }
+    if(f.flip) ctx.scale(-1,1);
+    ctx.drawImage(img,-s/2,-s/2,s,s);
+    ctx.restore();
   }
 }
 /* Roadside dressing (flowers/mushrooms/a signpost/a butterfly) — purely decorative, drawn outside the
@@ -3706,7 +3848,7 @@ function drawDriveFriendGrowth(){
 }
 function drawDrive(){
   drawDriveBackground(); drawDriveAmbient(); drawRoad(); drawRoadShoulderFoliage(); drawDriveDepthVignette();
-  drawRoadsideProps(); drawDriveCritter(); drawDriveItems(); drawTruck(); drawDriveArrival(); drawDriveArrivalPop();
+  drawRoadsideProps(); drawDriveCritter(); drawDriveItems(); drawTruck(); drawDriveFloaters(); drawDriveArrival(); drawDriveArrivalPop();
   drawParticles(); drawDriveProgressDots(); drawDriveFriendGrowth(); drawFloatTexts();
   drawDriveFade();
   homeButton(); stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
@@ -3721,7 +3863,7 @@ Audio_.setVolume(SAVE.volume!=null?SAVE.volume:2);   // restore saved volume pre
 let last=performance.now();
 function frame(now){
   const dt=Math.min(0.05,(now-last)/1000); last=now;
-  update(dt);
+  if(!window.__freeze) update(dt);   // QA-only: hold a frame for controlled rendered evidence (no gameplay effect in normal play)
   ctx.setTransform(1,0,0,1,0,0);
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.fillStyle='#e2d0b2'; ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -3826,6 +3968,13 @@ window.__t = {
     return { progress:driveProgress(), truckX:drive.truck.x, scrollY:drive.scrollY, arriving:drive.arriving,
       itemsLeft:total-caught, itemsTotal:total, caught, total,
       fullRun:drive.fullRun!=null?drive.fullRun:(total>0 && caught>=Math.max(1,Math.ceil(total*0.9))) }; },
+  /* ---- biome finger-toy (P1 9-10 lever) verification hooks ---- */
+  get driveFloaters(){ if(!drive) return null;
+    return { kind:drive.biome&&drive.biome.interact?drive.biome.interact.key:null, caught:drive.floatersCaught||0,
+      live:drive.floaters.filter(f=>!f.caught).map(f=>({x:Math.round(f.x),y:Math.round(f.y+Math.sin(f.phase)*f.bobAmp)})) }; },
+  /* tap the nearest live floater exactly as a finger would (drive scene must be active) */
+  tapFloater(){ if(!drive) return false; const f=drive.floaters.find(f=>!f.caught); if(!f) return false;
+    return tryCatchFloaterAt(f.x, f.y+Math.sin(f.phase)*f.bobAmp); },
   /* one of: 'none' | 'decel' | 'peekyRun' | 'hug' | 'fadeOut' — for QA to assert the in-scene arrival beat actually plays */
   get arrivalPhase(){
     if(!drive || !drive.arriving) return 'none';
