@@ -467,13 +467,15 @@ const Audio_ = (()=>{
 
 /* ------------------------------------------------------------- ASSET LOADER */
 const ASSET_SRC = {
-  bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-space.webp',
+  bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
+  bg_meadow:'assets/bg-meadow.webp', bg_riverside:'assets/bg-riverside.webp', bg_sky:'assets/bg-sky.webp',
   poppu_postal:'assets/poppu-postal.png', poppu_wave:'assets/poppu-wave.png', poppu_celebrate:'assets/poppu-celebrate.png',
   conveyor:'assets/conveyor-belt.png', ui_play:'assets/ui-play-btn.png', ui_sticker:'assets/ui-sticker-frame.png',
 };
 /* WebP first, transparent fallback to the original JPG if WebP is unsupported/missing */
 const ASSET_FALLBACK = {
-  bg:'assets/bg-mailroom.jpg', bg_forest:'assets/bg-forest.jpg', bg_space:'assets/bg-space.jpg',
+  bg:'assets/bg-mailroom.jpg', bg_forest:'assets/bg-forest.jpg', bg_space:'assets/bg-star-deck.jpg',
+  bg_meadow:'assets/bg-meadow.jpg', bg_riverside:'assets/bg-riverside.jpg', bg_sky:'assets/bg-sky.jpg',
 };
 TYPES.forEach(t=>{
   ASSET_SRC['pkg_'+t.id]='assets/pkg-'+t.id+'.png';
@@ -1016,15 +1018,17 @@ function roadCenterX(scrollY){ return 960+Math.sin(scrollY*0.0009)*260; }
    can never make the lane feel narrower to actually drive. */
 function roadTaperAt(d, scrollY){ const ahead=Math.max(0,Math.min(1,(d-scrollY)/900)); return 1-ahead*0.22; }
 
-/* per-destination biome (ip-director table) — a lightweight bg/tint/ambient-particle wash per
-   arrival friend so every Drive run feels distinct, without needing 5 fully bespoke backgrounds yet.
-   moon/orby reuses bg_space but is warmed toward lavender + explicitly kept "cozy twilight", not sci-fi. */
+/* per-destination biome (ip-director table) — each arrival friend now carries their OWN bespoke
+   full backdrop (P1 fun-lever: woodland / meadow / riverside / twilight star-deck / sky), so every
+   Drive run reads as a genuinely NEW place, not one tinted forest. The `tint` is now only a whisper-
+   thin atmospheric wash (≤0.06) to seat the road into each palette — the distinct art carries the
+   identity, not the tint. moon/orby = the cozy twilight "Star Deck" (bg_space re-arted to dusk, no sci-fi). */
 const DRIVE_BIOMES = {
-  gear:  { name:'woodland',  bgKey:'bg_forest', tint:'rgba(120,180,120,0.05)', roadTint:'rgba(110,150,90,0.10)',  particleKind:'leaf',   particleCol:['#9ED89E','#7EC77E','#C6E89A'] },
-  heart: { name:'meadow',    bgKey:'bg_forest', tint:'rgba(255,160,190,0.16)', roadTint:'rgba(230,140,170,0.13)', particleKind:'petal',  particleCol:['#FFC2D3','#FF9DB6','#FFE0EA'] },
-  moon:  { name:'twilight',  bgKey:'bg_space',  tint:'rgba(150,130,220,0.14)', roadTint:'rgba(140,120,190,0.15)', particleKind:'star',   particleCol:['#E6DBFF','#C9B8F0','#FFF3C4'] },
-  drop:  { name:'riverside', bgKey:'bg_forest', tint:'rgba(120,190,220,0.18)', roadTint:'rgba(100,170,210,0.15)', particleKind:'bubble',  particleCol:['#BFE6F6','#8ECFEC','#E0F5FF'] },
-  cloud: { name:'sky',       bgKey:'bg_forest', tint:'rgba(230,240,250,0.22)', roadTint:'rgba(220,230,245,0.13)', particleKind:'puff',   particleCol:['#FFFFFF','#EAF4FF','#DCEBF7'] },
+  gear:  { name:'woodland',  bgKey:'bg_forest',    tint:'rgba(120,180,120,0.04)', roadTint:'rgba(110,150,90,0.10)',  particleKind:'leaf',   particleCol:['#9ED89E','#7EC77E','#C6E89A'] },
+  heart: { name:'meadow',    bgKey:'bg_meadow',    tint:'rgba(255,180,205,0.05)', roadTint:'rgba(230,140,170,0.12)', particleKind:'petal',  particleCol:['#FFC2D3','#FF9DB6','#FFE0EA'] },
+  moon:  { name:'twilight',  bgKey:'bg_space',     tint:'rgba(150,130,220,0.05)', roadTint:'rgba(140,120,190,0.14)', particleKind:'star',   particleCol:['#FFE9A8','#E6DBFF','#FFF3C4'] },
+  drop:  { name:'riverside', bgKey:'bg_riverside', tint:'rgba(120,190,220,0.05)', roadTint:'rgba(100,170,210,0.13)', particleKind:'bubble', particleCol:['#BFE6F6','#8ECFEC','#E0F5FF'] },
+  cloud: { name:'sky',       bgKey:'bg_sky',       tint:'rgba(235,245,255,0.06)', roadTint:'rgba(210,225,245,0.12)', particleKind:'puff',   particleCol:['#FFFFFF','#EAF4FF','#DCEBF7'] },
 };
 /* per-friend arrival-hug flourish table (animation-director spec) — drives the drop-in ease/lean/
    squeeze/pull of drawDriveArrival's embrace beat + the color/count of its landing sparkle burst, so
@@ -3690,7 +3694,7 @@ window.__t = {
   startDriveAs(typeId){
     const chain=['gear','heart','moon','drop','cloud']; const target=chain.indexOf(typeId);
     if(target<0) return null;
-    for(let i=1;i<=target;i++){ this.unlockFriendHouse(chain[i-1]==='gear'?'peeky':chain[i-1]); }
+    for(let i=0;i<=target;i++){ this.unlockFriendHouse(chain[i]==='gear'?'peeky':chain[i]); }
     const ids=unlockedDriveFriendIds(); const idx=ids.indexOf(typeId);
     SAVE.driveVisits=idx>=0?idx:0; startDrive(); return drive?drive.friendType.id:null;
   },
