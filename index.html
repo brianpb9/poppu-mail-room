@@ -3836,10 +3836,15 @@ function drawTruck(){
     const surf=(D.biome&&D.biome.roadSurface)||'dirt';
     const dcol = surf==='cloud' ? 'rgba(255,255,255,0.55)' : 'rgba(150,120,80,0.28)';
     ctx.save();
-    for(let i=0;i<4;i++){ const ph=((time*1.9+i*0.55)%1);
-      ctx.globalAlpha=(1-ph)*0.55; ctx.fillStyle=dcol;
-      const px=renderX+(i-1.5)*20, py=884+ph*52, pr=13+ph*34;   // bigger, poofier puffs
-      ctx.beginPath(); ctx.ellipse(px,py,pr,pr*0.62,0,0,7); ctx.fill(); }
+    // big poofy dust: opacity PEAKS mid-life (sin bell) so the LARGEST puffs stay visible (not faded
+    // out just as they grow) — a frozen frame now clearly reads 'vroom, bumpy dirt road'.
+    for(let i=0;i<5;i++){ const ph=((time*1.7+i*0.45)%1);
+      ctx.globalAlpha=Math.sin(ph*Math.PI)*0.55; ctx.fillStyle=dcol;
+      const px=renderX-8+(i-2)*22, py=888+ph*40, pr=16+ph*30;
+      ctx.beginPath(); ctx.ellipse(px,py,pr,pr*0.6,0,0,7); ctx.fill(); }
+    // soft persistent dust cushion at the wheels so even a still frame shows kicked-up dust
+    ctx.globalAlpha=0.32; ctx.fillStyle=dcol;
+    ctx.beginPath(); ctx.ellipse(renderX-4,892,56,20,0,0,7); ctx.fill();
     ctx.restore();
   }
   // flat contact shadow OUTSIDE the rotate block — stays flush on the road, never tilts with the truck
