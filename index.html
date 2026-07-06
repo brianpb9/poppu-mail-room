@@ -6,7 +6,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#F6EAD6">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%93%AC%3C/text%3E%3C/svg%3E">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/app-icon.png">
 <title>Poppu's Mail Room</title>
 <style>
   html,body{margin:0;padding:0;height:100%;width:100%;overflow:hidden;background:#e9dcc4;
@@ -504,6 +505,16 @@ ASSET_SRC['house_cloud']='assets/house-cloud.png';
 COSMETICS.forEach(c=>{ ASSET_SRC['cos-'+c.id.replace(/_/g,'-')]='assets/cos-'+c.id.replace(/_/g,'-')+'.png'; });
 /* Friend-house illustrated interiors (Phase 1) — a cozy painted room per friend, keyed by house name */
 ['peeky','orby','zaza','wavey','puffy'].forEach(n=>{ ASSET_SRC['friendbg_'+n]='assets/bg-house-'+n+'.webp'; });
+/* Production raster pack (Phase 2) — 20 UI/glyph icons (ic_<name> -> assets/ic-<dashed>.png) and
+   5 "My Garden" flower states, replacing procedural drawIcon()/drawSticker() call sites 1:1. Each
+   is has()-gated by the existing loader so a missing/loading PNG never breaks a frame. */
+['home','back','volume_on','volume_off','settings','close','star','heart','gear','moon','drop','cloud',
+ 'speed','capacity','arrow','reveal','x2','seal','stamp','crown'].forEach(n=>{
+  ASSET_SRC['ic_'+n]='assets/ic-'+n.replace(/_/g,'-')+'.png';
+});
+['flower_common','flower_rare','flower_special','flower_locked','flower_unlocked'].forEach(n=>{
+  ASSET_SRC[n]='assets/'+n.replace(/_/g,'-')+'.png';
+});
 const IMG={}; let loadedCount=0, totalToLoad=Object.keys(ASSET_SRC).length, loadDone=false, loadStart=0;
 function beginLoad(){
   loadStart=performance.now();
@@ -595,6 +606,19 @@ function drawIcon(kind,cx,cy,s,fill,stroke){
       ctx.lineTo(s*0.46,s*0.22); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.fillStyle=stroke||'#5a3d24'; ctx.beginPath(); ctx.arc(0,s*0.02,s*0.09,0,7); ctx.fill(); }
   ctx.restore();
+}
+/* Raster glyph helper (production art pack) — draws the real ic_<name> PNG centered at (cx,cy) at
+   size s (square). Returns true if it drew something; call sites fall back to the procedural
+   drawIcon() when it returns false (asset still loading / missing), so a frame never breaks. */
+function uiIcon(name,cx,cy,s){ const k='ic_'+name; if(has(k)){ ctx.drawImage(IMG[k].img,cx-s/2,cy-s/2,s,s); return true; } return false; }
+/* drop-in raster-first replacement for drawIcon() at UI/reward call sites — SAME signature, so every
+   converted call site is a plain rename. Maps the few procedural kind names that don't match their
+   ic_ filename 1:1 (bolt->speed, box->capacity, eye->reveal), tries the raster, and falls back to the
+   original procedural drawIcon() untouched when the PNG isn't loaded yet — never breaks a frame. */
+const GLYPH_ICON_MAP={ bolt:'speed', box:'capacity', eye:'reveal' };
+function glyphIcon(kind,cx,cy,s,fill,stroke){
+  if(uiIcon(GLYPH_ICON_MAP[kind]||kind,cx,cy,s)) return true;
+  drawIcon(kind,cx,cy,s,fill,stroke); return false;
 }
 function drawText(txt,x,y,size,fill,stroke,align='center',weight='800',sw){
   ctx.save(); ctx.textAlign=align; ctx.textBaseline='middle';
@@ -726,8 +750,18 @@ function drawRoomCorner(cx,cy){
   ctx.strokeStyle='#d9c3a0'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(cx-70,cy+20); ctx.lineTo(cx+70,cy+20); ctx.stroke();
   ctx.restore();
 }
+/* raster-first hat body — the cos-hat-<id> cutout is exported anchored so its OWN base (brim/rim)
+   sits ~60% down its own (square) canvas, so drawing it top-aligned at -h*0.6 lands the brim right on
+   the (x,y) head-top anchor every caller already passes in, instead of floating above the head. */
+function drawPoppuHatRaster(key,x,y,s){
+  if(!has(key)) return false;
+  const im=IMG[key].img, w=s*1.1, h=w*(im.naturalHeight/im.naturalWidth||1);
+  ctx.save(); ctx.translate(x,y); ctx.drawImage(im,-w/2,-h*0.6,w,h); ctx.restore(); return true;
+}
 function drawPoppuHat(x,y,s,id){
   if(!id){ if(SAVE.goldenHat) id='hat_gold'; else return; }
+  if(id!=='hat_gold' && drawPoppuHatRaster('cos-'+id.replace(/_/g,'-'),x,y,s)) return;
+  if(id==='hat_gold' && drawPoppuHatRaster('cos-hat-crown',x,y,s)) return;
   ctx.save(); ctx.translate(x,y); ctx.lineJoin='round'; ctx.strokeStyle='#5a3d24'; ctx.lineWidth=s*0.03;
   if(id==='hat_chef'){ ctx.fillStyle='#fff'; ctx.beginPath();
       ctx.arc(-s*0.18,-s*0.05,s*0.16,0,7); ctx.arc(s*0.18,-s*0.05,s*0.16,0,7); ctx.arc(0,-s*0.16,s*0.2,0,7); ctx.fill();
@@ -763,6 +797,15 @@ function mailboxSkinRing(b,skin){
 function conveyorSkinOverlay(cx,cy,cw,ch,skin){
   if(!skin) return;
   ctx.save(); ctx.beginPath(); ctx.rect(cx-cw/2,cy-ch*0.34,cw,ch*0.68); ctx.clip();
+  const key='cos-'+skin.replace(/_/g,'-');
+  if(has(key)){
+    // real art: a 1024x256 seamless-tileable strip, scrolled the same direction/speed as the belt so
+    // it reads as printed ON the belt surface, not a decal sitting on top of it.
+    const im=IMG[key].img, tileH=ch*0.68, tileW=tileH*(im.naturalWidth/im.naturalHeight);
+    const off=((time*130)%tileW+tileW)%tileW;
+    for(let x=cx-cw/2-tileW+off; x<cx+cw/2+tileW; x+=tileW) ctx.drawImage(im,x,cy-tileH/2,tileW,tileH);
+    ctx.restore(); return;
+  }
   const off=(time*130)%80;
   if(skin==='cv_neon'){ ctx.globalAlpha=0.5; ctx.strokeStyle='#35e0e0'; ctx.lineWidth=10; ctx.lineCap='round';
       for(let x=cx-cw/2-80;x<cx+cw/2+80;x+=80){ ctx.beginPath(); ctx.moveTo(x+off,cy-ch*0.3); ctx.lineTo(x+off-20,cy+ch*0.3); ctx.stroke(); } }
@@ -772,15 +815,26 @@ function conveyorSkinOverlay(cx,cy,cw,ch,skin){
       for(let x=cx-cw/2;x<cx+cw/2;x+=90){ ctx.beginPath(); ctx.arc(x+off*0.5,cy,ch*0.2,0,7); ctx.fill(); } }
   ctx.restore();
 }
+/* raster-first decor piece — draws cos-dec-<name> at its natural aspect, fit to targetW, anchored per
+   the existing procedural footprint below (so equipping a real asset never shifts the room layout). */
+function drawDecorRaster(key,cx,cy,targetW,anchorBottom){
+  if(!has(key)) return false;
+  const im=IMG[key].img, w=targetW, h=w*(im.naturalHeight/im.naturalWidth||1);
+  const top = anchorBottom!=null ? anchorBottom-h : cy-h/2;
+  ctx.drawImage(im, cx-w/2, top, w, h); return true;
+}
 function drawDecor(id){
   if(!id) return;
-  if(id==='dec_rug'){ ctx.save(); ctx.globalAlpha=0.9; ctx.translate(905,930); ctx.scale(1,0.4);
+  if(id==='dec_rug'){ if(drawDecorRaster('cos-dec-rug',905,930,680)) return;
+      ctx.save(); ctx.globalAlpha=0.9; ctx.translate(905,930); ctx.scale(1,0.4);
       const g=ctx.createRadialGradient(0,0,40,0,0,320); g.addColorStop(0,'#FFCFA0'); g.addColorStop(0.6,'#E39B6E'); g.addColorStop(1,'#C97A4E');
       ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,320,0,7); ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=14; ctx.beginPath(); ctx.arc(0,0,250,0,7); ctx.stroke(); ctx.restore(); }
-  if(id==='dec_plant'){ ctx.save(); ctx.translate(1180,900);
+  if(id==='dec_plant'){ if(drawDecorRaster('cos-dec-plant',1180,900,220,990)) return;
+      ctx.save(); ctx.translate(1180,900);
       ctx.fillStyle='#C97A4E'; rr(-40,0,80,90,12); ctx.fill(); ctx.strokeStyle='#5a3d24'; ctx.lineWidth=4; ctx.stroke();
       ctx.fillStyle='#5FB985'; for(let i=-2;i<=2;i++){ ctx.save(); ctx.rotate(i*0.35); ctx.beginPath(); ctx.ellipse(0,-70,26,80,0,0,7); ctx.fill(); ctx.restore(); } ctx.restore(); }
-  if(id==='dec_poster'){ ctx.save(); ctx.translate(560,300);
+  if(id==='dec_poster'){ if(drawDecorRaster('cos-dec-poster',560,300,200)) return;
+      ctx.save(); ctx.translate(560,300);
       shadow(16,'rgba(0,0,0,0.2)',0,8); ctx.fillStyle='#fffdf6'; rr(-90,-120,180,240,14); ctx.fill(); noShadow();
       ctx.strokeStyle='#B79BEA'; ctx.lineWidth=8; rr(-90,-120,180,240,14); ctx.stroke();
       drawIcon('heart',0,-30,120,'#FF9DB6','#F06A8E'); drawText('POPPU',0,80,40,'#8E6FD6',null); ctx.restore(); }
@@ -1507,7 +1561,7 @@ function drawWrapBoxScene(){
     shadow(10,'rgba(0,0,0,0.16)',0,4);
     ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,54,0,7); ctx.fill(); noShadow();
     ctx.lineWidth=5; ctx.strokeStyle=type.deep; ctx.stroke();
-    drawIcon(wrapBox.sticker,0,0,60,'#FFD15C','#E3A93E'); ctx.restore();
+    glyphIcon(wrapBox.sticker,0,0,60,'#FFD15C','#E3A93E'); ctx.restore();
   }
   ctx.restore();
   if(!wrapBox.acted){
@@ -1527,7 +1581,7 @@ function drawWrapRibbonStrip(){
   const ix = wrapBox.ribbon? r.x+r.w*0.5-50 : r.x-r.w*0.5+50+prog*(r.w-100);
   drawBow(ix,r.y,70,'#F06A8E');
   if(!wrapBox.ribbon){ ctx.save(); ctx.globalAlpha=0.7+0.3*Math.sin(time*3);
-    drawIcon('arrow',r.x,r.y-r.h*0.6-30,46,'#F4A93E','#E3A93E'); ctx.restore(); }
+    glyphIcon('arrow',r.x,r.y-r.h*0.6-30,46,'#F4A93E','#E3A93E'); ctx.restore(); }
   ctx.restore();
 }
 function drawWrapStickerTray(){
@@ -1535,7 +1589,7 @@ function drawWrapStickerTray(){
   for(const st of wrapStickerTray()){
     ctx.save(); shadow(12,'rgba(0,0,0,0.14)',0,5); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(st.x,st.y,st.r,0,7); ctx.fill(); noShadow();
     ctx.lineWidth=6; ctx.strokeStyle=(wrapBox.sticker===st.icon)?'#FFD54A':'#e3d3b4'; ctx.stroke();
-    drawIcon(st.icon,st.x,st.y,st.r*1.1,'#FFD15C','#E3A93E'); ctx.restore();
+    glyphIcon(st.icon,st.x,st.y,st.r*1.1,'#FFD15C','#E3A93E'); ctx.restore();
   }
 }
 /* the flying package during the 1d ship animation — Beat A (proud wiggle in place) then Beat B (plop
@@ -1559,7 +1613,7 @@ function drawWrapShipAnim(){
   if(A.ribbon) drawBow(0,s*0.06,90,'#fff');
   if(A.sticker){ ctx.save(); ctx.translate(s*0.28,-s*0.30);
     ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,54,0,7); ctx.fill();
-    ctx.lineWidth=5; ctx.strokeStyle=A.type.deep; ctx.stroke(); drawIcon(A.sticker,0,0,60,'#FFD15C','#E3A93E'); ctx.restore(); }
+    ctx.lineWidth=5; ctx.strokeStyle=A.type.deep; ctx.stroke(); glyphIcon(A.sticker,0,0,60,'#FFD15C','#E3A93E'); ctx.restore(); }
   ctx.restore();
 }
 function drawWrapShipButton(){
@@ -1569,7 +1623,7 @@ function drawWrapShipButton(){
   shadow(active?26:12, active?'rgba(255,213,84,0.6)':'rgba(0,0,0,0.14)',0,active?10:5);
   ctx.fillStyle=active?'#FFD15C':'#efe6d2'; ctx.beginPath(); ctx.arc(0,0,b.r,0,7); ctx.fill(); noShadow();
   ctx.lineWidth=8; ctx.strokeStyle=active?'#fff':'#e3d3b4'; ctx.stroke();
-  drawIcon('arrow',0,0,b.r*0.9,active?'#fff':'#cbbd9c',active?'#E3A93E':'#b8a684');
+  glyphIcon('arrow',0,0,b.r*0.9,active?'#fff':'#cbbd9c',active?'#E3A93E':'#b8a684');
   ctx.restore();
 }
 function drawWrapQueue(){
@@ -1578,7 +1632,7 @@ function drawWrapQueue(){
   const bx=WRAP_QUEUE_POS.x, by=WRAP_QUEUE_POS.y;
   ctx.save(); shadow(16,'rgba(0,0,0,0.14)',0,6); ctx.fillStyle='rgba(255,252,244,0.9)'; rr(bx-130,by-190,260,380,32); ctx.fill(); noShadow();
   ctx.lineWidth=5; ctx.strokeStyle='#B79BEA'; rr(bx-130,by-190,260,380,32); ctx.stroke();
-  drawIcon('heart',bx,by-150,44,'#FF9DB6','#F06A8E');
+  glyphIcon('heart',bx,by-150,44,'#FF9DB6','#F06A8E');
   const cols=['#FFD15C','#FF9DB6','#8ECFEC','#98D7B4','#B79BEA','#FFC2D3'];
   for(let i=0;i<Math.max(1,n);i++){
     const stackY=by+120-i*40;
@@ -1688,7 +1742,9 @@ function drawFriendHeartMeter(){
     } else if(friendHeartFlash>0 && filled){
       sizeMul=1+0.10*friendHeartFlash*Math.max(0,Math.sin(Math.PI*((1-friendHeartFlash)*3-i*0.5)));  // gentle sympathy wave
     }
-    drawIcon('heart',pos.x,pos.y,filled?size*sizeMul:size*0.82,filled?'#FF9DB6':'#fffdf6',filled?'#F06A8E':'#e3d3b4');
+    { const hs=filled?size*sizeMul:size*0.82;
+      if(has('ic_heart')){ ctx.save(); ctx.globalAlpha=filled?1:0.35; ctx.drawImage(IMG.ic_heart.img,pos.x-hs/2,pos.y-hs/2,hs,hs); ctx.restore(); }
+      else drawIcon('heart',pos.x,pos.y,hs,filled?'#FF9DB6':'#fffdf6',filled?'#F06A8E':'#e3d3b4'); }
     if(friendHeartFlash>0 && i===friendHeartNewIdx){
       const p=1-friendHeartFlash, ringP=Math.min(1,p/0.6);
       ctx.save(); ctx.globalAlpha=(1-ringP)*0.7; ctx.strokeStyle='#FF9DB6'; ctx.lineWidth=4;
@@ -1704,7 +1760,7 @@ function drawFriendWantBubble(){
   ctx.lineWidth=5; ctx.strokeStyle='#e3d3b4'; ctx.beginPath(); ctx.arc(bx,by,64,0,7); ctx.stroke();
   ctx.beginPath(); ctx.arc(bx-46,by+58,14,0,7); ctx.fill(); ctx.stroke();
   ctx.beginPath(); ctx.arc(bx-24,by+34,8,0,7); ctx.fill(); ctx.stroke();
-  drawIcon(wantType.icon,bx,by,60,wantType.mid,wantType.deep);
+  glyphIcon(wantType.icon,bx,by,60,wantType.mid,wantType.deep);
   ctx.restore();
 }
 /* per-friend post-chomp reaction — extra idle-bob offset + a body squishY multiplier, layered on top of
@@ -1774,7 +1830,7 @@ function drawFriendFeedAnim(){
   if(t<0.32){
     const p=t/0.32, e=p*p;   // easeIn
     const x=A.from.x+(mouth.x-A.from.x)*e, y=A.from.y+(mouth.y-A.from.y)*e;
-    ctx.save(); ctx.translate(x,y); ctx.scale(1-0.3*e,1-0.3*e); drawIcon(A.icon,0,0,84,'#FFD15C','#E3A93E'); ctx.restore();
+    ctx.save(); ctx.translate(x,y); ctx.scale(1-0.3*e,1-0.3*e); glyphIcon(A.icon,0,0,84,'#FFD15C','#E3A93E'); ctx.restore();
   }
   if(id==='drop' && t>=0.32 && t<0.90){
     const rp=(t-0.32)/0.58, r=20+rp*140;
@@ -1796,7 +1852,7 @@ function drawFriendItemTray(){
   for(const it of friendItemTray()){
     ctx.save(); shadow(14,'rgba(0,0,0,0.14)',0,6); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(it.x,it.y,it.r,0,7); ctx.fill(); noShadow();
     ctx.lineWidth=6; ctx.strokeStyle='#e3d3b4'; ctx.stroke();
-    drawIcon(it.icon,it.x,it.y,it.r*1.1,'#FFD15C','#E3A93E'); ctx.restore();
+    glyphIcon(it.icon,it.x,it.y,it.r*1.1,'#FFD15C','#E3A93E'); ctx.restore();
   }
 }
 function drawFriendHatTray(){
@@ -1811,7 +1867,7 @@ function drawFriendHatTray(){
 function drawFriendDraggedItem(){
   if(!friendDragItem) return; const d=friendDragItem;
   ctx.save(); ctx.translate(d.x,d.y); ctx.scale(1.15,1.15);
-  if(d.kind==='item') drawIcon(d.icon,0,0,90,'#FFD15C','#E3A93E'); else drawPoppuHat(0,10,150,d.id);
+  if(d.kind==='item') glyphIcon(d.icon,0,0,90,'#FFD15C','#E3A93E'); else drawPoppuHat(0,10,150,d.id);
   ctx.restore();
 }
 function drawFriend(){
@@ -2185,21 +2241,25 @@ function stampChip(x,y,align){
   const wTxt=ctx.measureText(txt).width, cw=wTxt+120, ch=72;
   const bx=align==='right'?x-cw:x, by=y;
   shadow(14,'rgba(0,0,0,0.15)',0,5); ctx.fillStyle='rgba(255,252,244,0.95)'; rr(bx,by,cw,ch,ch/2); ctx.fill(); noShadow();
-  drawIcon('star',bx+42,by+ch/2,50,'#FFD15C','#E3A93E');
+  glyphIcon('star',bx+42,by+ch/2,50,'#FFD15C','#E3A93E');
   drawText(txt,bx+78,by+ch/2+2,40,'#6a4a2a',null,'left','800');
   ctx.restore();
 }
 function homeButton(){
   ctx.save(); shadow(12,'rgba(0,0,0,0.14)',0,5); ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(HOMEBTN.x,HOMEBTN.y,HOMEBTN.r,0,7); ctx.fill(); noShadow();
   ctx.strokeStyle='#E3A93E'; ctx.lineWidth=5; ctx.stroke();
-  ctx.fillStyle='#E3A93E'; ctx.beginPath(); ctx.moveTo(HOMEBTN.x,HOMEBTN.y-24); ctx.lineTo(HOMEBTN.x-26,HOMEBTN.y); ctx.lineTo(HOMEBTN.x-16,HOMEBTN.y); ctx.lineTo(HOMEBTN.x-16,HOMEBTN.y+22); ctx.lineTo(HOMEBTN.x+16,HOMEBTN.y+22); ctx.lineTo(HOMEBTN.x+16,HOMEBTN.y); ctx.lineTo(HOMEBTN.x+26,HOMEBTN.y); ctx.closePath(); ctx.fill();
+  if(!uiIcon('home',HOMEBTN.x,HOMEBTN.y,HOMEBTN.r*1.15)){
+    ctx.fillStyle='#E3A93E'; ctx.beginPath(); ctx.moveTo(HOMEBTN.x,HOMEBTN.y-24); ctx.lineTo(HOMEBTN.x-26,HOMEBTN.y); ctx.lineTo(HOMEBTN.x-16,HOMEBTN.y); ctx.lineTo(HOMEBTN.x-16,HOMEBTN.y+22); ctx.lineTo(HOMEBTN.x+16,HOMEBTN.y+22); ctx.lineTo(HOMEBTN.x+16,HOMEBTN.y); ctx.lineTo(HOMEBTN.x+26,HOMEBTN.y); ctx.closePath(); ctx.fill();
+  }
   ctx.restore();
 }
 function backButton(){
   ctx.save(); shadow(14,'rgba(0,0,0,0.16)',0,6); const b=BACKBTN;
   ctx.fillStyle='#98D7B4'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); noShadow();
   ctx.strokeStyle='#fff'; ctx.lineWidth=8; ctx.stroke();
-  ctx.strokeStyle='#3a6a4a'; ctx.lineWidth=12; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(b.x+20,b.y-28); ctx.lineTo(b.x-24,b.y); ctx.lineTo(b.x+20,b.y+28); ctx.stroke();
+  if(!uiIcon('back',b.x,b.y,b.r*1.15)){
+    ctx.strokeStyle='#3a6a4a'; ctx.lineWidth=12; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(b.x+20,b.y-28); ctx.lineTo(b.x-24,b.y); ctx.lineTo(b.x+20,b.y+28); ctx.stroke();
+  }
   ctx.restore();
 }
 function pill(r,fill,strokeCol,strokeW,label,labelCol,sub){
@@ -2214,6 +2274,7 @@ function drawVolumeButton(){
   const b=VOLBTN, lvl=SAVE.volume, col='#4FA9D6';
   ctx.save(); shadow(12,'rgba(0,0,0,0.14)',0,5); ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); noShadow();
   ctx.strokeStyle='#8ECFEC'; ctx.lineWidth=5; ctx.stroke();
+  if(uiIcon(lvl>0?'volume_on':'volume_off',b.x,b.y,b.r*1.15)){ ctx.restore(); return; }
   ctx.translate(b.x,b.y); ctx.lineJoin='round';
   ctx.fillStyle=col; ctx.beginPath();
   ctx.moveTo(-24,-10); ctx.lineTo(-10,-10); ctx.lineTo(4,-22); ctx.lineTo(4,22); ctx.lineTo(-10,10); ctx.lineTo(-24,10); ctx.closePath(); ctx.fill();
@@ -2255,9 +2316,9 @@ function drawTutorial(){
   const cy=170, cw=560, ch=124, cx=W/2, gap=150;
   shadow(20,'rgba(0,0,0,0.3)',0,8); ctx.fillStyle='#fffdf6'; rr(cx-cw/2,cy-ch/2,cw,ch,ch/2); ctx.fill(); noShadow();
   const pkgType=(_front?_front.type:box.type);
-  drawIcon(pkgType.icon, cx-gap, cy, 56, pkgType.mid, pkgType.deep);
-  ctx.save(); ctx.globalAlpha=0.6+0.4*Math.sin(time*4); drawIcon('arrow', cx, cy, 50, '#F4A93E','#E3A93E'); ctx.restore();
-  drawIcon(box.type.icon, cx+gap, cy, 56, box.type.mid, box.type.deep);
+  glyphIcon(pkgType.icon, cx-gap, cy, 56, pkgType.mid, pkgType.deep);
+  ctx.save(); ctx.globalAlpha=0.6+0.4*Math.sin(time*4); glyphIcon('arrow', cx, cy, 50, '#F4A93E','#E3A93E'); ctx.restore();
+  glyphIcon(box.type.icon, cx+gap, cy, 56, box.type.mid, box.type.deep);
   ctx.restore();
 }
 function drawParentDashboard(){
@@ -2297,6 +2358,7 @@ function drawParentDashboard(){
 /* ------------------------------------------------------------- RENDER: PLAY */
 function drawMailboxes(){
   const hint=curLevel().hint, mbSkin=equipped('mailbox'), scan=hasUp('scanner');
+  const skinKey=mbSkin?'cos-'+mbSkin.replace(/_/g,'-'):null, skinReady=skinKey&&has(skinKey);
   for(const b of activeBoxes()){ const type=b.type, i=b.typeIdx;
     const hovered=hoverType===type.id;
     let glow=0;
@@ -2306,11 +2368,16 @@ function drawMailboxes(){
     const bn=boxBounce[i], pop=bn>0?Math.sin((1-bn)*Math.PI)*0.14:0;
     const sx=1+pop*0.4, sy=1-pop*0.4;
     ctx.save(); ctx.globalAlpha=0.55; ctx.fillStyle=type.light; ctx.beginPath(); ctx.arc(b.x,b.y+b.h*0.02,b.w*0.52,0,7); ctx.fill(); ctx.restore();
-    mailboxSkinRing(b, mbSkin);
+    if(!skinReady) mailboxSkinRing(b, mbSkin);   // procedural ring is fallback-only once the real skin art has landed
     ctx.save(); ctx.translate(b.x,b.y+(glow>0.6?-6:0)); ctx.scale(sx,sy);
     if(glow>0) shadow(46*glow,type.deep);
     const s=b.w*(1+(hovered&&glow>0.6?0.05:0));
-    if(has('mailbox_'+type.id)) ctx.drawImage(IMG['mailbox_'+type.id].img,-s/2,-s/2,s,s);
+    if(skinReady){
+      ctx.drawImage(IMG[skinKey].img,-s/2,-s/2,s,s);
+      // the skin reskins the BODY, so overlay the type's own identity glyph on top — kids still need
+      // to tell the 6 boxes apart at a glance no matter which cosmetic is equipped (never a regression).
+      noShadow(); if(!uiIcon(type.icon,0,-s*0.02,s*0.28)) drawIcon(type.icon,0,-s*0.02,s*0.28,type.deep,'#5a3d24');
+    } else if(has('mailbox_'+type.id)) ctx.drawImage(IMG['mailbox_'+type.id].img,-s/2,-s/2,s,s);
     else ph_mailbox(type,0,0,b.w*0.9,glow);
     noShadow(); ctx.restore();
     drawBoxTag(b,hint);
@@ -2322,7 +2389,7 @@ function drawBoxTag(b,hint){
   ctx.lineWidth=r*0.16; ctx.strokeStyle=type.deep; ctx.stroke();
   if(hint==='color'){ const cg=ctx.createLinearGradient(tx,ty-r,tx,ty+r); cg.addColorStop(0,type.light); cg.addColorStop(1,type.deep);
     ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(tx,ty,r*0.72,0,7); ctx.fill(); }
-  else if(hint==='shape') drawIcon(type.icon,tx,ty,r*1.25,type.mid,type.deep);
+  else if(hint==='shape') glyphIcon(type.icon,tx,ty,r*1.25,type.mid,type.deep);
   else drawFaceCircle(type,tx,ty,r*0.9);
   ctx.restore();
 }
@@ -2390,9 +2457,9 @@ function drawStationTask(){
     ctx.fillStyle='#fff'; ctx.strokeStyle='#5a3d24'; ctx.lineWidth=6; rr(-w/2,-h/2,w,h,18); ctx.fill(); ctx.stroke();
     ctx.fillStyle=env.type.light; ctx.beginPath(); ctx.moveTo(-w/2,-h/2);
     ctx.lineTo(0,-h/2+(0.5+env.prog*0.5)*h*0.55); ctx.lineTo(w/2,-h/2); ctx.closePath(); ctx.fill(); ctx.strokeStyle='#5a3d24'; ctx.stroke();
-    drawIcon('heart',0,20,70,env.type.mid,env.type.deep);
+    glyphIcon('heart',0,20,70,env.type.mid,env.type.deep);
     const ax=-70+(Math.sin(time*3)*0.5+0.5)*140;
-    ctx.globalAlpha=0.85; drawIcon('arrow',ax,-h/2-46,60,'#F4A93E','#E3A93E'); ctx.globalAlpha=1;
+    ctx.globalAlpha=0.85; glyphIcon('arrow',ax,-h/2-46,60,'#F4A93E','#E3A93E'); ctx.globalAlpha=1;
     ctx.restore();
     drawText('Swipe to seal!',sx,sy+150,40,'#7a5a34','#fff');
   }
@@ -2411,14 +2478,14 @@ function drawStationTask(){
       if(want) shadow(16+Math.sin(time*5)*7,'rgba(255,213,84,0.6)'); else shadow(14,'rgba(0,0,0,0.16)',0,6);
       ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(tb.x,tb.y,tb.r,0,7); ctx.fill(); noShadow();
       ctx.lineWidth=8; ctx.strokeStyle=(activeTask.flash>0&&want)?'#5FB985':(want?'#FFD54A':'#e3d3b4'); ctx.stroke();
-      drawIcon(glyph,tb.x,tb.y,tb.r*1.2,['#FFD15C','#FF9DB6','#B79BEA'][i],'#5a3d24');
+      glyphIcon(glyph,tb.x,tb.y,tb.r*1.2,['#FFD15C','#FF9DB6','#B79BEA'][i],'#5a3d24');
       ctx.restore(); }
   }
   else if(k==='shake'){
     for(const it of activeTask.items){ ctx.save(); ctx.translate(sx+it.ox,sy+it.oy+Math.sin(time*20+it.ox)*3); ctx.rotate(it.rot+Math.sin(time*15)*0.05);
       const s=140; if(has('pkg_'+it.type.id)) ctx.drawImage(IMG['pkg_'+it.type.id].img,-s/2,-s/2,s,s); else ph_package(it.type,0,0,s,it.golden); ctx.restore(); }
     drawText('Shake to sort! ('+activeTask.taps+'/3)',sx,sy+150,38,'#7a5a34','#fff');
-    ctx.save(); ctx.globalAlpha=0.6+0.4*Math.sin(time*6); drawIcon('bolt',sx+220,sy-130,60,'#F4A93E','#E3A93E'); ctx.restore();
+    ctx.save(); ctx.globalAlpha=0.6+0.4*Math.sin(time*6); glyphIcon('bolt',sx+220,sy-130,60,'#F4A93E','#E3A93E'); ctx.restore();
   }
 }
 function drawPlayHUD(){
@@ -2438,7 +2505,7 @@ function drawPlayHUD(){
   if(L.hint==='color'){ const cg=ctx.createLinearGradient(li_cx,li_cy-li_r*0.6,li_cx,li_cy+li_r*0.6);
     cg.addColorStop(0,repType.light); cg.addColorStop(1,repType.deep); ctx.fillStyle=cg;
     ctx.beginPath(); ctx.arc(li_cx,li_cy,li_r*0.62,0,7); ctx.fill(); }
-  else if(L.hint==='shape'){ drawIcon(repType.icon,li_cx,li_cy,li_r*1.1,repType.mid,repType.deep); }
+  else if(L.hint==='shape'){ glyphIcon(repType.icon,li_cx,li_cy,li_r*1.1,repType.mid,repType.deep); }
   else { drawFaceCircle(repType,li_cx,li_cy,li_r*0.72); }
   ctx.restore();
   drawText(deliveredThisLevel+' / '+L.pkgs,gx+gw-70,gy+gh/2,32,'#6a4a2a',null);
@@ -2503,7 +2570,7 @@ function drawDailyBar(){
   const N=dailyGoal(), got=Math.min(SAVE.deliveredToday||0,N), done=SAVE.dailyGoalDone;
   const x=40,y=40,w=440,h=64;
   ctx.save(); shadow(12,'rgba(0,0,0,0.12)',0,4); ctx.fillStyle='rgba(255,252,244,0.95)'; rr(x,y,w,h,h/2); ctx.fill(); noShadow();
-  drawIcon('heart',x+40,y+h/2,44,'#FF9DB6','#F06A8E');
+  glyphIcon('heart',x+40,y+h/2,44,'#FF9DB6','#F06A8E');
   const px=x+72,pw=w-210; ctx.fillStyle='#ece0c8'; rr(px,y+22,pw,h-44,10); ctx.fill();
   const g=ctx.createLinearGradient(px,0,px+pw,0); g.addColorStop(0,'#98D7B4'); g.addColorStop(1,'#5FB985');
   ctx.fillStyle=g; rr(px,y+22,Math.max(12,pw*(got/N)),h-44,10); ctx.fill();
@@ -2539,8 +2606,8 @@ function drawLevelMap(){
     ctx.save(); shadow(16,'rgba(0,0,0,0.16)',0,8);
     ctx.fillStyle=unlocked?'#fffdf6':'#e6ddca'; ctx.beginPath(); ctx.arc(nd.x,nd.y,nd.rad,0,7); ctx.fill(); noShadow();
     ctx.lineWidth=8; ctx.strokeStyle=unlocked?(nd.n===Math.min(SAVE.maxLevel,LEVELS.length)?'#F4A93E':'#8ECFEC'):'#c9bda2'; ctx.stroke();
-    if(unlocked){ drawIcon(levelIcon(L),nd.x,nd.y+10,68,'#F4CE7A','#E3A93E');
-      for(let s=0;s<3;s++) drawIcon('star',nd.x-40+s*40,nd.y-64,34,s<stars?'#FFD15C':'#e3d3b4',s<stars?'#E3A93E':'#cbbd9c');
+    if(unlocked){ glyphIcon(levelIcon(L),nd.x,nd.y+10,68,'#F4CE7A','#E3A93E');
+      for(let s=0;s<3;s++) glyphIcon('star',nd.x-40+s*40,nd.y-64,34,s<stars?'#FFD15C':'#e3d3b4',s<stars?'#E3A93E':'#cbbd9c');
     } else { ctx.fillStyle='#9a8a6a'; rr(nd.x-26,nd.y-8,52,46,10); ctx.fill(); ctx.lineWidth=9; ctx.strokeStyle='#9a8a6a';
       ctx.beginPath(); ctx.arc(nd.x,nd.y-8,20,Math.PI,0); ctx.stroke(); }
     ctx.restore();
@@ -2568,13 +2635,13 @@ function drawUpgradeCard(c){
   ctx.lineWidth=6; ctx.strokeStyle=owned?'#5FB985':'#e3d3b4'; rr(c.x,c.y,c.w,c.h,28); ctx.stroke();
   const cx=c.x+c.w/2;
   ctx.save(); ctx.fillStyle=u.id==='doubleStamps'?'#FFF3D6':'#F3F7FF'; ctx.beginPath(); ctx.arc(cx,c.y+82,54,0,7); ctx.fill();
-  if(u.icon==='x2') drawText('2×',cx,c.y+82,52,'#E3A93E',null); else drawIcon(u.icon,cx,c.y+82,72,'#F4A93E','#E3A93E'); ctx.restore();
+  if(!glyphIcon(u.icon,cx,c.y+82,72,'#F4A93E','#E3A93E') && u.icon==='x2') drawText('2×',cx,c.y+82,52,'#E3A93E',null); ctx.restore();
   drawText(u.name,cx,c.y+168,34,'#6a4a2a',null);
   wrapText(u.desc,cx,c.y+206,c.w-48,24,'#a88a5c');
   if(owned){ drawText('✓ Owned',cx,c.y+c.h-38,32,'#5FB985',null); }
   else { const bw=c.w-70,bh=56,bx=cx-bw/2,by=c.y+c.h-72;
     ctx.save(); ctx.fillStyle=afford?'#FFD15C':'#e6ddca'; rr(bx,by,bw,bh,bh/2); ctx.fill();
-    drawIcon('star',bx+40,by+bh/2,40,'#fff','#E3A93E'); drawText(u.cost+'',bx+bw/2+14,by+bh/2,34,afford?'#6a4a2a':'#b8a684',null); ctx.restore(); }
+    glyphIcon('star',bx+40,by+bh/2,40,'#fff','#E3A93E'); drawText(u.cost+'',bx+bw/2+14,by+bh/2,34,afford?'#6a4a2a':'#b8a684',null); ctx.restore(); }
   ctx.restore();
 }
 function drawCosmeticCard(c){
@@ -2602,7 +2669,7 @@ function drawCosmeticCard(c){
   if(on){ drawText('✓ Wearing',cx,by+bh/2,30,'#8E6FD6',null); }
   else if(owned){ ctx.save(); ctx.fillStyle='#C9E8D4'; rr(bx,by,bw,bh,bh/2); ctx.fill(); drawText('Wear it',cx,by+bh/2,30,'#3a6a4a',null); ctx.restore(); }
   else { ctx.save(); ctx.fillStyle=afford?'#FFD15C':'#e6ddca'; rr(bx,by,bw,bh,bh/2); ctx.fill();
-    drawIcon('star',bx+36,by+bh/2,38,'#fff','#E3A93E'); drawText(it.cost+'',bx+bw/2+12,by+bh/2,32,afford?'#6a4a2a':'#b8a684',null); ctx.restore(); }
+    glyphIcon('star',bx+36,by+bh/2,38,'#fff','#E3A93E'); drawText(it.cost+'',bx+bw/2+12,by+bh/2,32,afford?'#6a4a2a':'#b8a684',null); ctx.restore(); }
   ctx.restore();
 }
 function wrapText(txt,cx,y,maxw,size,col){
@@ -2620,13 +2687,13 @@ function drawLevelDone(){
   drawText('Level '+ds.level+' Done!',W/2,220,88,'#7a5a34','#fff','center','800',14);
   for(let s=0;s<3;s++){ const filled=s<ds.stars, bob=filled?Math.sin(time*3+s)*10:0;
     ctx.save(); ctx.translate(W/2-180+s*180, 400+bob); const sc=filled?1.1:0.8; ctx.scale(sc,sc);
-    drawIcon('star',0,0,150,filled?'#FFD15C':'#e3d3b4',filled?'#E3A93E':'#cbbd9c'); ctx.restore(); }
+    glyphIcon('star',0,0,150,filled?'#FFD15C':'#e3d3b4',filled?'#E3A93E':'#cbbd9c'); ctx.restore(); }
   // ---- LEVEL-DONE POLISH: Poppu shrunk + raised (was 300px @ y700, spilling down onto the "Next"
   // button at y760); stamps pill kept where it was and now drawn AFTER Poppu so it still reads as a
   // badge on her chest, but the two never overlap the button row (y760..870) ----
   if(has('poppu_celebrate')) sprite('poppu_celebrate',W/2,560,220,220); else ph_poppu('celebrate',W/2,510,130);
   ctx.save(); shadow(14,'rgba(0,0,0,0.14)',0,6); ctx.fillStyle='#fffdf6'; rr(W/2-170,520,340,80,40); ctx.fill(); noShadow();
-  drawIcon('star',W/2-110,560,54,'#FFD15C','#E3A93E'); drawText('+'+ds.stamps+' Stamps',W/2+30,560,40,'#6a4a2a',null); ctx.restore();
+  glyphIcon('star',W/2-110,560,54,'#FFD15C','#E3A93E'); drawText('+'+ds.stamps+' Stamps',W/2+30,560,40,'#6a4a2a',null); ctx.restore();
   for(const b of doneBtns()){
     if(b.id==='next' && currentLevel>=LEVELS.length){ pill(b,'#E9DEC9','#cbbd9c',5,'✓ All done!','#8a7a5a'); continue; }
     const col=b.id==='replay'?'#8ECFEC':b.id==='next'?'#5FB985':'#B79BEA';
@@ -2637,17 +2704,33 @@ function drawLevelDone(){
 }
 
 /* ------------------------------------------------------------- RENDER: STICKER */
+/* which flower art a given (0-based) earned slot blooms into — a gentle "growing rarer" cadence so
+   the collection reads as a garden filling in, not a flat grid: every 8th bloom is the special flower,
+   every 4th (that isn't also an 8th) is the rare flower, everything else is the common flower. */
+function gardenSlotFlower(i){
+  const n=i+1;
+  if(n%8===0) return 'flower_special';
+  if(n%4===0) return 'flower_rare';
+  return 'flower_common';
+}
 function drawSticker(){
   drawBackground(); ctx.save(); ctx.fillStyle='rgba(255,248,235,0.95)'; ctx.fillRect(0,0,W,H); ctx.restore();
-  drawText('My Sticker Book',W/2,110,80,'#7a5a34','#fff','center','800',12);
-  drawText(plural(SAVE.stickers.length,'sticker')+' · '+plural(SAVE.totalDelivered,'package')+' delivered',W/2,190,36,'#a88a5c',null,'center','700');
+  drawText('My Garden',W/2,110,80,'#7a5a34','#fff','center','800',12);
+  drawText(plural(SAVE.stickers.length,'bloom')+' grown',W/2,190,36,'#a88a5c',null,'center','700');
   const cols=8, rows=4, total=cols*rows, cw=180, ch=180, gx=(W-cols*cw)/2, gy=260;
   for(let i=0;i<total;i++){ const cx=gx+(i%cols)*cw+cw/2, cy=gy+Math.floor(i/cols)*ch+ch/2, earned=i<SAVE.stickers.length;
     ctx.save();
     if(has('ui_sticker')){ ctx.save(); if(!earned) ctx.globalAlpha=0.4; ctx.drawImage(IMG.ui_sticker.img,cx-80,cy-80,160,160); ctx.restore(); }
     else { ctx.fillStyle='rgba(0,0,0,0.05)'; ctx.strokeStyle='#d9c3a0'; ctx.lineWidth=4; ctx.setLineDash([12,10]); rr(cx-70,cy-70,140,140,20); ctx.fill(); ctx.stroke(); ctx.setLineDash([]); }
-    if(earned){ const type=T[SAVE.stickers[i]]||TYPES[i%6], bob=Math.sin(time*2+i)*3;
-      if(has('pkg_'+type.id)) ctx.drawImage(IMG['pkg_'+type.id].img,cx-58,cy-58+bob,116,116); else ph_face(type,cx,cy,110); }
+    if(earned){
+      const bob=Math.sin(time*2+i)*3, key=gardenSlotFlower(i);
+      if(has(key)) ctx.drawImage(IMG[key].img,cx-58,cy-58+bob,116,116);
+      else { const type=T[SAVE.stickers[i]]||TYPES[i%6]; if(has('pkg_'+type.id)) ctx.drawImage(IMG['pkg_'+type.id].img,cx-58,cy-58+bob,116,116); else ph_face(type,cx,cy,110); }
+    } else {
+      // not-yet-grown: the closed bud, dimmed — same wordless "keep going" language as locked buildings
+      if(has('flower_locked')){ ctx.save(); ctx.globalAlpha=0.55; ctx.drawImage(IMG.flower_locked.img,cx-52,cy-52,104,104); ctx.restore(); }
+      else { ctx.save(); ctx.globalAlpha=0.35; ctx.fillStyle='#9ED89E'; ctx.beginPath(); ctx.arc(cx,cy,44,0,7); ctx.fill(); ctx.restore(); }
+    }
     ctx.restore();
   }
   backButton();
@@ -2792,7 +2875,7 @@ function drawTownBuilding(b){
   if(unlocked && teasePulse && teasePulse.id===b.id){
     const p=Math.min(1,teasePulse.t/0.32), e=easeOutBack(p), fade=teasePulse.t<0.45?1:Math.max(0,1-(teasePulse.t-0.45)/0.25);
     ctx.save(); ctx.globalAlpha=Math.max(0,fade);
-    drawIcon('star', b.cx, groundY-b.h*0.92, 74*Math.max(0,e), '#FFD54A','#E3A93E');
+    glyphIcon('star', b.cx, groundY-b.h*0.92, 74*Math.max(0,e), '#FFD54A','#E3A93E');
     ctx.restore();
   }
   if(!unlocked){
@@ -2804,7 +2887,7 @@ function drawTownBuilding(b){
     ctx.save(); ctx.translate(badgeX,badgeY); ctx.scale(bump,bump); ctx.translate(-badgeX,-badgeY);
     shadow(12,'rgba(0,0,0,0.16)',0,4);
     ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(badgeX,badgeY,badgeR,0,7); ctx.fill(); noShadow();
-    drawIcon('heart',badgeX,badgeY,badgeR*0.9,'#FFC2D3','#F06A8E');
+    glyphIcon('heart',badgeX,badgeY,badgeR*0.9,'#FFC2D3','#F06A8E');
     ctx.strokeStyle='#F06A8E'; ctx.lineWidth=badgeR*0.12; ctx.lineCap='round';
     ctx.beginPath(); ctx.arc(badgeX,badgeY-badgeR*0.55,badgeR*0.5,Math.PI*1.05,Math.PI*1.95); ctx.stroke();
     ctx.restore();
@@ -2812,24 +2895,26 @@ function drawTownBuilding(b){
     if(pulseT!=null && pulseT<0.9){
       const p=Math.min(1,pulseT/0.4), e=easeOutBack(p), fade=pulseT<0.55?1:Math.max(0,1-(pulseT-0.55)/0.35);
       ctx.save(); ctx.globalAlpha=fade;
-      drawIcon('star', badgeX, badgeY+badgeR*1.7, badgeR*0.72*Math.max(0,e), '#FFD54A','#E3A93E');
+      glyphIcon('star', badgeX, badgeY+badgeR*1.7, badgeR*0.72*Math.max(0,e), '#FFD54A','#E3A93E');
       ctx.restore();
     }
     if(FRIEND_UNLOCK[b.id]){   // picture-meter toward unlock — generalized to every locked friend house
       const stars=houseMeterStars(b.id), size=36, gap=14, total=3*size+2*gap, x0=b.cx-total/2+size/2, sy=badgeY+70;
       for(let i=0;i<3;i++){ const filled=i<stars;
-        drawIcon('star', x0+i*(size+gap), sy, size, filled?'#FFD15C':'#fffdf6', filled?'#E3A93E':'#E3C9A0'); }
+        glyphIcon('star', x0+i*(size+gap), sy, size, filled?'#FFD15C':'#fffdf6', filled?'#E3A93E':'#E3C9A0'); }
     }
   }
   ctx.restore();
   if(SAVE.newBadge[b.id]){
-    const bx=Math.round(b.cx-b.w*0.24), by=Math.round(groundY-b.h*0.66);   // on the building's shoulder
+    // corner-of-the-roof placement (not the shoulder/door) so the badge never covers the house's own
+    // identity art; ~48% of its old footprint so it reads as a tag, not a sticker over the building.
+    const bx=Math.round(b.cx+b.w*0.34), by=Math.round(groundY-b.h*0.94);
     const wiggleT=newBadgeAnimState[b.id]?newBadgeAnimState[b.id].t:null;
     // one-shot ~500ms elastic "look at me!" wiggle the first time this badge is shown this session
     const wiggle=wiggleT!=null?1+0.10*Math.sin((wiggleT/0.5)*Math.PI*2.2)*(1-wiggleT/0.5):1;
     // continuous gentle pulse (1.0→1.08, 1.2s loop) for as long as the badge is unclaimed
     const pulse=1.04+0.04*Math.sin(time*2*Math.PI/1.2);
-    const bs=176*wiggle;
+    const bs=85*wiggle;
     groundShadow(bx,by+bs*0.42,40,12,0.14);
     ctx.save(); ctx.translate(bx,by); ctx.scale(pulse,pulse);
     const cache=newBadgeCanvas();
@@ -3015,10 +3100,10 @@ function drawDriveItems(){
       const wob=Math.sin(it.missT*16)*0.3*Math.max(0,1-it.missT*1.4);
       const fade=Math.max(0,1-it.missT*0.9);
       ctx.save(); ctx.globalAlpha=fade; ctx.translate(x,y+bob); ctx.rotate(wob);
-      drawIcon(it.kind, 0,0, 84, it.kind==='star'?'#FFD15C':'#FF9DB6', it.kind==='star'?'#E3A93E':'#F06A8E');
+      glyphIcon(it.kind, 0,0, 84, it.kind==='star'?'#FFD15C':'#FF9DB6', it.kind==='star'?'#E3A93E':'#F06A8E');
       ctx.restore();
     } else {
-      drawIcon(it.kind, x, y+bob, 84, it.kind==='star'?'#FFD15C':'#FF9DB6', it.kind==='star'?'#E3A93E':'#F06A8E');
+      glyphIcon(it.kind, x, y+bob, 84, it.kind==='star'?'#FFD15C':'#FF9DB6', it.kind==='star'?'#E3A93E':'#F06A8E');
     }
   }
 }
@@ -3043,7 +3128,7 @@ function drawRoadsideProp(p,x,y){
     ctx.fillStyle='#C79A5B'; ctx.strokeStyle='#5a3d24'; ctx.lineWidth=4;
     ctx.fillRect(-5,-8,10,58); ctx.strokeRect(-5,-8,10,58);
     rr(-30,-44,60,36,10); ctx.fillStyle='#FFE9C0'; ctx.fill(); ctx.stroke();
-    drawIcon('heart',0,-26,26,'#FF9DB6','#5a3d24');
+    glyphIcon('heart',0,-26,26,'#FF9DB6','#5a3d24');
   } else if(p.kind==='butterfly'){
     const bob=Math.sin(time*2+p.ph)*6; ctx.translate(0,bob);
     const flap=0.55+Math.sin(time*9+p.ph)*0.45;
@@ -3201,10 +3286,10 @@ function drawDriveArrivalPop(){
   const cx=1010, cy=445;   // clear of both characters' heads — reads as a floating payoff pop, not a hat sticker
   ctx.save(); ctx.globalAlpha=Math.max(0,fade);
   if(D.arrivalPop.full){
-    drawIcon('heart',cx-64,cy,68*Math.max(0,e),'#FF9DB6','#F06A8E');
-    drawIcon('star', cx+64,cy,68*Math.max(0,e),'#FFD54A','#E3A93E');
+    glyphIcon('heart',cx-64,cy,68*Math.max(0,e),'#FF9DB6','#F06A8E');
+    glyphIcon('star', cx+64,cy,68*Math.max(0,e),'#FFD54A','#E3A93E');
   } else {
-    drawIcon('heart',cx,cy,74*Math.max(0,e),'#FF9DB6','#F06A8E');
+    glyphIcon('heart',cx,cy,74*Math.max(0,e),'#FF9DB6','#F06A8E');
   }
   ctx.restore();
 }

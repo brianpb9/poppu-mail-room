@@ -201,4 +201,123 @@ Scoring the CURRENT shipped state (pre-Phase-1) against this lock, per studio ma
 **Total: 5.5/10 current. Verdict: NEEDS WORK** — this manifest is the fix, ready for game-asset-operator to execute in the priority order above. Re-score against this same rubric once assets are generated and curated; only APPROVE at a true 10 (assets rendered in-context, on Poppu, in the actual shop/town/drive screens — not just isolated thumbnails).
 
 ---
-*Phase 1 Art Manifest v1 · art-director · HDRV Studio · locked prior to generation, per game-art-pipeline: generate → curate → integrate.*
+
+## 5. COSMETIC PNG AUDIT — do the 14 files already on disk WIRE as-is?
+
+Checked all 14 against the Section 0 style lock and Section 1 export standard. **Verdict: 6 of 14 wire as-is; 8 need work before gameplay-engineer touches them.** Do not wire any file below marked REGENERATE or RE-EXPORT until game-asset-curator confirms the fix.
+
+| File | Verdict | Why |
+|---|---|---|
+| `cos-mb-pastel.png` | **RE-EXPORT ALPHA ONLY — keep art** | Silhouette, single-highlight cel-shade, and thick outline all match lock well; consistent toy-mailbox shape across the 4 skins. But previews with a flat white field behind it (same signature as Finding F2's confirmed-opaque files), not the black true-alpha render the four hero references (`peeky/orby/wavey/puffy-full.png`) show. Run background-removal + re-export; do not regenerate the illustration. |
+| `cos-mb-rainbow.png` | **RE-EXPORT ALPHA ONLY — keep art** | Same as above — on-model, same white-field alpha suspicion. |
+| `cos-mb-galaxy.png` | **RE-EXPORT ALPHA ONLY — keep art** | Same as above. Interior is appropriately "cozy dusk," not scary — no fix needed to the art itself. |
+| `cos-mb-gold.png` | **RE-EXPORT ALPHA ONLY — keep art** | Same as above. |
+| `cos-hat-chef.png` | **REGENERATE** | Rendered as an isolated glossy product-shot with TWO+ highlight blooms and heavier gradient modeling — reads as generic "emoji sticker," not the flat cel-shade + ONE soft bloom the lock specifies (contrast against `peeky-full.png`'s single flat highlight). It was also never generated ON Poppu per the A1 spec, so its scale/angle/anchor point against Poppu's actual head silhouette is unverified — real risk of it floating or clipping when composited in `drawPoppuHat()`. Also shows a faint drop-shadow/halo edge — a direct Hard-NO ("no drop-shadow sticker box, no halo") violation. Same white-field alpha suspicion as the mailboxes. Regenerate with the exact A1 prompt (character-in-context, then crop), not a touch-up. |
+| `cos-hat-cowboy.png` | **REGENERATE** | Same three faults as chef hat: over-glossy/2-highlight rendering, not built from a Poppu-fitted crop, suspect alpha. |
+| `cos-hat-pirate.png` | **REGENERATE** | Same three faults. Also carries a visible dark rim/halo around the tricorn silhouette. |
+| `cos-hat-crown.png` | **REGENERATE** | Same three faults. |
+| `cos-cv-neon.png` ("Candy-Glow") | **REGENERATE** | Good news: the color story already fixed itself (soft pastel pink/blue glow ribbons on cream, no literal neon-cyan) — keep this palette direction. Bad news: it renders as a fully opaque cream-filled rectangle, not a transparent tileable overlay — as shipped it would completely block the belt texture underneath instead of layering over it, breaking `conveyorSkinOverlay()`'s alpha-blend design. Regenerate as a transparent-background seamless tile at 1024×256. |
+| `cos-cv-candy.png` | **REGENERATE** | Same opaque-background functional break as neon. Also a style-cohesion miss within its own 3-file set: renders as a flat graphic mandala/pinwheel motif, a noticeably different rendering approach from `cos-cv-neon`'s soft painterly glow-ribbon — the three conveyor skins currently look like three different illustrators. Regenerate to match the painterly-ribbon treatment, transparent, tileable. |
+| `cos-cv-cloud.png` | **REGENERATE** | Same opaque-background functional break (solid sky-blue fill instead of a transparent overlay). Cloud rendering itself is on-model (matches `puffy-full.png` cloud shapes) — keep that linework, just rebuild as a transparent tileable overlay. |
+| `cos-dec-plant.png` | **RE-EXPORT ALPHA ONLY — keep art** | On-model cel-shade, single highlight, correct terracotta/mint palette — same white-field alpha suspicion as the mailboxes. Background-removal + re-export. |
+| `cos-dec-poster.png` | **RE-EXPORT ALPHA ONLY — keep art** | On-model (lavender frame, cream paper, gold smiling-star illustration reads as a nice on-brand touch) — same white-field alpha suspicion. Background-removal + re-export. |
+| `cos-dec-rug.png` | **WIRE AS-IS** | Previews with the black true-alpha signature (matches the confirmed-good `peeky/orby/wavey/puffy-full.png` behavior), on-model warm terracotta gradient + cream scalloped border, single highlight, no fix needed. |
+
+**Net: WIRE AS-IS today** — `cos-dec-rug.png` only. **RE-EXPORT (alpha pass, no re-illustration)** — the 4 mailbox skins + `cos-dec-plant.png` + `cos-dec-poster.png` (6 files). **REGENERATE (art + format)** — the 4 hats + 3 conveyor skins (7 files). game-asset-curator: verify alpha on every "RE-EXPORT" file with a real editor (not a browser preview) before clearing; if any come back opaque-white-confirmed, they get the same background-removal treatment as Finding F2's five files — batch it together.
+
+---
+
+## 6. PHASE 1B — UI ICON PACK + REWARD FLOWERS + STORE FRAMES
+
+Locked for game-asset-operator execution. Same style lock as Section 0 applies to every item below — nothing here introduces a new look.
+
+### 6.1 UI Icon Pack (20 icons) — replaces the last procedural `drawIcon()` canvas shapes in normal play
+
+**Format:** 256×256, transparent alpha PNG, designed to hold up as a clean bold silhouette at ~48px display size on a mobile button. Outline weight on the 256px canvas should run **~18–22px** (proportionally thicker than a character sprite's outline, because it has to survive a 5x scale-down and still read at thumb-size).
+
+**Shared style preamble — prepend to every icon prompt below, verbatim:**
+> "Cute kawaii flat icon illustration for a preschool mail-sorting game UI, one simple bold rounded-shape subject centered alone on the canvas, thick warm dark-brown outline #3D2B1F (~18–22px weight on a 256px canvas), flat cel-shaded fill using only the locked pastel palette, ONE soft airbrushed highlight bloom in the upper-left and no other gradient/texture, no photorealism, no painterly noise, no drop shadow, no halo ring, no background shape/circle/box behind the subject — icon reads as a clean isolated cutout, simple bold silhouette that stays readable at small size, 2D children's storybook icon style matching peeky-full.png / orby-full.png / puffy-full.png rendering, no watermark, isolated on transparent background."
+
+| File | Subject line (append after the shared preamble) |
+|---|---|
+| `ic-home.png` | "a simple cute kawaii house shape — cream walls #F6EAD6, warm terracotta roof #C97A4E, one small round window, friendly simple silhouette, no text" |
+| `ic-back.png` | "a simple cute kawaii rounded left-pointing chevron/arrow, soft gold #FFD15C fill, no other elements, no text" |
+| `ic-volume-on.png` | "a simple cute kawaii rounded speaker cone in soft sky blue #8ECFEC with two small rounded sound-wave arcs beside it, no text" |
+| `ic-volume-off.png` | "a simple cute kawaii rounded speaker cone in soft muted lavender-grey with one small rounded X beside it (gentle, not a harsh slash), no text" |
+| `ic-settings.png` | "a simple cute kawaii rounded WOODEN spool/cog shape with 6 chunky rounded teeth, warm wood-tone #C97A4E fill with a faint wood-grain hint, this is a friendly toy-shed cog, NOT a mechanical/engineering gear, no text" |
+| `ic-close.png` | "a simple cute kawaii rounded X made of two soft thick rounded bars crossing, warm coral-pink #FF9DB6 fill, friendly not harsh, no text" |
+| `ic-star.png` | "a simple cute kawaii 5-point rounded gold star (the game's Star Stamp currency icon), gold #FFD15C fill shading to #E3A93E at the base, tiny white sparkle highlight, no text" |
+| `ic-heart.png` | "a simple cute kawaii rounded heart, pink #FF9DB6 fill shading to #F06A8E, tiny white sparkle highlight, no text" |
+| `ic-gear.png` | "a simple cute kawaii WOODEN sewing-spool/cog shape, chunky rounded wooden toy cog with 6 soft teeth, warm wood-tone #C97A4E, a friendly Toy Shed tinkerer icon — NOT an engineering/machinery gear, no text" |
+| `ic-moon.png` | "a simple cute kawaii crescent moon with a gentle closed-eye smiling face, soft lavender #B79BEA fill, two tiny gold sparkle stars beside it, no text" |
+| `ic-drop.png` | "a simple cute kawaii water droplet, sky blue #8ECFEC fill shading to #6FC2C6, tiny white sparkle highlight, no text" |
+| `ic-cloud.png` | "a simple cute kawaii fluffy cloud, cream-white #FFFDF6 fill with soft sky-blue #CDEBFA shading in the folds, matching puffy-full.png's cloud shapes, no text" |
+| `ic-speed.png` | "a simple cute kawaii rounded soft lightning-bolt/motion shape, warm gold #FFD15C fill, one small soft motion-swoosh curve trailing behind it, playful and round — not sharp or aggressive, no text" |
+| `ic-capacity.png` | "a simple cute kawaii open parcel box, warm cardboard tan #DCC084 body with a cream #F6EAD6 flap lid popped open on top, one small pastel ribbon bow, no text" |
+| `ic-arrow.png` | "a simple cute kawaii rounded right-pointing chevron/arrow, mint #B7E0C9 fill, no text" |
+| `ic-reveal.png` | "a simple cute kawaii friendly round eye — cream #F6EAD6 lid shape, big round dark pupil with one white sparkle highlight, one small soft pink blush dot beside it, warm and curious, not creepy, no text" |
+| `ic-x2.png` | "a simple cute kawaii rounded gold #FFD15C coin/badge shape with two small overlapping star or coin shapes stacked in the lower half (so the multiplier reads visually, not just by numeral) and a chunky rounded friendly bubble-font '2×' across the upper half in warm brown #3D2B1F — this is the ONLY icon in the set permitted to contain a numeral" |
+| `ic-seal.png` | "a simple cute kawaii cream envelope #F6EAD6 with one round red-orange wax-seal blob stamped in the center with a small heart pressed into it, no text" |
+| `ic-stamp.png` | "a simple cute kawaii rounded postage stamp with a scalloped/perforated edge border, cream #F6EAD6 center with a small gold star rosette illustration in the middle, no text" |
+| `ic-crown.png` | "a simple cute kawaii small soft gold crown with 3 rounded points and one pink gem #FFC6B6, matching cos-hat-crown.png's exact crown model (once that file is regenerated per Section 5), no text" |
+
+Note on `ic-x2`: per the studio's zero-reading-dependency rule, pair the numeral with the stacked coin/star visual (specified above) so the multiplier is understood by shape/count alone even before a child recognizes "2".
+
+### 6.2 Reward Flowers (garden/collection payoff) — 5 files, 512×512 transparent PNG
+
+**Shared style preamble — prepend to every flower prompt below, verbatim:**
+> "Cute kawaii single garden flower illustration for a preschool cozy collection-game reward, centered composition on a short stem with one or two simple leaves, thick warm dark-brown outline #3D2B1F, flat cel-shaded with ONE soft airbrushed highlight bloom and one soft ambient-occlusion shadow at the base of the stem, 2D children's storybook illustration matching peeky-full.png / orby-full.png rendering, isolated on transparent background, no text, no watermark, no photorealism."
+
+| File | Subject line |
+|---|---|
+| `flower-common.png` | "a simple cute kawaii daisy/buttercup with 6–8 rounded cream-white #FFFDF6 petals and a warm gold #FFD15C round center, soft mint-green #B7E0C9 stem with one small leaf — the everyday-common garden flower, gentle and simple" |
+| `flower-rare.png` | "a prettier cute kawaii tulip / bluebell-cluster flower, rounded bell-shaped petals in a soft lavender-to-pink gradient (#B79BEA to #FFC6B6), mint-green stem with two small leaves — a slightly more elaborate silhouette than the common daisy, reads clearly as a rarer garden flower" |
+| `flower-special.png` | "a glowing golden star-shaped flower with 5–6 soft-rounded star petals in warm gold #FFD15C and a bright cream #FFFDF6 core, one gentle warm outer glow halo (soft, not neon), 3–4 tiny sparkle-star particles drifting around it, mint stem — the rarest, most magical garden flower, premium and joyful, not gaudy" |
+| `flower-locked.png` | "a small soft closed flower bud, rounded teardrop shape, gently desaturated muted grey-green #C9CDBE (calm, NOT dark or dead-looking, NOT scary), simple mint stem, a cozy 'not yet bloomed' silhouette — inviting, like a promise, not a loss" |
+| `flower-unlocked.png` | "a fully open cute kawaii generic garden flower captured mid-'bloom pop', bright warm pastel petals (cream #FFFDF6 base with soft pink #FFC6B6 tips) flared open as if just blossomed, a small burst of 3–4 sparkle stars and soft light rays radiating behind it, mint stem — a joyful reveal-moment illustration" |
+
+### 6.3 App-Store Screenshot Frames — 5 portrait, 1290×2796, opaque PNG
+
+Marketing collateral, NOT in-game art — built around a real captured gameplay PNG the operator pastes in after generation. Font feel: **Baloo 2 extra-bold, rounded**, matching the in-game title/UI font already used in `index.html` (`"Baloo 2","Arial Rounded MT Bold"`) — cream fill `#FFFDF6` with a thick `#3D2B1F` outline or soft warm drop-shadow for contrast over the gradient, short (2–5 word) zero-reading-dependency-friendly headline (a parent reads it, a toddler doesn't need to).
+
+**Universal layout (all 5 frames, canvas 1290×2796):**
+- Headline text zone: y = 140–520 (top ~15–19%), horizontally centered, safe text width ≤ 1090px (100px margin each side).
+- Gameplay screenshot window: rounded-rect mask, x = 97–1193 (1096px wide), y = 580–2380 (1800px tall), corner radius ≈ 64px — this is where the operator composites the real captured PNG (scaled to cover, center-cropped). Leave this region as a clean empty rounded-rect (a soft AO shadow can be pre-baked just outside its edge for depth) — do not paint fake gameplay into it.
+- Footer accent zone: y = 2380–2796 — small mascot/sticker/sparkle accent only, kept clear of the very bottom ~80px safe margin.
+- Overall safe margin: 60px bleed on all sides kept clear of essential text/logo (store crops/thumbnails vary).
+
+| # | File | Captured surface (operator pastes in) | Background gradient (top→bottom) | Headline copy |
+|---|---|---|---|---|
+| 1 | `store-shot-1-hero.png` | Start/title screen — Poppu waving at the desk, pulsing Play button | Warm golden-hour: cream `#F6EAD6` → gold `#FFD15C` → terracotta `#C97A4E`, matching `bg-mailroom.webp` mood | "Sort. Wrap. Deliver Smiles!" |
+| 2 | `store-shot-2-sort.png` | Core conveyor gameplay — package mid-drag toward a glowing matched mailbox | Soft cream `#F6EAD6` → mint `#B7E0C9`, bright and clear | "Match & Deliver Every Package!" |
+| 3 | `store-shot-3-wrap.png` | Wrap Shop — ribbon spool, bow, sticker sheet on a package | Soft peach `#FFCFA0` → lavender `#B79BEA`, matching wrap-shop palette | "Wrap Cozy Gifts With Ribbons & Bows!" |
+| 4 | `store-shot-4-drive.png` | Delivery-drive scene — Poppu on the forest path heading to a friend's house | Soft sky blue `#8ECFEC` → mint `#B7E0C9`, daylight, matching `bg-forest.webp` | "Drive The Path To New Friends!" |
+| 5 | `store-shot-5-reward.png` | Friend pop-up "thank you" celebration + sticker/flower reward earned | Warm celebration: pink `#FF9DB6` → gold `#FFD15C`, soft confetti/sparkle accents | "Earn Stickers & Garden Flowers!" |
+
+Generation note for the operator: generate frames 1–5 as the **background + headline + footer accent only** (empty rounded-rect window per the layout above); do the gameplay-screenshot composite as a separate paste-in step once real captures exist, so the frame art itself can be regenerated/reused independent of which build screenshot is current.
+
+### 6.4 New `ASSET_SRC` keys for gameplay-engineer (append to Section 3's list)
+
+```
+ic_home / ic_back / ic_volume_on / ic_volume_off / ic_settings / ic_close
+ic_star / ic_heart / ic_gear / ic_moon / ic_drop / ic_cloud
+ic_speed / ic_capacity / ic_arrow / ic_reveal / ic_x2
+ic_seal / ic_stamp / ic_crown
+  → assets/ic-<name-with-dashes>.png   (all 256×256, replaces drawIcon() procedural draws)
+
+flower_common / flower_rare / flower_special / flower_locked / flower_unlocked
+  → assets/flower-<name>.png   (all 512×512)
+```
+(Store frames are marketing collateral — no `ASSET_SRC` key, not loaded by the game runtime.)
+
+### 6.5 10/10 review — this Phase 1B batch vs. locked target
+
+1. **Character/IP consistency:** 7/10 — icons and flowers are new territory, not character-model risk, but `ic-crown` explicitly depends on `cos-hat-crown.png` being regenerated first (Section 5) or the two crowns will drift. **Fix:** sequence `ic-crown` generation AFTER `cos-hat-crown.png` regen lands, and hand the operator the finished crown file as a visual reference at that time.
+2. **Palette & style adherence:** 6/10 on paper until proven in render — the risk in an icon set this size is 20 separate generations drifting from each other more than a small hero-character batch would. **Fix:** the shared preamble string is mandatory verbatim on every icon call (not paraphrased), and game-asset-curator should gate the FULL 20-icon set side-by-side in one contact sheet before approving any subset — reject the whole batch and regenerate together if even 2–3 icons drift in outline weight or saturation, rather than patching piecemeal.
+3. **Animation liveliness:** 5/10 — icons are static UI by nature (fine), but flowers are the retention hook here and only `flower-unlocked` has built-in "pop" energy. **Fix:** game-animation-director should treat `flower-locked` → `flower-unlocked` → final rarity flower as a 3-step reveal sequence (bud trembles → pops open with the sparkle burst baked into `flower-unlocked` → settles/crossfades into the earned rarity flower) rather than a flat swap; the sparkle-burst art already gives it a natural animate-in hook.
+4. **Asset weight/performance:** 6/10 — 20 icons + 5 flowers = 25 new small PNGs on top of the 28 already planned in Section 2; none individually heavy but the HTTP-request count is climbing fast for a PWA. **Fix:** the 20-icon set is the single best atlas candidate in the whole project (uniform 256×256 grid, all UI-layer, all loaded at boot) — pack into one `ui-icons-atlas.png` + JSON before wiring, this is higher priority than the cosmetic atlas already recommended in Section 1. Store-frame PNGs are marketing-only and never ship in the app bundle, so they carry zero PWA weight cost — no compression target needed beyond normal App Store Connect limits.
+
+**Total: 6/10 as specified — NEEDS WORK, but the fix is fully specified above and ready for the operator to execute against.** This is expected at the spec stage (per studio scale, a lock is judged once rendered, not on paper) — re-score once the full icon contact sheet, all 5 flower states, and all 5 store frames are generated and curated; only APPROVE at a true 10 once verified in a render, matching peeky/orby/puffy's bar with zero drift across the 20-icon set.
+
+---
+*Phase 1 Art Manifest v1.1 (Phase 1B — UI icons, reward flowers, store frames, cosmetic PNG audit appended) · art-director · HDRV Studio · locked prior to generation, per game-art-pipeline: generate → curate → integrate.*
