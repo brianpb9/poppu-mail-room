@@ -1601,14 +1601,17 @@ function drawNatureGiftPile(friendId,cx,cy,scale,popScale,single){
   const fullBaskets=Math.floor(n/DRIVE_COLLECTION_GOAL), partial=n%DRIVE_COLLECTION_GOAL;
   const total=Math.max(1, fullBaskets + ((partial>0||fullBaskets===0)?1:0));
   const cols=3, maxShow=6, show=Math.min(total,maxShow), startB=Math.max(0,total-show);
-  const gapX=basketSz*1.12, gapY=basketSz*0.60;   // rows grow UP/back so the cluster always sits ON the floor line at cy
-  // draw back rows first (smaller, tucked behind) so the front row overlaps them like a real basket cluster
+  const gapX=basketSz*0.98, gapY=basketSz*0.56;   // slight overlap + rows grow UP/back so the cluster sits ON the floor line at cy
+  // back rows first (smaller, tucked behind); front row overlaps them, and each basket gets its own size +
+  // position jitter so the cluster reads as an organic hoard, not xeroxed clones in a row (creative note).
   for(let s=show-1;s>=0;s--){
     const b=startB+s, count=(b<fullBaskets)?DRIVE_COLLECTION_GOAL:partial;
     const col=s%cols, row=Math.floor(s/cols), perRow=Math.min(cols,show-row*cols);
-    const depth=1-row*0.12;
-    const bx=cx+(col-(perRow-1)/2)*gapX*depth, by=cy-row*gapY;
-    drawGiftBasket(key,bx,by,basketSz*depth,count,b+1);
+    const h1=Math.sin((b+1)*5.3), h2=Math.cos((b+1)*3.7);
+    const depth=1-row*0.13, szMul=(0.9+((b*7)%5)/5*0.30)*depth;   // 0.9..1.20 per-basket size variety
+    const bx=cx+(col-(perRow-1)/2)*gapX*depth + h1*basketSz*0.05;
+    const by=cy - row*gapY + h2*basketSz*0.045;
+    drawGiftBasket(key,bx,by,basketSz*szMul,count,b+1);
   }
 }
 /* small always-on corner readout during the Drive itself (both driving + arrival) so the lifetime
@@ -1616,6 +1619,14 @@ function drawNatureGiftPile(friendId,cx,cy,scale,popScale,single){
 function drawDriveCollectionCorner(){
   const D=drive; if(!D||!D.friendType) return;
   const pop=1+(D.pileNudge||0)*0.16;
+  if(D.arriving){
+    // ARRIVAL beat (gameplay 9-lever): surface the FULL lifetime basket cluster right beside the reunion,
+    // so the "look how much I've gathered for you — bigger than last time" payoff lands IN-FLOW every run,
+    // not only if the child later dives into the friend-house menu. Fades in with the tableau.
+    const a=Math.max(0,Math.min(1,(D.arriveT-0.35)/0.4)); if(a<=0) return;
+    ctx.save(); ctx.globalAlpha=a; drawNatureGiftPile(D.friendType.id, 1560, 905, 0.9, pop); ctx.restore();
+    return;
+  }
   drawNatureGiftPile(D.friendType.id, DRIVE_PILE_CORNER.x, DRIVE_PILE_CORNER.y-30, 0.62, pop, true);
 }
 /* ---- (C) reward-grammar variety: physically distinct catch moments for the two flattest verbs ----
@@ -2601,7 +2612,7 @@ function drawFriend(){
   }
   drawFriendHeartMeter(); drawFriendBody(); drawFriendFeedAnim(); drawFriendWantBubble();
   drawFriendItemTray(); drawFriendHatTray(); drawFriendDraggedItem();
-  drawNatureGiftPile(t.id, 1560, 770, 0.82);   // (A) this friend's lifetime gathered-gift collection: woven baskets on the right-side floor that gain a whole new basket every 15 gifts — visibly bigger every session, wordless
+  drawNatureGiftPile(t.id, 1555, 745, 0.98);   // (A) this friend's lifetime gathered-gift collection: woven baskets on the right-side floor that gain a whole new basket every 15 gifts — visibly bigger every session, wordless (hero scale)
   drawParticles(); drawFloatTexts();
   backButton(); stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
 }
