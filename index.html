@@ -235,11 +235,14 @@ function checkTownUnlocks(){
    the rotation only once their house has unlocked — so the Drive itself is what builds up the
    charDeliveries that unlock the NEXT friend's house (a natural progression ladder). */
 function unlockedDriveFriendIds(){
+  // Each friend joins the Drive rotation when THEIR OWN house unlocks in Town —
+  // gate by the matching house key (heart=Zaza, moon=Orby, drop=Wavey, cloud=Puffy),
+  // not the previous friend's, so an out-of-order unlock never permanently skips a friend.
   const ids=['gear'];
-  if(SAVE.unlocks.peekyHouse) ids.push('heart');
-  if(SAVE.unlocks.zazaHouse) ids.push('moon');
-  if(SAVE.unlocks.orbyHouse) ids.push('drop');
-  if(SAVE.unlocks.waveyHouse) ids.push('cloud');
+  if(SAVE.unlocks.zazaHouse)  ids.push('heart');
+  if(SAVE.unlocks.orbyHouse)  ids.push('moon');
+  if(SAVE.unlocks.waveyHouse) ids.push('drop');
+  if(SAVE.unlocks.puffyHouse) ids.push('cloud');
   return ids;
 }
 /* gear's house art predates the type-id naming convention (house_peeky, not house_gear) — every
@@ -2564,8 +2567,11 @@ function drawBoxTag(b,hint){
   const tx=b.x, ty=b.y-b.h*0.52, r=b.w*0.17, type=b.type;
   ctx.save(); shadow(10,'rgba(0,0,0,0.14)',0,4); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(tx,ty,r,0,7); ctx.fill(); noShadow();
   ctx.lineWidth=r*0.16; ctx.strokeStyle=type.deep; ctx.stroke();
-  if(hint==='color'){ const cg=ctx.createLinearGradient(tx,ty-r,tx,ty+r); cg.addColorStop(0,type.light); cg.addColorStop(1,type.deep);
-    ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(tx,ty,r*0.72,0,7); ctx.fill(); }
+  if(hint==='color'){ // saturated mid→deep chip (never light-on-white, which read as an empty ring) + a soft top gloss
+    const cg=ctx.createLinearGradient(tx,ty-r,tx,ty+r); cg.addColorStop(0,type.mid); cg.addColorStop(1,type.deep);
+    ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(tx,ty,r*0.80,0,7); ctx.fill();
+    ctx.lineWidth=r*0.12; ctx.strokeStyle=type.deep; ctx.stroke();
+    ctx.save(); ctx.globalAlpha=0.35; ctx.fillStyle=type.light; ctx.beginPath(); ctx.ellipse(tx,ty-r*0.28,r*0.42,r*0.22,0,0,7); ctx.fill(); ctx.restore(); }
   else if(hint==='shape') glyphIcon(type.icon,tx,ty,r*1.25,type.mid,type.deep);
   else drawFaceCircle(type,tx,ty,r*0.9);
   ctx.restore();
