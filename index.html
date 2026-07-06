@@ -1654,9 +1654,15 @@ function tryCatchFloaterAt(px,py){
 }
 function startArrival(){
   const D=drive; D.arriving=true; D.arriveT=0; D.peekyTriggered=false; D.hugTriggered=false; D.done=false; D.arrivalPop=null;
-  // fast-fade any still-drifting biome creatures so they clear the frame (softly, no pop) before the hug
-  // beat — the arrival is Poppu's moment, not a catch window (QA: floaters were live through the hug).
-  for(const f of D.floaters){ if(!f.caught && f.maxLife) f.maxLife=Math.min(f.maxLife,f.life+0.4); }
+  // clear ALL biome toys so none linger "tap-me" through the hug — the arrival is Poppu's moment, not a
+  // catch window (QA). Each kind is routed to its own gentle fade-out, none to a hard pop.
+  D.hop=null;                                                            // riverside stepping-stones off
+  for(const f of D.floaters){
+    if(f.flit||f.gate) continue;                                         // butterfly burst finishes; gates fade by descending (guarded from resolving)
+    if(f.fall){ f.caught=true; f.popT=0; }                               // acorns settle out via the caught fade
+    else if(f.bloom){ f.popped=true; f.popT=0; }                         // flowers close via the popped fade
+    else if(!f.caught && f.maxLife) f.maxLife=Math.min(f.maxLife,f.life+0.4);   // catch/jar drift soft-fade
+  }
 }
 function updateDrive(dt){
   const D=drive; if(!D) return;
@@ -4349,7 +4355,7 @@ window.__t = {
       live:drive.floaters.filter(f=>!f.caught&&!f.flit&&!f.popped).length,
       gates:drive.floaters.filter(f=>f.gate&&!f.resolved).length }; },
   /* fire the current biome's verb once, exactly as a finger would — returns true if it rewarded */
-  driveVerbOnce(){ if(!drive) return false; const mode=this.driveVerb;
+  driveVerbOnce(){ if(!drive||drive.arriving) return false; const mode=this.driveVerb;   // mirror the real tap guard (hands off during the hug)
     if(mode==='hop'){ const H=drive.hop; if(!H||H.done) return false; const p=H.pads[H.next]; if(!p) return false;
       return tryHopTap(drive, roadCenterX(p.d)+p.off, 820-(p.d-drive.scrollY)+Math.sin(p.phase)*6); }
     if(mode==='gap'){ const g=drive.floaters.find(f=>f.gate&&!f.resolved); if(!g) return false;
