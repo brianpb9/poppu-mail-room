@@ -105,7 +105,7 @@ const UPGRADES = [
   { id:'bigBoxes',    name:'Big Mailboxes',  cost:15, icon:'box',   spr:'up_capacity', sprScale:1.02, desc:'Bigger, comfy boxes' },
   { id:'autoSorter',  name:'Auto-Sorter',    cost:25, icon:'replay', spr:'up_sorter',  sprScale:1.02, desc:'Wrong drops return' },
   { id:'scanner',     name:'Golden Scanner', cost:40, icon:'eye',   spr:'up_scanner',  sprScale:1.10, desc:'Glows the right box' },
-  { id:'doubleStamps',name:'Double Stamps',  cost:50, icon:'x2',    spr:'up_x2',       sprScale:0.90, desc:'Twice the stamps' },
+  { id:'doubleStamps',name:'Double Stamps',  cost:50, icon:'x2',    spr:'up_x2',       sprScale:1.06, desc:'Twice the stamps' },
 ];
 
 /* ---------------------------------------------------------- COSMETIC SHOP */
@@ -529,6 +529,8 @@ ASSET_SRC['road_tex']='assets/road-path-texture-tile.png';
 ['drive_acorn','drive_butterfly','drive_firefly','drive_lilypad','drive_cloudpuff'].forEach(k=>{
   ASSET_SRC[k]='assets/'+k.replace(/_/g,'-')+'.png';
 });
+// woven-basket vessel that holds each friend's lifetime gathered-gift collection (has()-gated like the rest)
+ASSET_SRC['drive_basket']='assets/drive-basket.png';
 /* Poppu's Post Town (Phase 1) — Wrap Shop interior + the four new friend houses (Peeky/gear's
    house_peeky above predates this naming convention; every other friend follows house_<typeId>) */
 ASSET_SRC['wrap_bg']='assets/wrap-bg.webp';
@@ -1565,19 +1567,48 @@ function grantCollectionMilestone(friendId,x,y){
    in shape) filling left-to-right/top-to-bottom, dimmed-alpha for not-yet-earned slots (same pattern
    as drawFriendHeartMeter's dimmed unfilled hearts). Reused by both the Drive corner + the Friend
    House showcase so the same lifetime number reads identically everywhere it's shown. */
-function drawNatureGiftPile(friendId,cx,cy,scale,popScale){
-  const key=driveCollectionSpriteKey(friendId); if(!key||!has(key)) return;
-  const filled=driveCollectionTierProgress(friendId);
-  const cols=5, rows=Math.ceil(DRIVE_COLLECTION_GOAL/cols), gap=34*scale, sz=40*scale*(popScale||1);
-  const x0=cx-(cols-1)*gap/2, y0=cy-(rows-1)*gap*0.42;
-  for(let i=0;i<DRIVE_COLLECTION_GOAL;i++){
-    const col=i%cols, row=Math.floor(i/cols);
-    const jx=Math.sin(i*12.9)*6*scale, jy=Math.cos(i*7.3)*4*scale;
-    const x=x0+col*gap+jx, y=y0+row*gap*0.82+jy;
-    const on=i<filled;
-    ctx.save(); ctx.globalAlpha=on?1:0.22;
-    ctx.drawImage(IMG[key].img, x-sz/2, y-sz/2, sz, sz);
-    ctx.restore();
+/* ONE woven-basket vessel holding `count` gathered gifts (0..GOAL), piled with per-item size + rotation
+   variety so they read as individual treasures rather than tally marks (creative note). Real PNGs only
+   (the illustrated basket + the biome gift sprite) — no procedural asset shapes; `seed` de-correlates the
+   pile jitter between sibling baskets. A basket with 0 gifts still draws the empty vessel = "room to grow". */
+function drawGiftBasket(giftKey,cx,cy,basketSz,count,seed){
+  const n=Math.max(0,Math.min(DRIVE_COLLECTION_GOAL,count|0));
+  const k=basketSz/120;
+  if(has('drive_basket')){ ctx.save(); shadow(11*k,'rgba(90,60,30,0.22)',0,7*k);
+    ctx.drawImage(IMG.drive_basket.img, cx-basketSz/2, cy-basketSz/2, basketSz, basketSz); noShadow(); ctx.restore(); }
+  if(!has(giftKey)) return;
+  const img=IMG[giftKey].img, giftSz=basketSz*0.40, mouthY=cy-basketSz*0.12, mouthW=basketSz*0.30;
+  // clustered heap inside the basket mouth, rear rows first so nearer gifts overlap in front (brimming look)
+  for(let i=0;i<n;i++){
+    const row=Math.floor(i/5), col=i%5, perRow=Math.min(5,n-row*5);
+    const spread=(perRow>1?(col-(perRow-1)/2):0);
+    const r1=Math.sin((i+1)*12.9+seed*7.7), r2=Math.cos((i+1)*7.3+seed*3.1), r3=Math.sin((i+1)*3.3+seed*5.5);
+    const gx=cx+spread*(mouthW*0.7)+r1*giftSz*0.14;
+    const gy=mouthY-row*giftSz*0.40+r2*giftSz*0.12;
+    const gs=giftSz*(0.82+((i*13+seed*3)%10)/10*0.40);   // 0.82..1.22 size variety
+    ctx.save(); ctx.translate(gx,gy); ctx.rotate(r3*0.42);
+    ctx.drawImage(img,-gs/2,-gs/2,gs,gs); ctx.restore();
+  }
+}
+/* wordless lifetime showcase: a FULL basket per completed collection tier + one still-filling basket, so
+   the display VISIBLY gets bigger every 15 gifts (a pre-reader sees "more baskets than yesterday" with
+   zero digits) — not a fixed grid that refills in place. `single`=the compact in-Drive corner readout. */
+function drawNatureGiftPile(friendId,cx,cy,scale,popScale,single){
+  const key=driveCollectionSpriteKey(friendId); if(!key) return;
+  const n=(SAVE.driveCollection&&SAVE.driveCollection[friendId])||0;
+  const basketSz=120*scale*(popScale||1);
+  if(single){ drawGiftBasket(key,cx,cy,basketSz,driveCollectionTierProgress(friendId),0); return; }
+  const fullBaskets=Math.floor(n/DRIVE_COLLECTION_GOAL), partial=n%DRIVE_COLLECTION_GOAL;
+  const total=Math.max(1, fullBaskets + ((partial>0||fullBaskets===0)?1:0));
+  const cols=3, maxShow=6, show=Math.min(total,maxShow), startB=Math.max(0,total-show);
+  const gapX=basketSz*1.12, gapY=basketSz*0.60;   // rows grow UP/back so the cluster always sits ON the floor line at cy
+  // draw back rows first (smaller, tucked behind) so the front row overlaps them like a real basket cluster
+  for(let s=show-1;s>=0;s--){
+    const b=startB+s, count=(b<fullBaskets)?DRIVE_COLLECTION_GOAL:partial;
+    const col=s%cols, row=Math.floor(s/cols), perRow=Math.min(cols,show-row*cols);
+    const depth=1-row*0.12;
+    const bx=cx+(col-(perRow-1)/2)*gapX*depth, by=cy-row*gapY;
+    drawGiftBasket(key,bx,by,basketSz*depth,count,b+1);
   }
 }
 /* small always-on corner readout during the Drive itself (both driving + arrival) so the lifetime
@@ -1585,7 +1616,7 @@ function drawNatureGiftPile(friendId,cx,cy,scale,popScale){
 function drawDriveCollectionCorner(){
   const D=drive; if(!D||!D.friendType) return;
   const pop=1+(D.pileNudge||0)*0.16;
-  drawNatureGiftPile(D.friendType.id, DRIVE_PILE_CORNER.x, DRIVE_PILE_CORNER.y-30, 0.5, pop);
+  drawNatureGiftPile(D.friendType.id, DRIVE_PILE_CORNER.x, DRIVE_PILE_CORNER.y-30, 0.62, pop, true);
 }
 /* ---- (C) reward-grammar variety: physically distinct catch moments for the two flattest verbs ----
    WOODLAND acorn: tumbles in a little arc + spins down into the corner pile (a real "plunk" landing,
@@ -1625,6 +1656,13 @@ function drawBasketFx(){
       const gl=ctx.createRadialGradient(x,y,0,x,y,24); gl.addColorStop(0,'rgba(255,236,150,0.75)'); gl.addColorStop(1,'rgba(255,236,150,0)');
       ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(x,y,24,0,7); ctx.fill();
       if(img) ctx.drawImage(img,x-f.sz/2,y-f.sz/2,f.sz,f.sz);
+      ctx.restore();
+    } else if(f.kind==='flutter'){
+      const wob=Math.sin(p*Math.PI*4+f.ph)*38*(1-p*0.5);
+      const x=f.x+(f.tx-f.x)*p+wob, y=f.y+(f.ty-f.y)*(p*p)-64*Math.sin(p*Math.PI);
+      const flap=1+Math.sin(p*34+f.ph)*0.22;
+      ctx.save(); ctx.globalAlpha=1-p*0.15; ctx.translate(x,y); ctx.scale(flap,1);
+      if(img) ctx.drawImage(img,-f.sz/2,-f.sz/2,f.sz,f.sz);
       ctx.restore();
     }
   }
@@ -1708,7 +1746,13 @@ function popBloom(D,f){
   burst(x,y,'#FF9DB6',10,5); burst(x,y,'#FFE0EA',8,4);
   if(Audio_[I.chime]) Audio_[I.chime](); else Audio_.collect();
   if(f.golden){ confetti(x,y); Audio_.golden(); addStamps(3); } else addStamps(1);
-  D.floatersCaught=(D.floatersCaught||0)+1; bumpDriveCollection(D.friendType.id, x, y); persist();
+  D.floatersCaught=(D.floatersCaught||0)+1; bumpDriveCollection(D.friendType.id, x, y);
+  // (C) MEADOW distinct payoff: one butterfly peels off the swarm and flutters over to the corner basket
+  // (a wavy wing-flapping flight), so the meadow catch reads different from acorn-tumble / firefly-drift.
+  D.basketFx=D.basketFx||[];
+  D.basketFx.push({ kind:'flutter', img:(I.emit||'drive_butterfly'), x, y:y-24, tx:DRIVE_PILE_CORNER.x, ty:DRIVE_PILE_CORNER.y,
+    t:0, dur:0.9+Math.random()*0.2, sz:72, ph:Math.random()*7 });
+  persist();
 }
 /* SKY gate — resolved as the cloud wall reaches the truck: in the gap = whoosh + rainbow; else a soft puff (no penalty) */
 function resolveGate(D,f){
@@ -2557,7 +2601,7 @@ function drawFriend(){
   }
   drawFriendHeartMeter(); drawFriendBody(); drawFriendFeedAnim(); drawFriendWantBubble();
   drawFriendItemTray(); drawFriendHatTray(); drawFriendDraggedItem();
-  drawNatureGiftPile(t.id, 1650, 300, 0.9);   // (A) this friend's lifetime pile of gathered Drive gifts — empty wall area, clear of the round window/heart meter/hat tray/stamp chip (placement is a first pass; flag to ui-ux-designer for a proper "shelf" treatment)
+  drawNatureGiftPile(t.id, 1560, 770, 0.82);   // (A) this friend's lifetime gathered-gift collection: woven baskets on the right-side floor that gain a whole new basket every 15 gifts — visibly bigger every session, wordless
   drawParticles(); drawFloatTexts();
   backButton(); stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
 }
@@ -2584,8 +2628,11 @@ const PARENT_CLOSE={x:W/2+470-64,y:150+64,r:42};
 const PARENT_VOL=()=>({x:W/2-260,y:PARENT_PANEL.y+PARENT_PANEL.h-210,w:520,h:96});
 
 function cycleVolume(){ SAVE.volume=(SAVE.volume+2)%3; Audio_.setVolume(SAVE.volume); persist(); Audio_.pop(); }
-function startLongPress(px,py){ cancelLongPress(); pressPx=px; pressPy=py;
-  longPressTimer=setTimeout(()=>{ longPressTimer=null; parentOpen=true; Audio_.pop(); }, 3000); }
+function startLongPress(px,py){ cancelLongPress(); pressPx=px; pressPy=py; const armedState=state;
+  // only open the gate if we're STILL on the same screen the hold began on — prevents an orphaned timer
+  // from popping the dashboard mid-play if a quick tap in TOWN (Poppu's hit-box overlaps the Wrap Shop
+  // doorway) armed the hold and then immediately changed scene (QA: unprompted parent-dashboard pop).
+  longPressTimer=setTimeout(()=>{ longPressTimer=null; if(state===armedState){ parentOpen=true; Audio_.pop(); } }, 3000); }
 function cancelLongPress(){ if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer=null; } }
 function handleParentTap(px,py){
   if(dist(px,py,PARENT_CLOSE.x,PARENT_CLOSE.y)<PARENT_CLOSE.r+8){ parentOpen=false; Audio_.pop(); return; }
@@ -3550,7 +3597,7 @@ function drawSticker(){
     if(has('ui_sticker')){ ctx.save(); if(!earned) ctx.globalAlpha=0.55; ctx.drawImage(IMG.ui_sticker.img,cx-80,cy-80,160,160); ctx.restore(); }
     else { ctx.fillStyle=earned?'rgba(0,0,0,0.05)':'rgba(255,201,138,0.16)'; ctx.strokeStyle=earned?'#d9c3a0':'#F0B87E'; ctx.lineWidth=4; ctx.setLineDash([12,10]); rr(cx-70,cy-70,140,140,20); ctx.fill(); ctx.stroke(); ctx.setLineDash([]); }
     if(earned){
-      const bob=Math.sin(time*2+i)*3, key=gardenSlotFlower(i);
+      const bob=Math.sin(time*2+i)*3, key=gardenSlotFlower(dataIdx);   // key by lifetime index, not grid slot, so a bloom's species never changes when the window slides (QA)
       if(has(key)) ctx.drawImage(IMG[key].img,cx-58,cy-58+bob,116,116);
       else { const type=T[SAVE.stickers[dataIdx]]||TYPES[i%6]; if(has('pkg_'+type.id)) ctx.drawImage(IMG['pkg_'+type.id].img,cx-58,cy-58+bob,116,116); else ph_face(type,cx,cy,110); }
     } else {
