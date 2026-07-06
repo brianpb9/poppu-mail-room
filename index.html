@@ -861,11 +861,15 @@ const TOWN_BUILDINGS = {
      critically, is verified zero-overlap against every other building's hit rect (post/wrap/peeky
      UNCHANGED above) and fully on-stage (0..1920 / 0..1080). QA note: an earlier revision placed
      'drop' inside post's hit rect and it silently ate the tap; this layout was re-checked pairwise. */
-  moon:  { id:'moon',  key:'house_moon',  cx:1600, groundY:220, w:200, h:180, bobAmp:4, bobPeriod:2.7, bobPhase:0.3,
+  /* FIX2 (QA/creative "floating houses"): groundY moved DOWN onto the actual illustrated grass
+     clearing in assets/town-map.webp at this building's cx (verified by sampling the bg pixels) —
+     both previously landed in the sky/treeline band above their clearing, with a shadow that read
+     as detached. hit-rects are UNCHANGED (still independently defined, tap targets untouched). */
+  moon:  { id:'moon',  key:'house_moon',  cx:1600, groundY:340, w:200, h:180, bobAmp:4, bobPeriod:2.7, bobPhase:0.3,
            hit:{x:1490,y:0,  w:220,h:220} },
   cloud: { id:'cloud', key:'house_cloud', cx:1277, groundY:540, w:160, h:230, bobAmp:4, bobPeriod:3.0, bobPhase:2.6,
            hit:{x:1280,y:300,w:135,h:360} },
-  drop:  { id:'drop',  key:'house_drop',  cx:1080, groundY:314, w:220, h:200, bobAmp:5, bobPeriod:3.1, bobPhase:2.0,
+  drop:  { id:'drop',  key:'house_drop',  cx:1080, groundY:440, w:220, h:200, bobAmp:5, bobPeriod:3.1, bobPhase:2.0,
            hit:{x:960, y:70, w:240,h:250} },
   heart: { id:'heart', key:'house_heart', cx:730,  groundY:650, w:150, h:250, bobAmp:4, bobPeriod:2.9, bobPhase:1.1,
            hit:{x:665, y:400,w:160,h:420} },
@@ -879,9 +883,9 @@ const TOWN_BUILDING_SHADOW = {
   post:  { cx:420,  cy:880, rw:250, rh:50, a:0.38 },
   wrap:  { cx:980,  cy:740, rw:180, rh:38, a:0.36 },
   peeky: { cx:1540, cy:560, rw:145, rh:30, a:0.34 },
-  moon:  { cx:1600, cy:220, rw:84,  rh:19, a:0.30 },
+  moon:  { cx:1600, cy:340, rw:84,  rh:19, a:0.30 },
   cloud: { cx:1277, cy:540, rw:59,  rh:13, a:0.28 },
-  drop:  { cx:1080, cy:300, rw:92,  rh:20, a:0.32 },
+  drop:  { cx:1080, cy:440, rw:92,  rh:20, a:0.32 },
   heart: { cx:730,  cy:650, rw:55,  rh:12, a:0.28 },
 };
 const POPPU_TOWN_HOME={ x:960, y:890 };
@@ -1027,6 +1031,12 @@ let levelStartT=0;
 let levelDone=false;
 let spawnTimer=0;
 let doneScreen=null;        // {stars, stamps} for LEVELDONE
+/* FIX5: LEVELDONE's own celebration + auto-advance — separate from the mid-Drive arrival hug that
+   already plays earlier in the flow. doneScreenT drives the ~3.5s non-reader auto-advance timer;
+   doneCelebrated guards the one-shot confetti+friend-pop so it fires exactly once per results card. */
+let doneScreenT=0;
+let doneCelebrated=false;
+let prevState=null;
 
 /* -------------------------------------------------------- SCENES / AMBIENT */
 function setScene(i){
@@ -1160,6 +1170,10 @@ function deliver(pkg, box){
 /* ------------------------------------------------------------- LEVEL FLOW */
 function startLevel(n){
   currentLevel=Math.max(1,Math.min(LEVELS.length,n));
+  // FIX6: request iOS motion permission right here — startLevel() is always called synchronously
+  // from within a real user-gesture handler (tap a level node / building / Next / Replay), which is
+  // exactly what iOS requires for DeviceMotionEvent.requestPermission() to work at all.
+  if(LEVELS[currentLevel-1].mech.shake) ensureMotionPermission();
   state='PLAYING';
   packages=[]; particles=[]; popups=[]; floatTexts=[]; dragging=null; hoverType=null; sealSwipe=null;
   activeTask=null; taskNo=0; spawnedThisLevel=0; deliveredThisLevel=0; mistakesThisLevel=0;
@@ -1207,6 +1221,27 @@ function finishLevel(){
   // ---- Delivery Drive: a short lose-proof drive to Peeky's before the results screen ----
   // (guarded: if the child already backed out to Home during the celebration, don't hijack them back in)
   setTimeout(()=>{ if(state==='PLAYING') startDrive(); }, 900);
+}
+
+/* FIX5: the LEVELDONE results card's OWN big celebration beat — a generous two-origin confetti burst
+   + a friend "hug" pop (reusing the same full-body popup the mailbox delivery uses) + a sound sting.
+   This is deliberately separate from (and bigger than) the mid-Drive arrival hug earlier in the flow,
+   because the results card itself was previously a flat, static screen. One-shot per results card via
+   doneCelebrated (reset whenever LEVELDONE is freshly entered, see update()). */
+function triggerLevelDoneCelebration(){
+  if(doneCelebrated) return; doneCelebrated=true;
+  Audio_.celebrate();
+  confetti(W*0.28,H*0.32); confetti(W*0.72,H*0.32);
+  const friendType=(drive&&drive.friendType)||levelTypes().find(t=>t.id!=='star')||TYPES[1];
+  popups.push({ type:friendType, x:W/2+300, boxCy:640, boxH:60, t:0 });
+}
+/* shared "go to the next thing" behavior for LEVELDONE — used by BOTH the explicit Next tap and the
+   ~3.5s non-reader auto-advance below, so the two always agree. On the final level this goes straight
+   into the Post Town hub (never a dead-end title screen — a non-reader never has to find their way
+   back in). */
+function advanceFromLevelDone(){
+  if(currentLevel>=LEVELS.length){ Audio_.pop(); enterTown(); }
+  else startLevel(Math.min(LEVELS.length,currentLevel+1));
 }
 
 /* ============================================================ DELIVERY DRIVE
@@ -1975,10 +2010,9 @@ function onDown(cx,cy){
   if(state==='STICKER'){ if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r) state='START'; return; }
   if(state==='LEVELDONE'){
     for(const b of doneBtns()) if(inRect(p.x,p.y,b)){
-      if(b.id==='next' && currentLevel>=LEVELS.length){ state='START'; Audio_.pop(); return; }
-      if(b.id==='replay') startLevel(currentLevel);
-      else if(b.id==='next') startLevel(Math.min(LEVELS.length,currentLevel+1));
-      else state='START'; return; }
+      if(b.id==='next'){ advanceFromLevelDone(); return; }
+      if(b.id==='replay'){ startLevel(currentLevel); return; }
+      state='START'; return; }
     return;
   }
   if(state==='TOWN'){
@@ -1989,7 +2023,7 @@ function onDown(cx,cy){
   }
   if(state==='WRAP'){
     if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ leaveWrap(); return; }
-    if(wrapBox.acted && dist(p.x,p.y,WRAP_SHIP_BTN.x,WRAP_SHIP_BTN.y)<WRAP_SHIP_BTN.r){ shipWrapBox(); return; }
+    if(wrapBox.acted && dist(p.x,p.y,WRAP_SHIP_BTN.x,WRAP_SHIP_BTN.y)<WRAP_SHIP_BTN.r){ startWrapShip(); return; }
     { const r=WRAP_RIBBON_STRIP;
       if(Math.abs(p.x-r.x)<r.w/2 && Math.abs(p.y-r.y)<r.h/2){ wrapRibbonSwipe={x0:p.x,dx:0}; return; } }
     for(const st of wrapStickerTray()){ if(dist(p.x,p.y,st.x,st.y)<st.r){ applyWrapSticker(st.icon); return; } }
@@ -2098,18 +2132,47 @@ window.addEventListener('blur',()=>{ if(dragging){ dragging.state='returning'; d
 document.addEventListener('visibilitychange',()=>{ if(document.hidden && dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } });
 window.addEventListener('touchmove',e=>{ e.preventDefault(); },{passive:false});
 let lastShake=0;
-window.addEventListener('devicemotion',e=>{
+function onDeviceMotion(e){
   if(state!=='PLAYING'||!activeTask||activeTask.kind!=='shake'||activeTask.sorted) return;
   const a=e.accelerationIncludingGravity; if(!a) return;
   const mag=Math.abs(a.x||0)+Math.abs(a.y||0)+Math.abs(a.z||0);
   if(mag>32 && time-lastShake>0.25){ lastShake=time; activeTask.taps++; Audio_.rattle();
     for(const it of activeTask.items){ it.ox+=(Math.random()-0.5)*40; it.oy+=(Math.random()-0.5)*24; }
     if(activeTask.taps>=3) resolveShake(); }
-});
+}
+/* FIX6 (parent/functional — iOS 13+): DeviceMotionEvent is gated behind an explicit permission prompt
+   that MUST be requested synchronously inside a real user-gesture handler, or Safari silently denies
+   it forever. Feature-detected so desktop/Android (which have no such gate) behave exactly as before —
+   they just addEventListener immediately, no prompt, no behavior change. Shake-sort ALWAYS has a
+   tap-fallback (see onDown's activeTask.kind==='shake' branch) so a denied/skipped prompt never
+   breaks the mechanic, it just falls back to tap-only. */
+let motionPermissionRequested=false;
+function ensureMotionPermission(){
+  if(motionPermissionRequested) return;
+  motionPermissionRequested=true;
+  if(typeof DeviceMotionEvent!=='undefined' && typeof DeviceMotionEvent.requestPermission==='function'){
+    DeviceMotionEvent.requestPermission().then(resp=>{
+      if(resp==='granted') window.addEventListener('devicemotion', onDeviceMotion);
+    }).catch(()=>{ /* denied/unsupported — tap-fallback still fully sorts the task */ });
+  } else {
+    window.addEventListener('devicemotion', onDeviceMotion);
+  }
+}
 
 /* ------------------------------------------------------------- UPDATE */
 function update(dt){
   time+=dt;
+  // FIX5: LEVELDONE entry detection is state-transition based (not tied to one call site) so it's
+  // robust to every path that can land on LEVELDONE — the normal Drive hand-off, a QA hook jumping
+  // state directly, or any future entry point — the celebration always fires exactly once and the
+  // ~3.5s non-reader auto-advance timer always starts fresh.
+  if(state==='LEVELDONE' && prevState!=='LEVELDONE'){ doneScreenT=0; doneCelebrated=false; }
+  prevState=state;
+  if(state==='LEVELDONE'){
+    if(!doneCelebrated) triggerLevelDoneCelebration();
+    doneScreenT+=dt;
+    if(doneScreenT>=3.5) advanceFromLevelDone();
+  }
   if(poppuCelebrateT>0) poppuCelebrateT=Math.max(0,poppuCelebrateT-dt);
   for(let i=0;i<6;i++) if(boxBounce[i]>0) boxBounce[i]=Math.max(0,boxBounce[i]-dt*2.4);
   if(activeTask){ activeTask.t+=dt; if(activeTask.flash>0) activeTask.flash=Math.max(0,activeTask.flash-dt); }
@@ -2693,6 +2756,9 @@ function drawLevelDone(){
   // badge on her chest, but the two never overlap the button row (y760..870) ----
   if(has('poppu_celebrate')) sprite('poppu_celebrate',W/2,560,220,220); else ph_poppu('celebrate',W/2,510,130);
   drawPoppuHat(W/2,514,110,equipped('hat'));
+  // FIX5: the friend "hug" pop for THIS results card (reuses the mailbox-delivery popup renderer) —
+  // was previously only drawn on PLAYING/DRIVE, never here, leaving the results card completely flat.
+  drawPopups();
   // stamps pill lives in its OWN clear band below Poppu (~680-750) and above the button row (760+) —
   // never over her face/body, no matter her sprite height or an equipped hat riding above her.
   ctx.save(); shadow(14,'rgba(0,0,0,0.14)',0,6); ctx.fillStyle='#fffdf6'; rr(W/2-170,682,340,68,34); ctx.fill(); noShadow();
@@ -2702,7 +2768,18 @@ function drawLevelDone(){
     const col=b.id==='replay'?'#8ECFEC':b.id==='next'?'#5FB985':'#B79BEA';
     const label=b.id==='replay'?'Replay':b.id==='next'?'Next →':'Home';
     pill(b,'#fffdf6',col,6,label,'#6a4a2a');
+    // FIX5: minimal, neutral auto-advance ring on the Next pill (icon-first — no text) so an older
+    // kid/parent can see WHY the screen is about to change on its own. Functional placeholder only;
+    // flagged for ui-ux-designer to restyle to the game's own visual language.
+    if(b.id==='next'){
+      const rc=b.x+b.w-30, rcy=b.y+30, rr2=22, prog=Math.min(1,doneScreenT/3.5);
+      ctx.save(); ctx.lineWidth=6; ctx.lineCap='round';
+      ctx.strokeStyle='rgba(90,61,36,0.22)'; ctx.beginPath(); ctx.arc(rc,rcy,rr2,0,7); ctx.stroke();
+      ctx.strokeStyle='#fff'; ctx.beginPath(); ctx.arc(rc,rcy,rr2,-Math.PI/2,-Math.PI/2+prog*2*Math.PI); ctx.stroke();
+      ctx.restore();
+    }
   }
+  drawParticles();   // FIX5: confetti now actually renders on THIS screen (was computed but never drawn here)
   stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
 }
 
@@ -2825,6 +2902,19 @@ function clipBuildingSilhouette(cx,groundY,w,h){
 /* pre-bake the "new" badge to a small offscreen canvas at DISPLAY size — blitting a same-size source
    (rather than downscaling the raw asset every frame while also rotating/scaling in the live 2D ctx)
    is what kills the per-frame rotate/scale mush. Prefers the v2 (text-free) art if present. */
+/* FIX3 (creative/product "empty burst"): the text-free v2 burst art is a plain gold sunburst with
+   NO content inside it — reads as a render error, not a "new!" tag. Bake a small centered star glyph
+   into the cached canvas (icon-first, zero reading required) so every badge always carries a clear
+   pictograph, at zero per-frame cost since this canvas is built once and cached. */
+function drawBadgeGlyphStar(o,cx,cy,outerR,innerR){
+  o.save(); o.beginPath();
+  for(let i=0;i<10;i++){ const r=i%2===0?outerR:innerR, a=-Math.PI/2+i*Math.PI/5;
+    const x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r; if(i===0) o.moveTo(x,y); else o.lineTo(x,y); }
+  o.closePath();
+  o.fillStyle='#FFFFFF'; o.fill();
+  o.lineJoin='round'; o.lineWidth=outerR*0.16; o.strokeStyle='#C9791E'; o.stroke();
+  o.restore();
+}
 let _newBadgeCache=null;
 function newBadgeCanvas(){
   if(_newBadgeCache) return _newBadgeCache;
@@ -2833,6 +2923,7 @@ function newBadgeCanvas(){
   const s=200, c=document.createElement('canvas'); c.width=c.height=s;
   const o=c.getContext('2d'); o.imageSmoothingEnabled=true; o.imageSmoothingQuality='high';
   o.drawImage(IMG[key].img,0,0,s,s);
+  drawBadgeGlyphStar(o,s/2,s/2,s*0.20,s*0.085);
   _newBadgeCache=c; return c;
 }
 /* small drifting "zzz" — universal sleep iconography (not reading-dependent), 3 staggered z's rising
@@ -3414,7 +3505,7 @@ window.__t = {
   wrapCycleColor(){ if(state!=='WRAP') enterWrap(); cycleWrapColor(); },
   wrapDoRibbon(){ if(state!=='WRAP') enterWrap(); applyWrapRibbon(); },
   wrapDoSticker(icon){ if(state!=='WRAP') enterWrap(); applyWrapSticker(icon||'star'); },
-  wrapShip(){ if(state!=='WRAP') return false; if(!wrapBox||!wrapBox.acted) return false; shipWrapBox(); return true; },
+  wrapShip(){ if(state!=='WRAP') return false; if(!wrapBox||!wrapBox.acted) return false; startWrapShip(); return true; },
 
   /* ---- Friend House (Phase 1) ---- */
   enterFriend(id){ enterFriend(id||'peeky'); },
