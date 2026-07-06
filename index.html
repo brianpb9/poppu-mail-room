@@ -502,6 +502,8 @@ ASSET_SRC['house_cloud']='assets/house-cloud.png';
    skin ON a mini mailbox/conveyor swatch, decor in a room corner), not a floating icon. Falls back
    to the existing procedural in-context placeholder (drawCosmeticCard) until real art lands. */
 COSMETICS.forEach(c=>{ ASSET_SRC['cos-'+c.id.replace(/_/g,'-')]='assets/cos-'+c.id.replace(/_/g,'-')+'.png'; });
+/* Friend-house illustrated interiors (Phase 1) — a cozy painted room per friend, keyed by house name */
+['peeky','orby','zaza','wavey','puffy'].forEach(n=>{ ASSET_SRC['friendbg_'+n]='assets/bg-house-'+n+'.webp'; });
 const IMG={}; let loadedCount=0, totalToLoad=Object.keys(ASSET_SRC).length, loadDone=false, loadStart=0;
 function beginLoad(){
   loadStart=performance.now();
@@ -1815,9 +1817,14 @@ function drawFriendDraggedItem(){
 function drawFriend(){
   const F=friendScene; if(!F){ enterTown(); return; }
   const t=F.type;
-  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,t.light); g.addColorStop(1,t.mid);
-  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-  ctx.save(); ctx.globalAlpha=0.16; ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H); ctx.restore();
+  const TYPE_TO_HOUSE={ gear:'peeky', moon:'orby', heart:'zaza', drop:'wavey', cloud:'puffy' };
+  const bgKey='friendbg_'+(TYPE_TO_HOUSE[t.id]||F.id);
+  if(has(bgKey)){ ctx.drawImage(IMG[bgKey].img,0,0,W,H); }
+  else {
+    const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,t.light); g.addColorStop(1,t.mid);
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    ctx.save(); ctx.globalAlpha=0.16; ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H); ctx.restore();
+  }
   drawFriendHeartMeter(); drawFriendBody(); drawFriendFeedAnim(); drawFriendWantBubble();
   drawFriendItemTray(); drawFriendHatTray(); drawFriendDraggedItem();
   drawParticles(); drawFloatTexts();
