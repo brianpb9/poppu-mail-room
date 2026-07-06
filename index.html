@@ -99,11 +99,13 @@ const SCENES = [
 
 /* ------------------------------------------------------------- UPGRADE SHOP */
 const UPGRADES = [
-  { id:'speedBelt',   name:'Speed Belt',     cost:10, icon:'bolt',  spr:'up_speed',    desc:'Belt runs faster' },
-  { id:'bigBoxes',    name:'Big Mailboxes',  cost:15, icon:'box',   spr:'up_capacity', desc:'Bigger, comfy boxes' },
-  { id:'autoSorter',  name:'Auto-Sorter',    cost:25, icon:'replay', spr:'up_sorter',  desc:'Wrong drops return' },
-  { id:'scanner',     name:'Golden Scanner', cost:40, icon:'eye',   spr:'up_scanner',  desc:'Glows the right box' },
-  { id:'doubleStamps',name:'Double Stamps',  cost:50, icon:'x2',    spr:'up_x2',       desc:'Twice the stamps' },
+  // sprScale normalizes each prop's VISUAL footprint on the tag (bold gold key/coins fill their canvas and
+  // read large; the muted sack / horizontal spyglass read small) so the row reads as one uniform size.
+  { id:'speedBelt',   name:'Speed Belt',     cost:10, icon:'bolt',  spr:'up_speed',    sprScale:0.84, desc:'Belt runs faster' },
+  { id:'bigBoxes',    name:'Big Mailboxes',  cost:15, icon:'box',   spr:'up_capacity', sprScale:1.02, desc:'Bigger, comfy boxes' },
+  { id:'autoSorter',  name:'Auto-Sorter',    cost:25, icon:'replay', spr:'up_sorter',  sprScale:1.02, desc:'Wrong drops return' },
+  { id:'scanner',     name:'Golden Scanner', cost:40, icon:'eye',   spr:'up_scanner',  sprScale:1.10, desc:'Glows the right box' },
+  { id:'doubleStamps',name:'Double Stamps',  cost:50, icon:'x2',    spr:'up_x2',       sprScale:0.90, desc:'Twice the stamps' },
 ];
 
 /* ---------------------------------------------------------- COSMETIC SHOP */
@@ -3221,7 +3223,7 @@ function drawShopTag(c,key,ownedTint){
 function drawUpgradeCard(c){
   const u=c.u, owned=hasUp(u.id), afford=(SAVE.stamps||0)>=u.cost;
   const F=drawShopTag(c,'shop_tag_kraft', owned?'#5FB985':null);
-  const iconCy=F.py-F.ph*0.12, iconSize=F.pw*0.94;
+  const iconCy=F.py-F.ph*0.10, iconSize=F.pw*0.90*(u.sprScale||1);
   ctx.save();
   // real illustrated Poppu-world prop icon on the tag; procedural glyph only as pre-load fallback
   if(has(u.spr)) sprite(u.spr,F.cx,iconCy,iconSize,iconSize);
