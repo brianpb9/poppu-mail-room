@@ -1047,17 +1047,25 @@ function roadTaperAt(d, scrollY){ const ahead=Math.max(0,Math.min(1,(d-scrollY)/
    chime + 1 Star Stamp). Every trip now feels like a different PLACE to DO something, not one corridor.
    `key` = real illustrated sprite (clean-alpha PNG, NO procedural shapes); `band`=[yTop,yBottom] air/water
    layer it drifts through; `spd` = drift px/s; `chime` = Audio_ method; `cols` = catch-burst palette. */
+/* ---- Per-biome DRIVE verbs (gameplay 9-10 lever) --------------------------------------------------
+   Each biome plays a genuinely DIFFERENT finger-toy, not one tap reskinned — all lose-proof, wordless,
+   always rewarding, and reusing the same floater/particle/chime substrate:
+     woodland  'fall'  — acorns tumble from the canopy; tap to catch them mid-drop (vertical timing)
+     meadow    'bloom' — tap a roadside flower; a burst of butterflies flies out (tap-to-emit)
+     twilight  'jar'   — catch drifting fireflies into a filling jar; fill it for a bonus (collect-goal)
+     riverside 'hop'   — tap the next glowing lilypad; a frog hops stone-to-stone across (sequence)
+     sky       'gap'   — STEER the truck through the gap in the cloud banks (no tap; precision steer) */
 const DRIVE_BIOMES = {
   gear:  { name:'woodland',  bgKey:'bg_forest',    tint:'rgba(120,180,120,0.04)', roadTint:'rgba(110,150,90,0.10)',  particleKind:'leaf',   particleCol:['#9ED89E','#7EC77E','#C6E89A'],
-           interact:{ key:'drive_acorn',     band:[430,720], spd:34, sz:120, bobAmp:9,  chime:'acornPop',     cols:['#DCC084','#C6A15A','#FFE9A8'] } },
+           interact:{ mode:'fall', key:'drive_acorn',     band:[120,560], spd:34, sz:118, bobAmp:9,  chime:'acornPop',     cols:['#DCC084','#C6A15A','#FFE9A8'] } },
   heart: { name:'meadow',    bgKey:'bg_meadow',    tint:'rgba(255,180,205,0.05)', roadTint:'rgba(230,140,170,0.12)', particleKind:'petal',  particleCol:['#FFC2D3','#FF9DB6','#FFE0EA'],
-           interact:{ key:'drive_butterfly', band:[330,660], spd:58, sz:132, bobAmp:24, chime:'butterflyPop', cols:['#C8A2F0','#FF9DB6','#FFE0EA'], flutter:true } },
+           interact:{ mode:'bloom', key:'flower_common', emit:'drive_butterfly', band:[430,720], spd:0, sz:132, bobAmp:6,  chime:'butterflyPop', cols:['#C8A2F0','#FF9DB6','#FFE0EA'] } },
   moon:  { name:'twilight',  bgKey:'bg_space',     tint:'rgba(150,130,220,0.05)', roadTint:'rgba(140,120,190,0.14)', particleKind:'star',   particleCol:['#FFE9A8','#E6DBFF','#FFF3C4'],
-           interact:{ key:'drive_firefly',   band:[170,620], spd:48, sz:104, bobAmp:20, chime:'fireflyPop',   cols:['#FFE9A8','#FFF3C4','#E6DBFF'] } },
+           interact:{ mode:'jar', goal:5, key:'drive_firefly',   band:[170,620], spd:48, sz:104, bobAmp:20, chime:'fireflyPop',   cols:['#FFE9A8','#FFF3C4','#E6DBFF'] } },
   drop:  { name:'riverside', bgKey:'bg_riverside', tint:'rgba(120,190,220,0.05)', roadTint:'rgba(100,170,210,0.13)', particleKind:'bubble', particleCol:['#BFE6F6','#8ECFEC','#E0F5FF'],
-           interact:{ key:'drive_lilypad',   band:[470,760], spd:30, sz:130, bobAmp:7,  chime:'plip',         cols:['#BFE6F6','#8ECFEC','#7EC77E'] } },
+           interact:{ mode:'hop', key:'drive_lilypad',   band:[470,760], spd:30, sz:126, bobAmp:6,  chime:'plip',         cols:['#BFE6F6','#8ECFEC','#7EC77E'] } },
   cloud: { name:'sky',       bgKey:'bg_sky',       tint:'rgba(235,245,255,0.06)', roadSurface:'cloud',              particleKind:'puff',   particleCol:['#FFFFFF','#EAF4FF','#DCEBF7'],
-           interact:{ key:'drive_cloudpuff', band:[150,520], spd:44, sz:138, bobAmp:16, chime:'puffPop',      cols:['#FFFFFF','#EAF4FF','#CDEBFA'] } },
+           interact:{ mode:'gap', key:'drive_cloudpuff', band:[150,520], spd:44, sz:150, bobAmp:16, chime:'puffPop',      cols:['#FFFFFF','#EAF4FF','#CDEBFA'] } },
 };
 /* per-friend arrival-hug flourish table (animation-director spec) — drives the drop-in ease/lean/
    squeeze/pull of drawDriveArrival's embrace beat + the color/count of its landing sparkle burst, so
@@ -1450,8 +1458,9 @@ function startDrive(){
       { d:DRIVE_LENGTH*0.68, side:1,  state:'idle', t:0 },
     ],
     arrivalPop:null,   // {t,full} — wordless hug payoff, set at the hug beat (see updateDrive)
-    // biome finger-toy layer (P1 9-10 lever): drifting tappable creatures, one species per biome.
+    // biome finger-toy layer (P1 9-10 lever): each biome plays a DISTINCT verb (see DRIVE_BIOMES modes).
     floaters:[], floaterTimer:0.4, floatersCaught:0,
+    jarCount:0, jarPop:0, jarFull:0, rainbowT:0, hop:null,   // per-mode state (jar count-goal / sky rainbow / riverside sequence)
   };
   Audio_.startTruck(); Audio_.setMusicRoot(5);
 }
@@ -1475,16 +1484,37 @@ function missDriveItem(it){
    side and floats across its biome's air/water band. A single tap catches it: sparkle burst + a soft
    distinct per-biome chime + 1 Star Stamp. Always rewarding, never blocks/steers the truck, never a
    fail — a miss just drifts off the far edge with zero penalty. Sprites are has()-gated real PNGs. */
+const JAR_POS={ x:140, y:H-140 };
 function spawnFloater(D){
   const I=D.biome&&D.biome.interact; if(!I) return;
+  const mode=I.mode||'catch';
+  if(mode==='fall'){
+    // WOODLAND: acorns tumble from the canopy straight down onto the road — a vertical timing catch
+    const cx=roadCenterX(D.scrollY), golden=Math.random()<0.10;
+    D.floaters.push({ fall:true, x:cx+(Math.random()-0.5)*(DRIVE_ROAD_HALFW*1.1), y:-70-Math.random()*140,
+      vx:(Math.random()-0.5)*44, vy:150+Math.random()*95, phase:Math.random()*7, spin:(Math.random()-0.5)*2.4,
+      sz:I.sz*(golden?1.14:1)*(0.9+Math.random()*0.25), golden, caught:false, popT:0, life:0, maxLife:99 });
+    return;
+  }
+  if(mode==='bloom'){
+    // MEADOW: a flower anchored ahead on the road; scrolls down into reach, tap it to burst butterflies
+    const dd=D.scrollY+880+Math.random()*300, golden=Math.random()<0.10;
+    D.floaters.push({ bloom:true, d:dd, side:(Math.random()-0.5)*(DRIVE_ROAD_HALFW*0.72), phase:Math.random()*7,
+      sz:I.sz*(golden?1.14:1)*(0.9+Math.random()*0.2), golden, popped:false, popT:0, life:0, maxLife:99, caught:false });
+    return;
+  }
+  if(mode==='gap'){
+    // SKY: a wall of cloud banks with a GAP; the child STEERS the truck through it (no tap)
+    const cx=roadCenterX(D.scrollY), gapW=250+Math.random()*70;
+    const gapX=Math.max(cx-DRIVE_DRAG_HALFW*0.7,Math.min(cx+DRIVE_DRAG_HALFW*0.7,cx+(Math.random()-0.5)*DRIVE_DRAG_HALFW*1.2));
+    D.floaters.push({ gate:true, y:-160, gapX, gapW, resolved:false, phase:Math.random()*7, caught:false, life:0, maxLife:99 });
+    return;
+  }
+  // default 'catch' / 'jar' (TWILIGHT fireflies) — a drifting creature on the drivable corridor
   const dir=Math.random()<0.5?1:-1;
   const y=I.band[0]+Math.random()*(I.band[1]-I.band[0]);
-  // LANE-CENTERED spawn (creative-director veto fix): the biome creature is placed ON the drivable
-  // corridor — centered on the road at its own depth (roadCenterX at d = scrollY + 820 - y) with a
-  // spread just inside the lane — so the creatures POPULATE the road you drive through, not the side
-  // scenery. Gentle drift + a lifetime keeps them alive and reachable; a miss just fades (no penalty).
   const d=D.scrollY+(820-y), cx=roadCenterX(d);
-  const golden=Math.random()<0.12;   // gameplay-director inch: rare 3x "golden" creature for a little vertical pull
+  const golden=(mode!=='jar')&&Math.random()<0.12;   // rare 3x pull (jar keeps its own fill-bonus beat instead)
   D.floaters.push({
     x: cx+(Math.random()-0.5)*(DRIVE_ROAD_HALFW*1.15), y,
     vx: dir*(I.spd*(0.4+Math.random()*0.5)),
@@ -1496,25 +1526,94 @@ function spawnFloater(D){
 }
 function catchFloater(D,f){
   if(f.caught) return; f.caught=true; f.popT=0;
-  const I=D.biome.interact, y=f.y+Math.sin(f.phase)*f.bobAmp;
+  const I=D.biome.interact, mode=I.mode||'catch', y=f.fall? f.y : f.y+Math.sin(f.phase)*f.bobAmp;
   burst(f.x, y, I.cols[0], f.golden?22:14, f.golden?8:6); burst(f.x, y, I.cols[2], 8, 4);
   if(Audio_[I.chime]) Audio_[I.chime](); else Audio_.collect();
   if(f.golden){ burst(f.x,y,'#FFD54A',18,7); confetti(f.x,y); Audio_.golden(); addStamps(3); }
   else { addStamps(1); }
+  D.floatersCaught=(D.floatersCaught||0)+1;
+  if(mode==='jar'){ D.jarCount=(D.jarCount||0)+1; D.jarPop=1;
+    if(D.jarCount>=(I.goal||5)){ D.jarCount=0; D.jarFull=(D.jarFull||0)+1;
+      burst(JAR_POS.x,JAR_POS.y,'#FFE9A8',22,7); burst(JAR_POS.x,JAR_POS.y,'#FFF3C4',12,5); confetti(JAR_POS.x,JAR_POS.y);
+      Audio_.golden(); addStamps(3); } }
+  persist();
+}
+/* MEADOW bloom pop — tap a flower, a swarm of butterflies erupts (short-lived 'flit' sprites) */
+function popBloom(D,f){
+  if(f.popped) return; f.popped=true; f.popT=0;
+  const I=D.biome.interact, x=roadCenterX(f.d)+f.side, y=820-(f.d-D.scrollY);
+  const n=f.golden?7:4+Math.floor(Math.random()*2);
+  for(let k=0;k<n;k++){ const a=-Math.PI/2+(Math.random()-0.5)*2.0, sp=150+Math.random()*130;
+    D.floaters.push({ flit:true, x, y:y-24, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp-30,
+      phase:Math.random()*7, sz:66+Math.random()*30, life:0, maxLife:1.1+Math.random()*0.5 }); }
+  burst(x,y,'#FF9DB6',10,5); burst(x,y,'#FFE0EA',8,4);
+  if(Audio_[I.chime]) Audio_[I.chime](); else Audio_.collect();
+  if(f.golden){ confetti(x,y); Audio_.golden(); addStamps(3); } else addStamps(1);
   D.floatersCaught=(D.floatersCaught||0)+1; persist();
+}
+/* SKY gate — resolved as the cloud wall reaches the truck: in the gap = whoosh + rainbow; else a soft puff (no penalty) */
+function resolveGate(D,f){
+  const I=D.biome.interact, ok=Math.abs(D.truck.x-f.gapX)<f.gapW*0.5;
+  if(ok){ burst(f.gapX,740,I.cols[0],14,6); burst(f.gapX,740,'#FFF3C4',8,4);
+    if(Audio_[I.chime]) Audio_[I.chime](); addStamps(1);
+    D.floatersCaught=(D.floatersCaught||0)+1; D.rainbowT=1; persist(); }
+  else { burst(D.truck.x,740,'#E7ECF2',7,3); Audio_.aww(); }
+}
+/* RIVERSIDE stepping-stones — a short row of lilypads; tap the glowing next one in sequence, a musical
+   plip per step, the whole row lit = happy bonus. Wrong/early taps do nothing (never a fail). */
+function spawnHopRow(D){
+  const d=D.scrollY+900+Math.random()*220, nP=3+(Math.random()<0.5?1:0), pads=[];
+  for(let k=0;k<nP;k++) pads.push({ d, off:(k-(nP-1)/2)*185, lit:false, phase:Math.random()*7 });
+  D.hop={ pads, next:0, done:false, doneT:0 };
+}
+function updateHop(D,dt){
+  if(!D.hop){ if(!D.arriving) spawnHopRow(D); return; }
+  const H2=D.hop; for(const p of H2.pads) p.phase+=dt*1.6;
+  if(H2.done){ H2.doneT+=dt; if(H2.doneT>0.7){ D.hop=null; if(!D.arriving) spawnHopRow(D); } return; }
+  const y0=820-(H2.pads[0].d-D.scrollY);
+  if(y0>H+150){ D.hop=null; if(!D.arriving) spawnHopRow(D); }
+}
+function tryHopTap(D,px,py){
+  const H2=D.hop; if(!H2||H2.done) return false;
+  const p=H2.pads[H2.next]; if(!p) return false;
+  const x=roadCenterX(p.d)+p.off, y=820-(p.d-D.scrollY)+Math.sin(p.phase)*6;
+  if(Math.hypot(px-x,py-y)<132){
+    p.lit=true; burst(x,y,'#8ECFEC',10,5); burst(x,y,'#BFE6F6',6,3);
+    if(Audio_.plip) Audio_.plip();
+    H2.next++; D.floatersCaught=(D.floatersCaught||0)+1;
+    if(H2.next>=H2.pads.length){ H2.done=true; H2.doneT=0;
+      burst(x,y,'#7EC77E',16,6); confetti(x,y); if(Audio_.arrival) Audio_.arrival(); addStamps(2); }
+    else addStamps(1);
+    persist(); return true;
+  }
+  return false;
 }
 function updateDriveFloaters(dt){
   const D=drive; if(!D||!D.biome||!D.biome.interact) return;
-  // spawn cadence — keep ~2-3 catchable on screen while driving; stop spawning once arriving
+  const I=D.biome.interact, mode=I.mode||'catch';
+  if(D.jarPop>0) D.jarPop=Math.max(0,D.jarPop-dt*2.2);
+  if(D.rainbowT>0) D.rainbowT=Math.max(0,D.rainbowT-dt*0.7);
+  if(mode==='hop'){ updateHop(D,dt); return; }
+  // spawn cadence — keep the biome toy populated while driving; stop spawning once arriving
   if(!D.arriving){
     D.floaterTimer-=dt;
-    const live=D.floaters.filter(f=>!f.caught).length;
-    if(D.floaterTimer<=0 && live<3){ spawnFloater(D); D.floaterTimer=0.85+Math.random()*0.9; }
+    const live=D.floaters.filter(f=>!f.caught&&!f.flit&&!f.popped).length;
+    const cap=mode==='gap'?2:3;
+    if(D.floaterTimer<=0 && live<cap){ spawnFloater(D);
+      D.floaterTimer=(mode==='gap'?1.4:0.85)+Math.random()*0.9; }
   }
   for(let i=D.floaters.length-1;i>=0;i--){ const f=D.floaters[i];
     f.phase+=dt*1.6;
-    if(f.caught){ f.popT+=dt; if(f.popT>0.24) D.floaters.splice(i,1); continue; }
-    f.x+=f.vx*dt; f.life+=dt;
+    if(f.flit){ f.life+=dt; f.x+=f.vx*dt; f.y+=f.vy*dt; f.vy+=dt*42;
+      if(f.life>f.maxLife) D.floaters.splice(i,1); continue; }
+    if(f.caught||f.popped){ f.popT+=dt; if(f.popT>0.28) D.floaters.splice(i,1); continue; }
+    if(f.fall){ f.y+=f.vy*dt; f.x+=f.vx*dt; f.spin2=(f.spin2||0)+f.spin*dt;
+      if(f.y>H+90) D.floaters.splice(i,1); continue; }
+    if(f.bloom){ const y=820-(f.d-D.scrollY); if(y>H+150) D.floaters.splice(i,1); continue; }
+    if(f.gate){ f.y+=DRIVE_SPEED*1.15*dt;
+      if(!f.resolved && f.y>=735){ f.resolved=true; resolveGate(D,f); }
+      if(f.y>H+170) D.floaters.splice(i,1); continue; }
+    f.x+=f.vx*dt; f.life+=dt;   // default catch drift
     if(f.x<-140||f.x>W+140||f.life>f.maxLife) D.floaters.splice(i,1);
   }
 }
@@ -1522,8 +1621,14 @@ function updateDriveFloaters(dt){
    floater was caught (so the drive tap doesn't also start a steer). */
 function tryCatchFloaterAt(px,py){
   const D=drive; if(!D||!D.biome||!D.biome.interact||D.arriving) return false;   // hands off during the arrival hug (QA)
-  for(const f of D.floaters){ if(f.caught) continue;
-    const y=f.y+Math.sin(f.phase)*f.bobAmp, hit=Math.max(96,f.sz*0.62);
+  const mode=D.biome.interact.mode||'catch';
+  if(mode==='gap') return false;              // SKY is steer-only — a tap should steer, never "catch"
+  if(mode==='hop') return tryHopTap(D,px,py); // RIVERSIDE stepping-stone sequence
+  for(const f of D.floaters){ if(f.caught||f.flit) continue;
+    if(f.bloom){ if(f.popped) continue;
+      const x=roadCenterX(f.d)+f.side, y=820-(f.d-D.scrollY), hit=Math.max(112,f.sz*0.6);
+      if(Math.hypot(px-x,py-y)<hit){ popBloom(D,f); return true; } continue; }
+    const y=f.fall? f.y : f.y+Math.sin(f.phase)*f.bobAmp, hit=Math.max(96,f.sz*0.62);
     if(Math.hypot(px-f.x,py-y)<hit){ catchFloater(D,f); return true; }
   }
   return false;
@@ -3705,31 +3810,118 @@ function drawDriveItems(){
    sits under fireflies so they read as luminous in the twilight. */
 function drawDriveFloaters(){
   const D=drive; if(!D||!D.biome||!D.biome.interact) return;
-  const I=D.biome.interact; if(!has(I.key)) return;
-  const img=IMG[I.key].img;
+  const I=D.biome.interact, mode=I.mode||'catch';
+  const img=has(I.key)?IMG[I.key].img:null;
+  const emitImg=(I.emit&&has(I.emit))?IMG[I.emit].img:null;
+  if(D.rainbowT>0) drawDriveRainbow(D.rainbowT);      // SKY reward arc (behind)
+  if(mode==='hop'){ drawHop(D,img); return; }
   for(const f of D.floaters){
-    const by=f.y+Math.sin(f.phase)*f.bobAmp;
+    if(f.gate){ drawGate(D,f,img); continue; }
+    if(f.flit){ const a=Math.max(0,1-f.life/f.maxLife);
+      ctx.save(); ctx.globalAlpha=a; ctx.translate(f.x,f.y); ctx.rotate(Math.sin(f.phase*5)*0.22);
+      if(emitImg) ctx.drawImage(emitImg,-f.sz/2,-f.sz/2,f.sz,f.sz);
+      else { ctx.fillStyle='#C8A2F0'; ctx.beginPath(); ctx.ellipse(0,0,f.sz*0.28,f.sz*0.2,0,0,7); ctx.fill(); }
+      ctx.restore(); continue; }
+    if(f.bloom){ drawBloom(D,f,img); continue; }
+    // fall (acorn) + catch/jar (drifting creature)
+    const by=f.fall? f.y : f.y+Math.sin(f.phase)*f.bobAmp;
     let s=f.sz, a=1;
-    if(f.maxLife){ if(f.life<0.4) a=f.life/0.4; else if(f.life>f.maxLife-1) a=Math.max(0,(f.maxLife-f.life)); }  // soft fade in/out
+    if(!f.fall && f.maxLife<50){ if(f.life<0.4) a=f.life/0.4; else if(f.life>f.maxLife-1) a=Math.max(0,(f.maxLife-f.life)); }
+    if(f.fall && by<0) a=Math.max(0,1+by/70);   // fade in as it drops into frame
     if(f.caught){ const p=Math.min(1,f.popT/0.24); s=f.sz*(1+p*0.9); a=1-p; }
-    // wordless "tap me!" affordance (product + player advocate) — a soft pulsing ring expands out of each
-    // catchable creature so a non-reader's eye is drawn straight to it and the touch verb is legible.
-    if(!f.caught && a>0.6){
+    if(!f.caught && a>0.6){   // wordless "tap me!" pulsing ring
       const pr=((time*0.75)+f.phase*0.3)%1;
       ctx.save(); ctx.globalAlpha=a*0.32*(1-pr); ctx.lineWidth=5;
       ctx.strokeStyle=f.golden?'#FFD54A':I.cols[0];
       ctx.beginPath(); ctx.arc(f.x,by,s*0.48+pr*s*0.5,0,7); ctx.stroke(); ctx.restore();
     }
-    const sway=Math.sin(f.phase*0.8)*0.06 + (I.flutter?Math.sin(f.phase*5)*0.10:0);   // butterflies get a lively flutter-tilt
+    const sway=f.fall? (f.spin2||0) : Math.sin(f.phase*0.8)*0.06;
     ctx.save(); ctx.translate(f.x,by); ctx.globalAlpha=a; ctx.rotate(sway);
     if(I.key==='drive_firefly'||f.golden){ const c=f.golden?'255,213,74':'255,236,150';
       const gl=ctx.createRadialGradient(0,0,0,0,0,s*0.72);
       gl.addColorStop(0,'rgba('+c+','+((f.golden?0.5:0.55)*a)+')'); gl.addColorStop(1,'rgba('+c+',0)');
       ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(0,0,s*0.72,0,7); ctx.fill(); }
     if(f.flip) ctx.scale(-1,1);
-    ctx.drawImage(img,-s/2,-s/2,s,s);
+    if(img) ctx.drawImage(img,-s/2,-s/2,s,s);
     ctx.restore();
   }
+  if(mode==='jar') drawDriveJar(D);
+}
+/* MEADOW flower prop drawn anchored to its road depth (scrolls up with the road) */
+function drawBloom(D,f,img){
+  const x=roadCenterX(f.d)+f.side, y=820-(f.d-D.scrollY);
+  let s=f.sz, a=1;
+  if(f.popped){ const p=Math.min(1,f.popT/0.28); s=f.sz*(1-p*0.35); a=1-p*0.75; }
+  if(y<40) a*=Math.max(0.15,(y+120)/160);
+  // soft cream halo so the tappable bloom pops off the busy meadow instead of blending into it
+  if(a>0.3){ ctx.save(); ctx.globalAlpha=a*0.5; const hg=ctx.createRadialGradient(x,y,0,x,y,s*0.62);
+    hg.addColorStop(0,'rgba(255,252,244,0.9)'); hg.addColorStop(1,'rgba(255,252,244,0)');
+    ctx.fillStyle=hg; ctx.beginPath(); ctx.arc(x,y,s*0.62,0,7); ctx.fill(); ctx.restore(); }
+  if(!f.popped && a>0.4){ const pr=(time*0.7+f.phase*0.3)%1;
+    ctx.save(); ctx.globalAlpha=a*0.34*(1-pr); ctx.lineWidth=6; ctx.strokeStyle='#FF7DA3';
+    ctx.beginPath(); ctx.arc(x,y,s*0.42+pr*s*0.5,0,7); ctx.stroke(); ctx.restore(); }
+  ctx.save(); ctx.translate(x,y); ctx.globalAlpha=Math.max(0,a); ctx.rotate(Math.sin(f.phase*0.8)*0.05);
+  if(img) ctx.drawImage(img,-s/2,-s/2,s,s);
+  else { ctx.fillStyle='#FF9DB6'; for(let i=0;i<5;i++){ ctx.save(); ctx.rotate(i*2*Math.PI/5);
+    ctx.beginPath(); ctx.ellipse(0,-s*0.22,s*0.13,s*0.2,0,0,7); ctx.fill(); ctx.restore(); }
+    ctx.fillStyle='#FFE79A'; ctx.beginPath(); ctx.arc(0,0,s*0.14,0,7); ctx.fill(); }
+  ctx.restore();
+}
+/* SKY cloud-wall gate: two banks of puffs with a steer-through gap + a glowing down-chevron invite */
+function drawGate(D,f,img){
+  const half=f.gapW*0.5;
+  drawCloudBank(-40, f.gapX-half, f.y, img);
+  drawCloudBank(f.gapX+half, W+40, f.y, img);
+  const gp=(time*1.6)%1, ax=f.gapX, ay=f.y+18+gp*16;
+  ctx.save(); ctx.globalAlpha=0.5+0.32*Math.sin(time*4); ctx.strokeStyle='#8ECFEC'; ctx.lineWidth=9; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(ax-28,ay); ctx.lineTo(ax,ay+24); ctx.lineTo(ax+28,ay); ctx.stroke(); ctx.restore();
+}
+function drawCloudBank(x0,x1,y,img){
+  if(x1<=x0) return; const w=x1-x0, n=Math.max(1,Math.round(w/120));
+  for(let k=0;k<n;k++){ const cx=x0+(k+0.5)*(w/n), s=170+((k*53)%44);
+    if(img) ctx.drawImage(img,cx-s/2,y-s/2,s,s);
+    else { ctx.save(); ctx.fillStyle='#EAF4FF'; ctx.beginPath(); ctx.arc(cx,y,s*0.42,0,7); ctx.fill(); ctx.restore(); } }
+}
+/* RIVERSIDE stepping-stone row — next pad glows + a bobbing chevron; lit pads keep a gold spark */
+function drawHop(D,img){
+  const H2=D.hop; if(!H2) return;
+  for(let i=0;i<H2.pads.length;i++){ const p=H2.pads[i];
+    const x=roadCenterX(p.d)+p.off, y=820-(p.d-D.scrollY)+Math.sin(p.phase)*6;
+    if(y<-140||y>H+150) continue;
+    const isNext=(i===H2.next && !H2.done); let a=1; if(y<40) a*=Math.max(0.15,(y+120)/160);
+    if(isNext){ const pr=(time*0.9)%1;
+      ctx.save(); ctx.globalAlpha=a*0.42*(1-pr); ctx.lineWidth=6; ctx.strokeStyle='#8ECFEC';
+      ctx.beginPath(); ctx.arc(x,y,72+pr*58,0,7); ctx.stroke(); ctx.restore();
+      const bob=Math.sin(time*4)*8;
+      ctx.save(); ctx.globalAlpha=a; ctx.strokeStyle='#5FB985'; ctx.lineWidth=9; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(x-22,y-98-bob); ctx.lineTo(x,y-76-bob); ctx.lineTo(x+22,y-98-bob); ctx.stroke(); ctx.restore(); }
+    const s=126*(isNext?1.05+Math.sin(time*3)*0.03:1);
+    ctx.save(); ctx.translate(x,y); ctx.globalAlpha=a*(p.lit?1:0.85);
+    if(img) ctx.drawImage(img,-s/2,-s/2,s,s);
+    else { ctx.fillStyle=p.lit?'#7EC77E':'#9ED89E'; ctx.beginPath(); ctx.ellipse(0,0,s*0.4,s*0.28,0,0,7); ctx.fill(); }
+    ctx.restore();
+    if(p.lit){ ctx.save(); ctx.globalAlpha=a; glyphIcon('star',x,y-s*0.16,40,'#FFD15C','#E3A93E'); ctx.restore(); }
+  }
+}
+/* TWILIGHT firefly jar — a collect-goal meter that fills with caught fireflies (a light progression beat) */
+function drawDriveJar(D){
+  const goal=(D.biome.interact.goal||5), cnt=D.jarCount||0, jw=118, jh=150, pop=1+(D.jarPop||0)*0.09;
+  ctx.save(); ctx.translate(JAR_POS.x,JAR_POS.y); ctx.scale(pop,pop);
+  shadow(16,'rgba(60,40,20,0.20)',0,8);
+  ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.strokeStyle='#8a7a5a'; ctx.lineWidth=6; rr(-jw/2,-jh/2,jw,jh,26); ctx.fill(); noShadow(); ctx.stroke();
+  ctx.fillStyle='#C79A5B'; rr(-jw/2-7,-jh/2-22,jw+14,26,10); ctx.fill(); ctx.stroke();
+  for(let i=0;i<goal;i++){ const on=i<cnt, row=Math.floor(i/2), col=i%2, dx=(col?24:-24), dy=jh/2-26-row*34;
+    if(on){ const gl=ctx.createRadialGradient(dx,dy,0,dx,dy,22); gl.addColorStop(0,'rgba(255,236,150,0.7)'); gl.addColorStop(1,'rgba(255,236,150,0)');
+      ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(dx,dy,22,0,7); ctx.fill(); }
+    ctx.globalAlpha=on?1:0.20; ctx.fillStyle=on?'#FFE9A8':'#cfc3a6'; ctx.beginPath(); ctx.arc(dx,dy,13,0,7); ctx.fill(); ctx.globalAlpha=1; }
+  ctx.restore();
+}
+/* SKY clean-pass reward — a soft pastel rainbow arc blooms overhead */
+function drawDriveRainbow(t){
+  const bands=['#FF9DB6','#FFD15C','#98D7B4','#8ECFEC','#B79BEA'], cx=960, cy=560, r0=360;
+  ctx.save(); ctx.globalAlpha=Math.min(1,t)*0.5; ctx.lineWidth=24; ctx.lineCap='round';
+  for(let i=0;i<bands.length;i++){ ctx.strokeStyle=bands[i]; ctx.beginPath(); ctx.arc(cx,cy,r0+i*24,Math.PI,2*Math.PI); ctx.stroke(); }
+  ctx.restore();
 }
 /* Roadside dressing (flowers/mushrooms/a signpost/a butterfly) — purely decorative, drawn outside the
    drivable lane so it can never block or "hurt" the truck. Keeps the shoulders alive between pickups. */
@@ -4093,13 +4285,25 @@ window.__t = {
     return { progress:driveProgress(), truckX:drive.truck.x, scrollY:drive.scrollY, arriving:drive.arriving,
       itemsLeft:total-caught, itemsTotal:total, caught, total,
       fullRun:drive.fullRun!=null?drive.fullRun:(total>0 && caught>=Math.max(1,Math.ceil(total*0.9))) }; },
-  /* ---- biome finger-toy (P1 9-10 lever) verification hooks ---- */
+  /* ---- per-biome DRIVE verb (9-10 lever) verification hooks ---- */
+  get driveVerb(){ return drive&&drive.biome&&drive.biome.interact?(drive.biome.interact.mode||'catch'):null; },
   get driveFloaters(){ if(!drive) return null;
-    return { kind:drive.biome&&drive.biome.interact?drive.biome.interact.key:null, caught:drive.floatersCaught||0,
-      live:drive.floaters.filter(f=>!f.caught).map(f=>({x:Math.round(f.x),y:Math.round(f.y+Math.sin(f.phase)*f.bobAmp)})) }; },
-  /* tap the nearest live floater exactly as a finger would (drive scene must be active) */
-  tapFloater(){ if(!drive) return false; const f=drive.floaters.find(f=>!f.caught); if(!f) return false;
-    return tryCatchFloaterAt(f.x, f.y+Math.sin(f.phase)*f.bobAmp); },
+    return { mode:this.driveVerb, key:drive.biome&&drive.biome.interact?drive.biome.interact.key:null,
+      caught:drive.floatersCaught||0, jarCount:drive.jarCount||0, jarFull:drive.jarFull||0,
+      hopNext:drive.hop?drive.hop.next:null, hopPads:drive.hop?drive.hop.pads.length:null,
+      live:drive.floaters.filter(f=>!f.caught&&!f.flit&&!f.popped).length,
+      gates:drive.floaters.filter(f=>f.gate&&!f.resolved).length }; },
+  /* fire the current biome's verb once, exactly as a finger would — returns true if it rewarded */
+  driveVerbOnce(){ if(!drive) return false; const mode=this.driveVerb;
+    if(mode==='hop'){ const H=drive.hop; if(!H||H.done) return false; const p=H.pads[H.next]; if(!p) return false;
+      return tryHopTap(drive, roadCenterX(p.d)+p.off, 820-(p.d-drive.scrollY)+Math.sin(p.phase)*6); }
+    if(mode==='gap'){ const g=drive.floaters.find(f=>f.gate&&!f.resolved); if(!g) return false;
+      drive.truck.x=g.gapX; g.y=735; g.resolved=true; resolveGate(drive,g); return true; }
+    if(mode==='bloom'){ const f=drive.floaters.find(f=>f.bloom&&!f.popped); if(!f) return false;
+      return tryCatchFloaterAt(roadCenterX(f.d)+f.side, 820-(f.d-drive.scrollY)); }
+    const f=drive.floaters.find(f=>!f.caught&&!f.flit); if(!f) return false;
+    return tryCatchFloaterAt(f.x, f.fall?f.y:f.y+Math.sin(f.phase)*f.bobAmp); },
+  tapFloater(){ return this.driveVerbOnce(); },   // back-comat alias
   /* one of: 'none' | 'decel' | 'peekyRun' | 'hug' | 'fadeOut' — for QA to assert the in-scene arrival beat actually plays */
   get arrivalPhase(){
     if(!drive || !drive.arriving) return 'none';
