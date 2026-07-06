@@ -523,6 +523,13 @@ ASSET_SRC['house_heart']='assets/house-heart.png';
 ASSET_SRC['house_moon']='assets/house-moon.png';
 ASSET_SRC['house_drop']='assets/house-drop.png';
 ASSET_SRC['house_cloud']='assets/house-cloud.png';
+/* Shop-as-a-prop art (creative 9-10 lever) — the flat white cards become tactile in-world objects:
+   each upgrade/cosmetic is an illustrated parcel/wood tag resting on a wooden shop shelf, under a
+   hanging wood sign board — so the shop reads as part of Poppu's mail room, not a settings menu. */
+ASSET_SRC['shop_tag_kraft']='assets/shop-tag-kraft.png';
+ASSET_SRC['shop_tag_wood']='assets/shop-tag-wood.png';
+ASSET_SRC['shop_shelf']='assets/shop-shelf.png';
+ASSET_SRC['shop_banner']='assets/shop-counter-banner.png';
 /* Cosmetic shop IN-CONTEXT preview art — each is a small composed scene (hat ON a mini Poppu,
    skin ON a mini mailbox/conveyor swatch, decor in a room corner), not a floating icon. Falls back
    to the existing procedural in-context placeholder (drawCosmeticCard) until real art lands. */
@@ -3150,71 +3157,86 @@ function drawShop(){
       : (cx,cy)=>{ if(!sprite('cos-hat-crown',cx,cy,64,64)) drawPoppuHat(cx,cy,74,'hat_crown'); };
     pill(t,on?'#FFF3D6':'#fffdf6',on?'#F4A93E':'#e3d3b4',on?7:4, iconFn,'#6a4a2a'); }
   if(shopTab==='upgrade'){
-    // warm 'shop counter' tray behind the row so the cards sit IN the mail-room, not floating on beige
-    const cs=upgradeCards();
-    if(cs.length){ const first=cs[0], last=cs[cs.length-1];
-      const px=first.x-40, pw=(last.x+last.w)-first.x+80, py=first.y-70, ph=first.h+140;
-      ctx.save(); shadow(24,'rgba(90,60,30,0.18)',0,10); ctx.fillStyle='rgba(255,244,225,0.80)';
-      rr(px,py,pw,ph,40); ctx.fill(); noShadow();
-      ctx.lineWidth=6; ctx.strokeStyle='rgba(201,122,78,0.35)'; rr(px,py,pw,ph,40); ctx.stroke(); ctx.restore(); }
+    drawShopShelf(upgradeCards());               // real wooden shop shelf the tag-cards rest on
     for(const c of upgradeCards()) drawUpgradeCard(c);
   }
   else { for(const r of shopCatRects()){ const on=shopCat===r.c;
       pill(r,on?'#EDE2FF':'#fffdf6',on?'#B79BEA':'#e3d3b4',on?6:4,(cx,cy)=>drawCategoryThumb(r.c,cx,cy,r.h*0.42),'#6a4a2a'); }
+    drawShopShelf(cosmeticCards());
     for(const c of cosmeticCards()) drawCosmeticCard(c); }
   backButton();
   drawFloatTexts();
 }
+/* ---- Shop-as-a-prop: draw each card as a real illustrated tag on a wooden shelf --------------------
+   The tags carry a blank cream inner panel; we composite the icon/preview + cost badge onto that panel
+   so the shop reads as tactile objects in Poppu's mail room, not flat menu rectangles. */
+const SHOP_TAG_PANEL={ shop_tag_kraft:{fx:0.525,fy:0.66,fw:0.45,fh:0.46}, shop_tag_wood:{fx:0.50,fy:0.555,fw:0.44,fh:0.54} };
+function drawShopShelf(cards){
+  if(!cards.length) return; const first=cards[0], last=cards[cards.length-1];
+  const rowCx=(first.x+last.x+last.w)/2, rowBottom=first.y+first.h;
+  if(has('shop_shelf')){
+    const sw=Math.min(W-40,(last.x+last.w)-first.x+150), sh=sw*(360/1600);
+    ctx.save(); shadow(20,'rgba(90,60,30,0.22)',0,12); sprite('shop_shelf',rowCx,rowBottom+sh*0.16,sw,sh); noShadow(); ctx.restore();
+  } else {
+    const px=first.x-40, pw=(last.x+last.w)-first.x+80, py=first.y-70, ph=first.h+140;
+    ctx.save(); shadow(24,'rgba(90,60,30,0.18)',0,10); ctx.fillStyle='rgba(255,244,225,0.80)';
+    rr(px,py,pw,ph,40); ctx.fill(); noShadow(); ctx.lineWidth=6; ctx.strokeStyle='rgba(201,122,78,0.35)'; rr(px,py,pw,ph,40); ctx.stroke(); ctx.restore();
+  }
+}
+/* draws the tag prop filling card c (loop poking above); returns the cream inner-panel geometry */
+function drawShopTag(c,key,ownedTint){
+  const cx=c.x+c.w/2, TS=c.h*1.30, tagCY=c.y+0.34*TS;
+  if(has(key)){
+    // owned/equipped state reads via a soft colored glow behind the tag (clean, no full-canvas tint bleed)
+    if(ownedTint){ ctx.save(); ctx.globalAlpha=0.5; const gg=ctx.createRadialGradient(cx,tagCY,TS*0.2,cx,tagCY,TS*0.52);
+      gg.addColorStop(0,ownedTint); gg.addColorStop(1,'rgba(255,255,255,0)'); ctx.fillStyle=gg;
+      ctx.beginPath(); ctx.arc(cx,tagCY,TS*0.52,0,7); ctx.fill(); ctx.restore(); }
+    ctx.save(); shadow(16,'rgba(90,60,30,0.20)',0,9);
+    ctx.drawImage(IMG[key].img,cx-TS/2,tagCY-TS/2,TS,TS); noShadow(); ctx.restore(); }
+  else { ctx.save(); shadow(16,'rgba(0,0,0,0.14)',0,8); ctx.fillStyle=ownedTint?'#EAF7EE':'#fffdf6'; rr(c.x,c.y,c.w,c.h,28); ctx.fill(); noShadow();
+    ctx.lineWidth=6; ctx.strokeStyle=ownedTint||'#e3d3b4'; rr(c.x,c.y,c.w,c.h,28); ctx.stroke(); ctx.restore(); }
+  const P=SHOP_TAG_PANEL[key]||SHOP_TAG_PANEL.shop_tag_kraft;
+  return { cx, px:cx+(P.fx-0.5)*TS, py:tagCY+(P.fy-0.5)*TS, pw:P.fw*TS, ph:P.fh*TS };
+}
 function drawUpgradeCard(c){
   const u=c.u, owned=hasUp(u.id), afford=(SAVE.stamps||0)>=u.cost;
-  ctx.save(); shadow(16,'rgba(0,0,0,0.14)',0,8); ctx.fillStyle=owned?'#EAF7EE':'#fffdf6'; rr(c.x,c.y,c.w,c.h,28); ctx.fill(); noShadow();
-  ctx.lineWidth=6; ctx.strokeStyle=owned?'#5FB985':'#e3d3b4'; rr(c.x,c.y,c.w,c.h,28); ctx.stroke();
-  const cx=c.x+c.w/2;
-  // wordless (P0): NAME + DESC text dropped — the icon IS the identity now, so its circle grows
-  // (r54->80) to fill the freed vertical space instead of sitting small above two lines of copy.
-  const iconCy=c.y+130, iconR=80;
-  ctx.save(); ctx.fillStyle=u.id==='doubleStamps'?'#FFF3D6':'#F3F7FF'; ctx.beginPath(); ctx.arc(cx,iconCy,iconR,0,7); ctx.fill();
-  if(!glyphIcon(u.icon,cx,iconCy,iconR*1.35,'#F4A93E','#E3A93E') && u.icon==='x2') drawText('2×',cx,iconCy,78,'#E3A93E',null); ctx.restore();
-  const bw=c.w-70,bh=56,bx=cx-bw/2,by=c.y+c.h-72;
-  if(owned){   // wordless: solid ic-check on a filled pill replaces the "✓ Owned" text
-    ctx.save(); ctx.fillStyle='#5FB985'; rr(bx,by,bw,bh,bh/2); ctx.fill();
-    glyphIcon('check',cx,by+bh/2,44,'#fff','#3a6a4a'); ctx.restore(); }
-  else {
-    ctx.save(); ctx.fillStyle=afford?'#FFD15C':'#e6ddca'; rr(bx,by,bw,bh,bh/2); ctx.fill();
-    glyphIcon('star',bx+40,by+bh/2,40,'#fff','#E3A93E'); drawText(u.cost+'',bx+bw/2+14,by+bh/2,34,afford?'#6a4a2a':'#b8a684',null); ctx.restore(); }
+  const F=drawShopTag(c,'shop_tag_kraft', owned?'#5FB985':null);
+  const iconCy=F.py-F.ph*0.13, iconSize=F.pw*0.86;
+  ctx.save();
+  if(!glyphIcon(u.icon,F.cx,iconCy,iconSize,'#F4A93E','#E3A93E') && u.icon==='x2') drawText('2×',F.cx,iconCy,iconSize*0.9,'#E3A93E',null);
   ctx.restore();
+  const bw=Math.min(c.w-150,F.pw*0.98),bh=48,bx=F.cx-bw/2,by=F.py+F.ph*0.24;
+  if(owned){ ctx.save(); shadow(8,'rgba(0,0,0,0.12)',0,3); ctx.fillStyle='#5FB985'; rr(bx,by,bw,bh,bh/2); ctx.fill(); noShadow();
+    glyphIcon('check',F.cx,by+bh/2,40,'#fff','#3a6a4a'); ctx.restore(); }
+  else { ctx.save(); shadow(8,'rgba(0,0,0,0.12)',0,3); ctx.fillStyle=afford?'#FFD15C':'#e6ddca'; rr(bx,by,bw,bh,bh/2); ctx.fill(); noShadow();
+    glyphIcon('star',bx+34,by+bh/2,34,'#fff','#E3A93E'); drawText(u.cost+'',bx+bw/2+12,by+bh/2,32,afford?'#6a4a2a':'#b8a684',null); ctx.restore(); }
 }
 function drawCosmeticCard(c){
   const it=c.c, owned=owns(it.id), on=equipped(it.cat)===it.id, afford=(SAVE.stamps||0)>=it.cost;
-  ctx.save(); shadow(16,'rgba(0,0,0,0.14)',0,8); ctx.fillStyle=on?'#EDE2FF':(owned?'#EAF7EE':'#fffdf6'); rr(c.x,c.y,c.w,c.h,28); ctx.fill(); noShadow();
-  ctx.lineWidth=6; ctx.strokeStyle=on?'#B79BEA':(owned?'#5FB985':'#e3d3b4'); rr(c.x,c.y,c.w,c.h,28); ctx.stroke();
-  const cx=c.x+c.w/2, py=c.y+96;
+  const F=drawShopTag(c,'shop_tag_wood', on?'#B79BEA':(owned?'#5FB985':null));
+  const cx=F.cx, py=F.py-F.ph*0.06, pr=Math.min(70,F.pw*0.46);
   const spriteKey='cos-'+it.id.replace(/_/g,'-');
-  ctx.save(); ctx.beginPath(); ctx.arc(cx,py,66,0,7); ctx.fillStyle='#F7F1E4'; ctx.fill(); ctx.clip();
+  ctx.save(); ctx.beginPath(); ctx.arc(cx,py,pr,0,7); ctx.fillStyle='#F7F1E4'; ctx.fill(); ctx.clip();
   if(has(spriteKey)){
-    // real IN-CONTEXT preview art has landed (a small composed scene: hat ON a mini Poppu, skin ON a
-    // mini mailbox/conveyor, decor in a room corner) — just draw it, no procedural fallback needed.
-    sprite(spriteKey,cx,py,150,150);
-  } else if(it.cat==='hat'){ drawMiniPoppuHead(cx,py+16,110); drawPoppuHat(cx,py-4,120,it.id); }
-  else if(it.cat==='mailbox'){ const fake={x:cx,y:py,w:120,type:TYPES[3]}; mailboxSkinRing(fake,it.id); ph_mailbox(TYPES[3],cx,py,90,0); }
-  else if(it.cat==='conveyor'){ ph_conveyor(cx,py,150,40); conveyorSkinOverlay(cx,py,150,40,it.id); }
+    // real IN-CONTEXT preview art (hat ON a mini Poppu, skin ON a mini mailbox/conveyor, decor in a corner)
+    sprite(spriteKey,cx,py,pr*2.3,pr*2.3);
+  } else if(it.cat==='hat'){ drawMiniPoppuHead(cx,py+16,pr*1.6); drawPoppuHat(cx,py-4,pr*1.8,it.id); }
+  else if(it.cat==='mailbox'){ const fake={x:cx,y:py,w:pr*1.8,type:TYPES[3]}; mailboxSkinRing(fake,it.id); ph_mailbox(TYPES[3],cx,py,pr*1.35,0); }
+  else if(it.cat==='conveyor'){ ph_conveyor(cx,py,pr*2.3,40); conveyorSkinOverlay(cx,py,pr*2.3,40,it.id); }
   else { drawRoomCorner(cx,py);
-    if(it.id==='dec_plant') drawIcon('cloud',cx,py,90,'#5FB985','#3a6a4a');
+    if(it.id==='dec_plant') drawIcon('cloud',cx,py,pr*1.35,'#5FB985','#3a6a4a');
     else if(it.id==='dec_poster'){ ctx.fillStyle='#fffdf6'; rr(cx-30,py-42,60,84,8); ctx.fill(); drawIcon('heart',cx,py,50,'#FF9DB6','#F06A8E'); }
     else { ctx.fillStyle='#E39B6E'; ctx.beginPath(); ctx.ellipse(cx,py,60,26,0,0,7); ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=6; ctx.stroke(); } }
   ctx.restore();
-  ctx.lineWidth=5; ctx.strokeStyle='#e3d3b4'; ctx.beginPath(); ctx.arc(cx,py,66,0,7); ctx.stroke();
-  // wordless (P0): NAME text dropped — the preview art above IS the identity now
-  const bw=c.w-70,bh=54,bx=cx-bw/2,by=c.y+c.h-70;
-  // wordless (P2): ic-check 3-state CTA replaces "✓ Wearing"/"Wear it" text —
-  // solid+full-opacity = Owned & Wearing, 60%-opacity outline = Wear-it CTA (still owned, tap to equip)
-  if(on){ ctx.save(); ctx.fillStyle='#8E6FD6'; rr(bx,by,bw,bh,bh/2); ctx.fill();
-    glyphIcon('check',cx,by+bh/2,42,'#fff','#5a3d24'); ctx.restore(); }
+  ctx.lineWidth=5; ctx.strokeStyle='#d9c4a0'; ctx.beginPath(); ctx.arc(cx,py,pr,0,7); ctx.stroke();
+  const bw=Math.min(c.w-150,F.pw*0.98),bh=48,bx=cx-bw/2,by=F.py+F.ph*0.30;
+  // wordless CTA: solid = Owned&Wearing, faint outline = Wear-it (owned), star+cost = buy
+  if(on){ ctx.save(); shadow(8,'rgba(0,0,0,0.12)',0,3); ctx.fillStyle='#8E6FD6'; rr(bx,by,bw,bh,bh/2); ctx.fill(); noShadow();
+    glyphIcon('check',cx,by+bh/2,40,'#fff','#5a3d24'); ctx.restore(); }
   else if(owned){ ctx.save(); ctx.fillStyle='#C9E8D4'; rr(bx,by,bw,bh,bh/2); ctx.fill();
-    ctx.globalAlpha=0.6; glyphIcon('check',cx,by+bh/2,38,'#3a6a4a','#3a6a4a'); ctx.restore(); }
-  else { ctx.save(); ctx.fillStyle=afford?'#FFD15C':'#e6ddca'; rr(bx,by,bw,bh,bh/2); ctx.fill();
-    glyphIcon('star',bx+36,by+bh/2,38,'#fff','#E3A93E'); drawText(it.cost+'',bx+bw/2+12,by+bh/2,32,afford?'#6a4a2a':'#b8a684',null); ctx.restore(); }
-  ctx.restore();
+    ctx.globalAlpha=0.6; glyphIcon('check',cx,by+bh/2,36,'#3a6a4a','#3a6a4a'); ctx.restore(); }
+  else { ctx.save(); shadow(8,'rgba(0,0,0,0.12)',0,3); ctx.fillStyle=afford?'#FFD15C':'#e6ddca'; rr(bx,by,bw,bh,bh/2); ctx.fill(); noShadow();
+    glyphIcon('star',bx+34,by+bh/2,34,'#fff','#E3A93E'); drawText(it.cost+'',bx+bw/2+12,by+bh/2,32,afford?'#6a4a2a':'#b8a684',null); ctx.restore(); }
 }
 function wrapText(txt,cx,y,maxw,size,col){
   ctx.save(); ctx.font='700 '+size+'px "Baloo 2",system-ui,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle=col;
