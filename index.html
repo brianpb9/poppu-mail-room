@@ -862,6 +862,9 @@ function drawPoppuSprite(key,x,y,size,idle){
 function poppuHit(px,py){
   if(state==='PLAYING'){ return Math.abs(px-250)<150 && Math.abs(py-812)<180; }
   if(state==='START'){ return Math.abs(px-300)<170 && Math.abs(py-760)<230; }
+  // parent-gate honesty: the dashboard promises "hold Poppu any time" — Poppu is most visible in TOWN,
+  // so the 3s long-press must reach her here too (was previously PLAYING/START only).
+  if(state==='TOWN'){ const pp=poppuTownPos(); return Math.abs(px-pp.x)<160 && Math.abs(py-pp.y)<210; }
   return false;
 }
 function drawFaceCircle(type,cx,cy,r){
@@ -2655,6 +2658,7 @@ function onDown(cx,cy){
   if(state==='TOWN'){
     if(townTransition) return;   // brief, non-interruptible zoom-push already in flight
     if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ leaveTown(); return; }
+    if(poppuHit(p.x,p.y)) startLongPress(p.x,p.y);   // 3s hold on Poppu -> parent gate (mirrors START/PLAYING; honors the dashboard promise)
     for(const id in TOWN_BUILDINGS){ if(inRect(p.x,p.y,TOWN_BUILDINGS[id].hit)){ handleBuildingTap(id); return; } }
     return;
   }
@@ -2763,11 +2767,20 @@ function buyOrEquip(c){
   else Audio_.boop();
 }
 
-canvas.addEventListener('pointerdown',e=>{ e.preventDefault(); try{canvas.setPointerCapture(e.pointerId);}catch(_){} onDown(e.clientX,e.clientY); },{passive:false});
-canvas.addEventListener('pointermove',e=>{ e.preventDefault(); onMove(e.clientX,e.clientY); },{passive:false});
-canvas.addEventListener('pointerup',e=>{ e.preventDefault(); onUp(e.clientX,e.clientY); },{passive:false});
-canvas.addEventListener('pointercancel',e=>{ if(dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } sealSwipe=null; wrapRibbonSwipe=null; friendDragItem=null; if(drive) drive.dragActiveX=null; cancelLongPress(); });
-window.addEventListener('blur',()=>{ if(dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } sealSwipe=null; wrapRibbonSwipe=null; friendDragItem=null; if(drive) drive.dragActiveX=null; cancelLongPress(); });
+/* single-pointer ownership: the FIRST finger down owns the interaction; a second finger touching a
+   different package (or anywhere) is ignored until the first lifts — so a 2-finger touch can no longer
+   force the first drag to snap back / hand control to the wrong package (QA: pointerId mis-resolve).
+   Cleared on up/cancel/blur so it can never wedge. __t hooks call onDown/Move/Up directly, unaffected. */
+let activePointerId=null;
+canvas.addEventListener('pointerdown',e=>{ e.preventDefault();
+  if(activePointerId!==null && e.pointerId!==activePointerId) return;
+  activePointerId=e.pointerId; try{canvas.setPointerCapture(e.pointerId);}catch(_){} onDown(e.clientX,e.clientY); },{passive:false});
+canvas.addEventListener('pointermove',e=>{ e.preventDefault();
+  if(activePointerId!==null && e.pointerId!==activePointerId) return; onMove(e.clientX,e.clientY); },{passive:false});
+canvas.addEventListener('pointerup',e=>{ e.preventDefault();
+  if(activePointerId!==null && e.pointerId!==activePointerId) return; activePointerId=null; onUp(e.clientX,e.clientY); },{passive:false});
+canvas.addEventListener('pointercancel',e=>{ if(e&&e.pointerId===activePointerId) activePointerId=null; if(dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } sealSwipe=null; wrapRibbonSwipe=null; friendDragItem=null; if(drive) drive.dragActiveX=null; cancelLongPress(); });
+window.addEventListener('blur',()=>{ activePointerId=null; if(dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } sealSwipe=null; wrapRibbonSwipe=null; friendDragItem=null; if(drive) drive.dragActiveX=null; cancelLongPress(); });
 document.addEventListener('visibilitychange',()=>{ if(document.hidden && dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } });
 window.addEventListener('touchmove',e=>{ e.preventDefault(); },{passive:false});
 let lastShake=0;
@@ -3528,14 +3541,18 @@ function drawSticker(){
   // wordless (P0): "N blooms grown" -> a flower icon + the bare numeral (no words).
   flowerGlyph(W/2-30,190,48); drawText(''+SAVE.stickers.length,W/2+30,190,40,'#a88a5c',null,'left','800');
   const cols=8, rows=4, total=cols*rows, cw=180, ch=180, gx=(W-cols*cw)/2, gy=260;
-  for(let i=0;i<total;i++){ const cx=gx+(i%cols)*cw+cw/2, cy=gy+Math.floor(i/cols)*ch+ch/2, earned=i<SAVE.stickers.length;
+  // sliding window: once the garden fills past 32, always show the MOST-RECENT 32 so a new bloom never
+  // runs out of a slot (QA: grid used to freeze full at 32 and silently drop every later bloom). The
+  // true lifetime count still reads above; the grid just slides to keep the newest bloom visible.
+  const base=Math.max(0, SAVE.stickers.length-total);
+  for(let i=0;i<total;i++){ const dataIdx=base+i, cx=gx+(i%cols)*cw+cw/2, cy=gy+Math.floor(i/cols)*ch+ch/2, earned=dataIdx<SAVE.stickers.length;
     ctx.save();
     if(has('ui_sticker')){ ctx.save(); if(!earned) ctx.globalAlpha=0.55; ctx.drawImage(IMG.ui_sticker.img,cx-80,cy-80,160,160); ctx.restore(); }
     else { ctx.fillStyle=earned?'rgba(0,0,0,0.05)':'rgba(255,201,138,0.16)'; ctx.strokeStyle=earned?'#d9c3a0':'#F0B87E'; ctx.lineWidth=4; ctx.setLineDash([12,10]); rr(cx-70,cy-70,140,140,20); ctx.fill(); ctx.stroke(); ctx.setLineDash([]); }
     if(earned){
       const bob=Math.sin(time*2+i)*3, key=gardenSlotFlower(i);
       if(has(key)) ctx.drawImage(IMG[key].img,cx-58,cy-58+bob,116,116);
-      else { const type=T[SAVE.stickers[i]]||TYPES[i%6]; if(has('pkg_'+type.id)) ctx.drawImage(IMG['pkg_'+type.id].img,cx-58,cy-58+bob,116,116); else ph_face(type,cx,cy,110); }
+      else { const type=T[SAVE.stickers[dataIdx]]||TYPES[i%6]; if(has('pkg_'+type.id)) ctx.drawImage(IMG['pkg_'+type.id].img,cx-58,cy-58+bob,116,116); else ph_face(type,cx,cy,110); }
     } else {
       // not-yet-grown: a warm, lush "waiting to bloom" bud — same wordless "keep going" language as
       // locked buildings, but alive: a soft cream/peach glow, a slow bob, and a staggered twinkle so
