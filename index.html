@@ -865,7 +865,7 @@ const TOWN_BUILDINGS = {
            hit:{x:1490,y:0,  w:220,h:220} },
   cloud: { id:'cloud', key:'house_cloud', cx:1277, groundY:540, w:160, h:230, bobAmp:4, bobPeriod:3.0, bobPhase:2.6,
            hit:{x:1280,y:300,w:135,h:360} },
-  drop:  { id:'drop',  key:'house_drop',  cx:1080, groundY:300, w:220, h:200, bobAmp:5, bobPeriod:3.1, bobPhase:2.0,
+  drop:  { id:'drop',  key:'house_drop',  cx:1080, groundY:314, w:220, h:200, bobAmp:5, bobPeriod:3.1, bobPhase:2.0,
            hit:{x:960, y:70, w:240,h:250} },
   heart: { id:'heart', key:'house_heart', cx:730,  groundY:650, w:150, h:250, bobAmp:4, bobPeriod:2.9, bobPhase:1.1,
            hit:{x:665, y:400,w:160,h:420} },
@@ -2527,7 +2527,7 @@ function drawPlaying(){
   const pj=poppuCelebrateT>0?-Math.abs(Math.sin(time*12))*18:0;
   const ppx=250, ppy=812+pj;
   if(!drawPoppuSprite(poppuKey,ppx,ppy,380,poppuCelebrateT<=0)) ph_poppu(poppuCelebrateT>0?'celebrate':'wave',ppx,ppy-10,250);
-  drawPoppuHat(ppx,ppy-150,150,equipped('hat'));
+  drawPoppuHat(ppx,ppy-95,190,equipped('hat'));
   packages.filter(p=>p.state!=='dragging'&&p.state!=='delivering').forEach(drawPackage);
   packages.filter(p=>p.state==='delivering').forEach(drawPackage);
   if(dragging) drawPackage(dragging);
@@ -2544,7 +2544,7 @@ function drawStart(){
   drawAmbient(); drawDecor(equipped('decor'));
   const ppx=300, ppy=760;
   if(!drawPoppuSprite('poppu_wave',ppx,ppy,500,true)) ph_poppu('wave',ppx,ppy-40,300);
-  drawPoppuHat(ppx,ppy-200,200,equipped('hat'));
+  drawPoppuHat(ppx,ppy-110,250,equipped('hat'));
   const tx=W/2, ty=170;
   const g=ctx.createLinearGradient(0,ty-64,0,ty+64); g.addColorStop(0,'#FFE79A'); g.addColorStop(1,'#F4A93E');
   drawText("Poppu's Mail Room",tx,ty,112,g,'#5a3d24','center','800',24);
@@ -2692,8 +2692,11 @@ function drawLevelDone(){
   // button at y760); stamps pill kept where it was and now drawn AFTER Poppu so it still reads as a
   // badge on her chest, but the two never overlap the button row (y760..870) ----
   if(has('poppu_celebrate')) sprite('poppu_celebrate',W/2,560,220,220); else ph_poppu('celebrate',W/2,510,130);
-  ctx.save(); shadow(14,'rgba(0,0,0,0.14)',0,6); ctx.fillStyle='#fffdf6'; rr(W/2-170,520,340,80,40); ctx.fill(); noShadow();
-  glyphIcon('star',W/2-110,560,54,'#FFD15C','#E3A93E'); drawText('+'+ds.stamps+' Stamps',W/2+30,560,40,'#6a4a2a',null); ctx.restore();
+  drawPoppuHat(W/2,514,110,equipped('hat'));
+  // stamps pill lives in its OWN clear band below Poppu (~680-750) and above the button row (760+) —
+  // never over her face/body, no matter her sprite height or an equipped hat riding above her.
+  ctx.save(); shadow(14,'rgba(0,0,0,0.14)',0,6); ctx.fillStyle='#fffdf6'; rr(W/2-170,682,340,68,34); ctx.fill(); noShadow();
+  glyphIcon('star',W/2-110,716,48,'#FFD15C','#E3A93E'); drawText('+'+ds.stamps+' Stamps',W/2+30,716,38,'#6a4a2a',null); ctx.restore();
   for(const b of doneBtns()){
     if(b.id==='next' && currentLevel>=LEVELS.length){ pill(b,'#E9DEC9','#cbbd9c',5,'✓ All done!','#8a7a5a'); continue; }
     const col=b.id==='replay'?'#8ECFEC':b.id==='next'?'#5FB985':'#B79BEA';
@@ -2906,15 +2909,22 @@ function drawTownBuilding(b){
   }
   ctx.restore();
   if(SAVE.newBadge[b.id]){
-    // corner-of-the-roof placement (not the shoulder/door) so the badge never covers the house's own
-    // identity art; ~48% of its old footprint so it reads as a tag, not a sticker over the building.
-    const bx=Math.round(b.cx+b.w*0.34), by=Math.round(groundY-b.h*0.94);
+    // corner-of-the-roof placement (tucked onto the roofline itself, not floating in the sky above it)
+    // so the badge never covers the house's own identity art; genuinely small (~80px) so it reads as a
+    // tag, not a sticker over the building. Defaults to the roof's RIGHT corner; if that would land in
+    // the top-right star-HUD pill's safe zone (e.g. a building placed high/right on the hillside), it
+    // mirrors to the LEFT roof corner instead — still roof-pinned, just never under the HUD.
+    const roofY=Math.round(groundY-b.h*0.90);
+    const HUD_SAFE_X=W-300, HUD_SAFE_Y=170;
+    let bx=Math.round(b.cx+b.w*0.32);
+    if(bx>HUD_SAFE_X && roofY<HUD_SAFE_Y) bx=Math.round(b.cx-b.w*0.32);
+    const by=roofY;
     const wiggleT=newBadgeAnimState[b.id]?newBadgeAnimState[b.id].t:null;
     // one-shot ~500ms elastic "look at me!" wiggle the first time this badge is shown this session
     const wiggle=wiggleT!=null?1+0.10*Math.sin((wiggleT/0.5)*Math.PI*2.2)*(1-wiggleT/0.5):1;
     // continuous gentle pulse (1.0→1.08, 1.2s loop) for as long as the badge is unclaimed
     const pulse=1.04+0.04*Math.sin(time*2*Math.PI/1.2);
-    const bs=85*wiggle;
+    const bs=80*wiggle;
     groundShadow(bx,by+bs*0.42,40,12,0.14);
     ctx.save(); ctx.translate(bx,by); ctx.scale(pulse,pulse);
     const cache=newBadgeCanvas();
