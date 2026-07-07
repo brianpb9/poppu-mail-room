@@ -530,7 +530,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260707-2';
+const BUILD='20260707-3';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1075,9 +1075,9 @@ const TOWN_BUILDINGS = {
   heart: { id:'heart', key:'house_heart', cx:735,  groundY:672, w:150, h:250, bobAmp:0, bobPeriod:2.9, bobPhase:1.1 },
   wrap:  { id:'wrap',  key:'wrap_shop',   cx:980,  groundY:748, w:420, h:440, bobAmp:0, bobPeriod:3.0, bobPhase:1.0 },
   peeky: { id:'peeky', key:'house_peeky', cx:1560, groundY:606, w:330, h:350, bobAmp:0, bobPeriod:2.8, bobPhase:2.0 },
-  drop:  { id:'drop',  key:'house_drop',  cx:1215, groundY:846, w:236, h:214, bobAmp:0, bobPeriod:3.1, bobPhase:2.0 },
-  cloud: { id:'cloud', key:'house_cloud', cx:1470, groundY:892, w:196, h:274, bobAmp:0, bobPeriod:3.0, bobPhase:2.6 },
-  moon:  { id:'moon',  key:'house_moon',  cx:1712, groundY:872, w:212, h:200, bobAmp:0, bobPeriod:2.7, bobPhase:0.3 },
+  drop:  { id:'drop',  key:'house_drop',  cx:1365, groundY:862, w:246, h:231, bobAmp:0, bobPeriod:3.1, bobPhase:2.0 },
+  cloud: { id:'cloud', key:'house_cloud', cx:1575, groundY:902, w:262, h:234, bobAmp:0, bobPeriod:3.0, bobPhase:2.6 },
+  moon:  { id:'moon',  key:'house_moon',  cx:1780, groundY:886, w:238, h:236, bobAmp:0, bobPeriod:2.7, bobPhase:0.3 },
 };
 /* back (smaller groundY = farther up the terrain) drawn first so nearer/lower buildings overlap on top */
 const TOWN_ORDER=['peeky','heart','wrap','drop','moon','cloud','post'];
@@ -1091,9 +1091,9 @@ const TOWN_BUILDING_SHADOW = {
   heart: { cx:735,  cy:672, rw:70,  rh:16, a:0.34 },
   wrap:  { cx:980,  cy:748, rw:186, rh:40, a:0.40 },
   peeky: { cx:1560, cy:606, rw:150, rh:32, a:0.36 },
-  drop:  { cx:1215, cy:846, rw:106, rh:24, a:0.38 },
-  cloud: { cx:1470, cy:892, rw:90,  rh:21, a:0.38 },
-  moon:  { cx:1712, cy:872, rw:98,  rh:22, a:0.38 },
+  drop:  { cx:1365, cy:858, rw:108, rh:22, a:0.30 },
+  cloud: { cx:1575, cy:898, rw:116, rh:24, a:0.30 },
+  moon:  { cx:1780, cy:882, rw:104, rh:22, a:0.30 },
 };
 const POPPU_TOWN_HOME={ x:960, y:890 };
 
