@@ -1,0 +1,16 @@
+{
+  "name": "Poppu's Mail Room",
+  "short_name": "Poppu Mail",
+  "description": "Sort, wrap & deliver mail with Poppu the fox — a cozy game for ages 2-5. No ads, no tracking.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#F6EAD6",
+  "theme_color": "#F6EAD6",
+  "categories": ["games", "education", "kids"],
+  "icons": [
+    { "src": "assets/app-icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/app-icon-v2.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

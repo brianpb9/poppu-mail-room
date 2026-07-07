@@ -17,7 +17,7 @@ The game is **free to download and free to fully enjoy for a while**; a **single
 Ethical rule: the paywall gates **CONTENT**, never *progress speed inside content already available*. No pay-to-skip-grind.
 
 ## 3. Price
-- Single global base tier **~US$4.99**; both stores auto-generate **PPP-localized** local prices off that one tier — at submission, pull the Play Console / App Store Connect price matrix and sanity-check the **Indonesia / PH / VN / TH** auto-price lands in an impulse-parent zone (do not hand-pick local numbers).
+- Single global base tier **US$1.99** (founder-set); both stores auto-generate **PPP-localized** local prices off that one tier — at submission, pull the Play Console / App Store Connect price matrix and sanity-check the **Indonesia / PH / VN / TH** auto-price lands in an impulse-parent zone (do not hand-pick local numbers). At $1.99 the IN auto-price lands around Rp 15–29k — a low-friction impulse tier for parents.
 - **One SKU only, ever:** `poppu_full_unlock` (non-consumable). No second SKU. No "buy Stamps." No tiers.
 
 ## 4. The purchase flow (where the paywall sits + the gates)
