@@ -1,0 +1,72 @@
+name: Build Android AAB
+
+# Builds the Capacitor Android app in CI (GitHub runners have Java + Android SDK)
+# and uploads the AAB + a sideloadable debug APK as downloadable artifacts.
+# Run: Actions tab → "Build Android AAB" → Run workflow (or it runs on push to main).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'manifest.json'
+      - 'assets/**'
+      - 'wrapper/**'
+      - '.github/workflows/android-aab.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Prepare Capacitor Android project
+        working-directory: wrapper
+        run: |
+          npm install
+          npm run copy-web            # ../index.html + manifest + assets → www/
+          npx cap add android || echo "android platform already present"
+          npx cap sync android
+
+      - name: Build AAB (debug-signed — free build for functional testing)
+        working-directory: wrapper/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew bundleDebug --no-daemon --stacktrace
+
+      - name: Build debug APK (sideload directly onto a phone)
+        working-directory: wrapper/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: poppu-mailroom-aab
+          path: wrapper/android/app/build/outputs/bundle/**/*.aab
+          if-no-files-found: error
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: poppu-mailroom-apk
+          path: wrapper/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
+
+# NOTE — this produces a DEBUG-signed AAB (IAP off, free), good for functional
+# device testing. For a Play-uploadable RELEASE AAB with the $1.99 IAP:
+#   1) add your upload keystore as repo secrets (KEYSTORE_B64, KEYSTORE_PASSWORD,
+#      KEY_ALIAS, KEY_PASSWORD),
+#   2) set IAP_ENABLED=true + add the RevenueCat bridge (WRAPPER_SETUP.md §2-3),
+#   3) switch the build step to ./gradlew bundleRelease with the signing config.
