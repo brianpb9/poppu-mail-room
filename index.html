@@ -3313,9 +3313,12 @@ function drawStationTask(){
     ctx.save(); ctx.translate(sx,sy-10);
     if(has('pkg_'+activeTask.type.id)) ctx.drawImage(IMG['pkg_'+activeTask.type.id].img,-90,-90,180,180); else ph_package(activeTask.type,0,0,180,activeTask.golden);
     ctx.fillStyle='#fff'; ctx.strokeStyle=activeTask.type.deep; ctx.lineWidth=6; ctx.beginPath(); ctx.arc(70,-70,44,0,7); ctx.fill(); ctx.stroke();
-    // wordless (P3): the mystery "?" badge is now the ic_stamp glyph — pairs with the existing
-    // pre-tap glow cue on the matching stamp below, so "this needs a stamp" reads without language
-    glyphIcon('stamp',70,-70,56,activeTask.type.deep,'#5a3d24');
+    // FIX (P1 #7): the target badge now shows the PACKAGE'S OWN symbol (its type icon), so the child
+    // sees exactly which stamp to tap ("match this") instead of a generic stamp glyph that read as
+    // unrelated to the parcel. Pairs with the pre-tap glow on the matching stamp below — fully wordless
+    // and unambiguous: the badge symbol == the stamp to pick.
+    { ctx.save(); const bs=1+Math.sin(time*4)*0.06; ctx.translate(70,-70); ctx.scale(bs,bs);
+      glyphIcon(activeTask.type.icon,0,0,58,activeTask.type.mid,activeTask.type.deep); ctx.restore(); }
     ctx.restore();
     // wordless (P3): "Which stamp?" caption dropped — rely entirely on the pre-tap glow cue below
     const tray=stampTray();
