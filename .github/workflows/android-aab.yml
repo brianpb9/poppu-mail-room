@@ -45,6 +45,9 @@ jobs:
           sed -i 's/compileSdkVersion = [0-9]*/compileSdkVersion = 35/' android/variables.gradle
           sed -i 's/targetSdkVersion = [0-9]*/targetSdkVersion = 35/' android/variables.gradle
           grep -E "compileSdk|targetSdk" android/variables.gradle
+          # auto-increment versionCode (Play rejects a reused code) using the CI run number
+          sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" android/app/build.gradle
+          grep -E "versionCode|versionName" android/app/build.gradle
 
       # Reuse a stable upload key across builds if provided as a secret; otherwise
       # generate one so the first build is Play-uploadable. If generated, DOWNLOAD
