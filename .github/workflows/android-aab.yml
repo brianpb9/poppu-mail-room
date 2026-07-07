@@ -41,6 +41,10 @@ jobs:
           npm run copy-web            # ../index.html + manifest + assets → www/
           npx cap add android || echo "android platform already present"
           npx cap sync android
+          # Google Play requires targetSdk 35 (Android 15) for new uploads
+          sed -i 's/compileSdkVersion = [0-9]*/compileSdkVersion = 35/' android/variables.gradle
+          sed -i 's/targetSdkVersion = [0-9]*/targetSdkVersion = 35/' android/variables.gradle
+          grep -E "compileSdk|targetSdk" android/variables.gradle
 
       # Reuse a stable upload key across builds if provided as a secret; otherwise
       # generate one so the first build is Play-uploadable. If generated, DOWNLOAD
