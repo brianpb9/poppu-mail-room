@@ -549,7 +549,7 @@ TYPES.forEach(t=>{
   ASSET_SRC['face_'+t.id]='assets/face-'+t.id+'.png';
 });
 /* full-body character art for the delivery greeting (Poppu reuses poppu_celebrate) */
-ASSET_SRC['full_star']='assets/lumi-full.png';   // Lumi — the star-mailbox friend who RECEIVES the parcel (never Poppu, the postman). See fullBodyKey / P1 #5.
+ASSET_SRC['full_star']='assets/rory-full.png';   // Rory (The Dino Prince) — the star-mailbox friend who RECEIVES the parcel (never Poppu, the postman). See fullBodyKey / P1 #5.
 ASSET_SRC['full_gear']='assets/peeky-full.png';
 ASSET_SRC['full_moon']='assets/orby-full.png';
 ASSET_SRC['full_heart']='assets/zaza-full.png';
@@ -3257,10 +3257,10 @@ function drawConveyorScroll(){
   for(let x=x0-70;x<x1+70;x+=70){ ctx.beginPath(); ctx.moveTo(x+off,yTop); ctx.lineTo(x+off-18,yBot); ctx.stroke(); }
   ctx.restore();
 }
-/* FIX (P1 #5): the delivery/"Thank you!" popup must show the FRIEND who RECEIVES the parcel — never
+/* FIX (P1 #5 / R3): the delivery/"Thank you!" popup must show the FRIEND who RECEIVES the parcel — never
    Poppu, who is the postman DELIVERING it. The star mailbox used to pop Poppu himself (poppu_celebrate);
-   it now belongs to Lumi (the canon Poppu-World star friend this game had omitted), so every recipient
-   is a distinct friend. full_star -> Lumi's full body; face_star is likewise Lumi's head. */
+   it now belongs to Rory, The Dino Prince (founder-owned character; replaced the earlier Lumi placeholder),
+   so every recipient is a distinct friend. full_star -> Rory's full body; face_star is likewise Rory's head. */
 function fullBodyKey(type){ return 'full_'+type.id; }
 function drawSpeech(x,y,txt,col){
   ctx.save(); ctx.font='800 38px "Baloo 2",system-ui,sans-serif';
