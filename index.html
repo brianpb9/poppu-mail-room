@@ -543,6 +543,7 @@ TYPES.forEach(t=>{
   ASSET_SRC['face_'+t.id]='assets/face-'+t.id+'.png';
 });
 /* full-body character art for the delivery greeting (Poppu reuses poppu_celebrate) */
+ASSET_SRC['full_star']='assets/lumi-full.png';   // Lumi — the star-mailbox friend who RECEIVES the parcel (never Poppu, the postman). See fullBodyKey / P1 #5.
 ASSET_SRC['full_gear']='assets/peeky-full.png';
 ASSET_SRC['full_moon']='assets/orby-full.png';
 ASSET_SRC['full_heart']='assets/zaza-full.png';
@@ -3251,10 +3252,8 @@ function drawConveyorScroll(){
 /* FIX (P1 #5): the delivery/"Thank you!" popup must show the FRIEND who RECEIVES the parcel — never
    Poppu, who is the postman DELIVERING it. The star mailbox used to pop Poppu himself (poppu_celebrate);
    it now belongs to Lumi (the canon Poppu-World star friend this game had omitted), so every recipient
-   is a distinct friend. full_star -> Lumi's full body; face_star is likewise regenerated as Lumi.
-   (Wired to 'full_'+type.id the moment the Lumi assets land — held to original until then to avoid
-   referencing a not-yet-present file / a console 404.) */
-function fullBodyKey(type){ return type.id==='star' ? 'poppu_celebrate' : 'full_'+type.id; }
+   is a distinct friend. full_star -> Lumi's full body; face_star is likewise Lumi's head. */
+function fullBodyKey(type){ return 'full_'+type.id; }
 function drawSpeech(x,y,txt,col){
   ctx.save(); ctx.font='800 38px "Baloo 2",system-ui,sans-serif';
   const w=ctx.measureText(txt).width+60, h=72, bx=x-w/2, by=y-h;
