@@ -9,7 +9,7 @@ Turns the web build into a store-listable iOS/Android app with real IAP. Everyth
 ```bash
 cd wrapper
 npm install
-npx cap init "Poppu's Mail Room" studio.hdrv.poppu.mailroom --web-dir www
+npx cap init "Poppu's Mail Room" com.poppuworld.mailroom --web-dir www
 npm run copy-web          # copies ../index.html + ../manifest.json + ../assets → www/
 npx cap add ios
 npx cap add android
