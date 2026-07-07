@@ -1,0 +1,9 @@
+{
+  "appId": "studio.hdrv.poppu.mailroom",
+  "appName": "Poppu's Mail Room",
+  "webDir": "www",
+  "backgroundColor": "#F6EAD6",
+  "server": { "androidScheme": "https" },
+  "ios": { "contentInset": "always", "backgroundColor": "#F6EAD6" },
+  "android": { "backgroundColor": "#F6EAD6" }
+}
