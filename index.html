@@ -1008,7 +1008,7 @@ function mailboxSkinRing(b,skin){
   else ctx.strokeStyle=b.type.light;
   ctx.lineWidth=b.w*0.06; ctx.setLineDash(skin==='mb_gold'?[]:[b.w*0.12,b.w*0.08]);
   ctx.beginPath(); ctx.arc(b.x,b.y,r*0.98,0,7); ctx.stroke(); ctx.setLineDash([]);
-  if(skin==='mb_galaxy'){ for(let i=0;i<4;i++){ const a=time+i*1.6; drawIcon('star',b.x+Math.cos(a)*r,b.y+Math.sin(a)*r,b.w*0.09,'#fff','#fff'); } }
+  if(skin==='mb_galaxy'){ for(let i=0;i<4;i++){ const a=time+i*1.6; glyphIcon('star',b.x+Math.cos(a)*r,b.y+Math.sin(a)*r,b.w*0.11,'#FFD54A','#E3A93E'); } }
   ctx.restore();
 }
 function conveyorSkinOverlay(cx,cy,cw,ch,skin){
