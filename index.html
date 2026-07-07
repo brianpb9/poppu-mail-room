@@ -603,7 +603,9 @@ COSMETICS.forEach(c=>{ ASSET_SRC['cos-'+c.id.replace(/_/g,'-')]='assets/cos-'+c.
    waits on art — until assets/ic-shop-bag.png / ic-check.png / ic-replay.png land, has() is false
    and every call site below already falls back through glyphIcon() automatically. */
 ['home','back','volume_on','volume_off','settings','close','star','heart','gear','moon','drop','cloud',
- 'speed','capacity','arrow','reveal','x2','seal','stamp','crown','shop_bag','check','replay'].forEach(n=>{
+ 'speed','capacity','arrow','reveal','x2','seal','stamp','crown','shop_bag','check','replay',
+ // P1 #8/#9/#10 — premium raster icons replacing procedural draws (locked node / tutorial hand / envelope / send-glyph)
+ 'lock','hand','envelope','send'].forEach(n=>{
   ASSET_SRC['ic_'+n]='assets/ic-'+n.replace(/_/g,'-')+'.png';
 });
 ['flower_common','flower_rare','flower_special','flower_locked','flower_unlocked'].forEach(n=>{
