@@ -2990,7 +2990,12 @@ function update(dt){
     spawnTimer-=dt;
     for(const p of packages){
       if(p.state==='belt'){ p.x+=beltSpeed*dt; p.y=BELT.y-20+Math.sin(time*2+p.wob)*4;
-        if(p.x>BELT.x2+150){ p.state='sentoff'; p.offT=0; burst(p.x,p.y,'#e8dcc4',6,3); } }
+        // FIX (P0 soft-lock #1/#2): a no-fail conveyor must NEVER lose a package. It used to be
+        // deleted at the belt end while spawnedThisLevel still counted it — stranding the level
+        // permanently at e.g. 7/8 or 9/10 whenever the toddler missed even one. Now the package
+        // simply loops back to the belt start and keeps coming around until it's delivered, so
+        // deliveredThisLevel can always reach the target and the level is ALWAYS completable.
+        if(p.x>BELT.x2+150){ p.x=BELT.x1-40; p.wob=Math.random()*7; } }
       else if(p.state==='sentoff'){ p.offT=(p.offT||0)+dt; p.x+=beltSpeed*dt*1.4; p.scale=Math.max(0,1-p.offT*3); }
       else if(p.state==='returning'){ const ty=BELT.y-20; p.y+=(ty-p.y)*Math.min(1,dt*8);
         const tx=Math.max(BELT.x1,Math.min(BELT.x2,p.x)); p.x+=(tx-p.x)*Math.min(1,dt*8);
