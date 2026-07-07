@@ -526,6 +526,12 @@ const Audio_ = (()=>{
 })();
 
 /* ------------------------------------------------------------- ASSET LOADER */
+/* CACHE-BUST — bump BUILD on any asset change so the browser (localhost dev AND installed PWA) always
+   fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
+   bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
+   held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
+const BUILD='20260707-2';
+function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
   bg_meadow:'assets/bg-meadow.webp', bg_riverside:'assets/bg-riverside.webp', bg_sky:'assets/bg-sky.webp',
@@ -619,10 +625,10 @@ function beginLoad(){
     const im=new Image(); IMG[k]={img:im,ok:false,tried:false};
     im.onload=()=>{ IMG[k].ok=(im.naturalWidth>0); tick(); };
     im.onerror=()=>{
-      if(ASSET_FALLBACK[k] && !IMG[k].tried){ IMG[k].tried=true; im.src=ASSET_FALLBACK[k]; return; }
+      if(ASSET_FALLBACK[k] && !IMG[k].tried){ IMG[k].tried=true; im.src=bust(ASSET_FALLBACK[k]); return; }
       IMG[k].ok=false; tick();
     };
-    im.src=ASSET_SRC[k];
+    im.src=bust(ASSET_SRC[k]);
   }
   setTimeout(()=>{ if(!loadDone) loadDone=true; }, 5000);
 }
@@ -1051,45 +1057,43 @@ const STATION={ x:905, y:392 };            // special-mechanic station (center)
 
 /* --------------------------------------------------------- TOWN MAP LAYOUT */
 /* coordinates per ui-ux-designer spec — bottom-anchored, idle-bob, hit-rects fixed */
+/* ===================================================================================================
+   TOWN LAYOUT — ROUND-2 GROUNDING FIX (root cause).
+   town-map.webp is TERRAIN ONLY. The three small friend houses (moon/cloud/drop) were placed at
+   groundY 340/440/540 — up in the DISTANT-HILL / treeline band where there is no foreground ground —
+   so they hovered no matter how the shadow was tuned. Root fix: every building now sits with its BASE
+   on one of the four real grass clearings painted into town-map.webp:
+     • LEFT foreground clearing  (x~150-850,  base y~820-900) → post, heart
+     • MIDDLE clearing           (x~680-1180, base y~600-760) → wrap
+     • LOWER-RIGHT clearing      (x~1180-1780,base y~800-940) → drop, cloud, moon  (was empty; now the
+                                                                 three ex-floaters live here, grounded)
+     • RIGHT hillside            (x~1400-1740,base y~560-620) → peeky (genuine hill ground contact)
+   groundY = the y where the building's BASE meets that clearing. Hit rects are now DERIVED from the
+   render box (buildingHitRect) so a tap target can never drift off the art or overlap-eat a neighbour. */
 const TOWN_BUILDINGS = {
-  post:  { id:'post',  key:'post_office', cx:420,  groundY:880, w:560, h:600, bobAmp:0, bobPeriod:3.2, bobPhase:0,
-           hit:{x:180,y:260,w:480,h:660} },
-  wrap:  { id:'wrap',  key:'wrap_shop',   cx:980,  groundY:740, w:420, h:440, bobAmp:0, bobPeriod:3.0, bobPhase:1.0,
-           hit:{x:830,y:340,w:440,h:500} },
-  peeky: { id:'peeky', key:'house_peeky', cx:1540, groundY:560, w:340, h:360, bobAmp:0, bobPeriod:2.8, bobPhase:2.0,
-           hit:{x:1420,y:230,w:360,h:430} },
-  /* ---- Phase 1 (rev. ui-ux-designer "hillside terrace" layout, A2) ----
-     The four remaining friend houses scattered across the hillside behind post/wrap/peeky at their
-     own distinct heights/sizes rather than one flat top strip — reads as a real town skyline and,
-     critically, is verified zero-overlap against every other building's hit rect (post/wrap/peeky
-     UNCHANGED above) and fully on-stage (0..1920 / 0..1080). QA note: an earlier revision placed
-     'drop' inside post's hit rect and it silently ate the tap; this layout was re-checked pairwise. */
-  /* FIX2 (QA/creative "floating houses"): groundY moved DOWN onto the actual illustrated grass
-     clearing in assets/town-map.webp at this building's cx (verified by sampling the bg pixels) —
-     both previously landed in the sky/treeline band above their clearing, with a shadow that read
-     as detached. hit-rects are UNCHANGED (still independently defined, tap targets untouched). */
-  moon:  { id:'moon',  key:'house_moon',  cx:1600, groundY:340, w:200, h:180, bobAmp:0, bobPeriod:2.7, bobPhase:0.3,
-           hit:{x:1490,y:0,  w:220,h:220} },
-  cloud: { id:'cloud', key:'house_cloud', cx:1277, groundY:540, w:160, h:230, bobAmp:0, bobPeriod:3.0, bobPhase:2.6,
-           hit:{x:1280,y:300,w:135,h:360} },
-  drop:  { id:'drop',  key:'house_drop',  cx:1080, groundY:440, w:220, h:200, bobAmp:0, bobPeriod:3.1, bobPhase:2.0,
-           hit:{x:960, y:70, w:240,h:250} },
-  heart: { id:'heart', key:'house_heart', cx:730,  groundY:650, w:150, h:250, bobAmp:0, bobPeriod:2.9, bobPhase:1.1,
-           hit:{x:665, y:400,w:160,h:420} },
+  post:  { id:'post',  key:'post_office', cx:420,  groundY:888, w:560, h:600, bobAmp:0, bobPeriod:3.2, bobPhase:0 },
+  heart: { id:'heart', key:'house_heart', cx:735,  groundY:672, w:150, h:250, bobAmp:0, bobPeriod:2.9, bobPhase:1.1 },
+  wrap:  { id:'wrap',  key:'wrap_shop',   cx:980,  groundY:748, w:420, h:440, bobAmp:0, bobPeriod:3.0, bobPhase:1.0 },
+  peeky: { id:'peeky', key:'house_peeky', cx:1560, groundY:606, w:330, h:350, bobAmp:0, bobPeriod:2.8, bobPhase:2.0 },
+  drop:  { id:'drop',  key:'house_drop',  cx:1215, groundY:846, w:236, h:214, bobAmp:0, bobPeriod:3.1, bobPhase:2.0 },
+  cloud: { id:'cloud', key:'house_cloud', cx:1470, groundY:892, w:196, h:274, bobAmp:0, bobPeriod:3.0, bobPhase:2.6 },
+  moon:  { id:'moon',  key:'house_moon',  cx:1712, groundY:872, w:212, h:200, bobAmp:0, bobPeriod:2.7, bobPhase:0.3 },
 };
-/* farthest-back first so nearer buildings overlap correctly */
-const TOWN_ORDER=['moon','drop','cloud','peeky','heart','wrap','post'];
-/* fixed contact-shadow ground line per building — deliberately NOT the same as groundY+bob (shadows
-   never swim with the idle bob, a real object's shadow doesn't float). Larger + darker core than the
-   old flat single-stop shadow (creative-director fix: buildings were floating) — see bakedContactShadow. */
+/* back (smaller groundY = farther up the terrain) drawn first so nearer/lower buildings overlap on top */
+const TOWN_ORDER=['peeky','heart','wrap','drop','moon','cloud','post'];
+/* derived hit rect: the building's render box (cx-w/2, groundY-h, w, h) padded a touch for easy taps.
+   Single source of truth = the same numbers that draw the sprite, so the tap zone always tracks the art. */
+function buildingHitRect(b){ const pad=18; return { x:b.cx-b.w/2-pad, y:b.groundY-b.h-pad, w:b.w+pad*2, h:b.h+pad*2 }; }
+/* contact-shadow ground line per building — cy == groundY (base sits ON the clearing now), rw ~ 0.44*w.
+   Deliberately NOT bobbed, and stronger than the old flat oval, so each house reads as planted. */
 const TOWN_BUILDING_SHADOW = {
-  post:  { cx:420,  cy:880, rw:250, rh:50, a:0.38 },
-  wrap:  { cx:980,  cy:740, rw:180, rh:38, a:0.36 },
-  peeky: { cx:1540, cy:560, rw:145, rh:30, a:0.34 },
-  moon:  { cx:1600, cy:340, rw:84,  rh:19, a:0.30 },
-  cloud: { cx:1277, cy:540, rw:59,  rh:13, a:0.28 },
-  drop:  { cx:1080, cy:440, rw:92,  rh:20, a:0.32 },
-  heart: { cx:730,  cy:650, rw:55,  rh:12, a:0.28 },
+  post:  { cx:420,  cy:888, rw:252, rh:52, a:0.40 },
+  heart: { cx:735,  cy:672, rw:70,  rh:16, a:0.34 },
+  wrap:  { cx:980,  cy:748, rw:186, rh:40, a:0.40 },
+  peeky: { cx:1560, cy:606, rw:150, rh:32, a:0.36 },
+  drop:  { cx:1215, cy:846, rw:106, rh:24, a:0.38 },
+  cloud: { cx:1470, cy:892, rw:90,  rh:21, a:0.38 },
+  moon:  { cx:1712, cy:872, rw:98,  rh:22, a:0.38 },
 };
 const POPPU_TOWN_HOME={ x:960, y:890 };
 
@@ -2758,7 +2762,9 @@ function onDown(cx,cy){
     if(townTransition) return;   // brief, non-interruptible zoom-push already in flight
     if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ leaveTown(); return; }
     if(poppuHit(p.x,p.y)) startLongPress(p.x,p.y);   // 3s hold on Poppu -> parent gate (mirrors START/PLAYING; honors the dashboard promise)
-    for(const id in TOWN_BUILDINGS){ if(inRect(p.x,p.y,TOWN_BUILDINGS[id].hit)){ handleBuildingTap(id); return; } }
+    // iterate FRONT-to-back (reverse draw order) so a nearer building wins a tap in any overlap zone
+    for(let i=TOWN_ORDER.length-1;i>=0;i--){ const id=TOWN_ORDER[i];
+      if(inRect(p.x,p.y,buildingHitRect(TOWN_BUILDINGS[id]))){ handleBuildingTap(id); return; } }
     return;
   }
   if(state==='WRAP'){
@@ -4619,7 +4625,7 @@ window.__t = {
     const b=TOWN_BUILDINGS[id]; if(!b) return false;
     if(state!=='TOWN') enterTown();
     const cl=(sx,sy)=>({x:sx*scale+offX,y:sy*scale+offY});
-    const c=cl(b.hit.x+b.hit.w/2, b.hit.y+b.hit.h/2);
+    const hr=buildingHitRect(b); const c=cl(hr.x+hr.w/2, hr.y+hr.h/2);
     onDown(c.x,c.y); onUp(c.x,c.y); return true;
   },
   unlockPeeky(){ SAVE.unlocks.peekyHouse=true; persist(); },
