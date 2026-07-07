@@ -2351,22 +2351,24 @@ function drawWrapQueue(){
   ctx.save(); shadow(16,'rgba(0,0,0,0.14)',0,6); ctx.fillStyle='rgba(255,252,244,0.9)'; rr(bx-130,by-190,260,380,32); ctx.fill(); noShadow();
   ctx.lineWidth=5; ctx.strokeStyle='#B79BEA'; rr(bx-130,by-190,260,380,32); ctx.stroke();
   glyphIcon('heart',bx,by-150,44,'#FF9DB6','#F06A8E');
-  const cols=['#FFD15C','#FF9DB6','#8ECFEC','#98D7B4','#B79BEA','#FFC2D3'];
-  for(let i=0;i<Math.max(1,n);i++){
-    const stackY=by+120-i*40;
-    ctx.save(); ctx.translate(bx+(i%2===0?-6:6),stackY);
-    if(i===n-1 && n>0) ctx.scale(2-b,b);
-    ctx.strokeStyle='#5a3d24'; ctx.lineWidth=5;
-    if(i<n){ ctx.fillStyle=cols[i%cols.length]; rr(-56,-40,112,80,14); ctx.fill(); ctx.stroke();
-      ctx.fillStyle='#fff'; rr(-56,-40,112,26,14); ctx.fill(); }
-    else {   // empty outbox slot: a faint GHOST wrapped-present (filled box + ribbon + soft bow) so it
-             // reads "a finished gift lands here", not an empty dashed form-field (board polish)
-      ctx.globalAlpha=0.32+0.12*Math.sin(time*3);
-      ctx.fillStyle='#F1E7D6'; rr(-56,-40,112,80,14); ctx.fill();
-      ctx.strokeStyle='rgba(90,61,36,0.30)'; ctx.lineWidth=4; rr(-56,-40,112,80,14); ctx.stroke();
-      ctx.strokeStyle='rgba(183,155,234,0.6)'; ctx.lineWidth=6;
-      ctx.beginPath(); ctx.moveTo(0,-40); ctx.lineTo(0,40); ctx.stroke();
-      drawBow(0,-40,34,'#C9B3EA'); }
+  /* P1 ICON FIX (founder: "heart + 3 flat colored bars = placeholder"): the outbox now stacks the game's
+     OWN illustrated parcel sprites (pkg_*) as a pile of finished gifts — premium + perfectly style-matched,
+     cycling the 6 pastel types for a cheerful varied stack. Each gets a little white bow so it reads as a
+     wrapped present. Empty tray shows one faint ghost parcel ("finished gifts land here"). */
+  const count=Math.max(1,n), size=126, baseY=by+116, step=46;
+  for(let i=0;i<count;i++){
+    const stackY=baseY-i*step;
+    ctx.save(); ctx.translate(bx+(i%2===0?-9:9),stackY);
+    if(i===n-1 && n>0) ctx.scale(2-b,b);   // landing squash on the newest gift
+    if(i<n){
+      const type=TYPES[i%TYPES.length], key='pkg_'+type.id;
+      if(has(key)) ctx.drawImage(IMG[key].img,-size/2,-size/2,size,size); else ph_package(type,0,0,size,false);
+      drawBow(0,-size*0.13,40,'#fff');
+    } else {   // faint GHOST parcel so an empty tray still reads "a finished gift lands here"
+      ctx.globalAlpha=0.30+0.10*Math.sin(time*3);
+      if(has('pkg_star')) ctx.drawImage(IMG.pkg_star.img,-size/2,-size/2,size,size); else ph_package(TYPES[0],0,0,size,false);
+      drawBow(0,-size*0.13,36,'#C9B3EA');
+    }
     ctx.restore();
   }
   ctx.restore();
