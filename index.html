@@ -69,27 +69,32 @@ const STICKER_EVERY = 5;
 /* ------------------------------------------------------ 10-LEVEL PROGRESSION */
 /* Each level: package target, belt speed, active mailbox count, match hint,
    and which mechanics are live. Mechanics escalate; nothing ever fails.       */
+/* APPROVED LEVEL MAP — each level introduces ONE distinct, gentle no-fail mechanic on top of the
+   drag-to-sort core, so the 10 levels feel like different activities, not the same loop with a bigger
+   counter. Flags: shapeOnly (uniform-color boxes → read the SHAPE not the color), seal / stamp / shake
+   (the station beats), twoBelts (a second conveyor lane — sort from either), decoy (a "return-to-sender"
+   parcel that belongs to nobody and slides itself back), golden (boss: every parcel is a golden). */
 const LEVELS = [
   { n:1,  pkgs:5,  speed:34, boxes:3, hint:'color', label:'Colors',
-    mech:{seal:0,stamp:0,shake:0,multi:0,shuffle:0,distract:0,golden:0}, tag:'Tutorial' },
+    mech:{}, tag:'Tutorial' },
   { n:2,  pkgs:8,  speed:37, boxes:3, hint:'color', label:'Colors',
-    mech:{seal:1,stamp:0,shake:0,multi:0,shuffle:0,distract:0,golden:0}, tag:'Seal!' },
-  { n:3,  pkgs:10, speed:44, boxes:4, hint:'shape', label:'Shapes',
-    mech:{seal:0,stamp:1,shake:0,multi:0,shuffle:0,distract:0,golden:0}, tag:'Stamp!' },
-  { n:4,  pkgs:10, speed:47, boxes:4, hint:'shape', label:'Shapes',
-    mech:{seal:1,stamp:1,shake:0,multi:0,shuffle:0,distract:0,golden:0}, tag:'Seal + Stamp' },
-  { n:5,  pkgs:12, speed:49, boxes:4, hint:'shape', label:'Shapes',
-    mech:{seal:1,stamp:1,shake:0,multi:1,shuffle:0,distract:0,golden:0}, tag:'Two at once' },
-  { n:6,  pkgs:12, speed:58, boxes:6, hint:'char',  label:'Friends',
-    mech:{seal:1,stamp:1,shake:1,multi:1,shuffle:0,distract:0,golden:0}, tag:'Shake!' },
-  { n:7,  pkgs:15, speed:61, boxes:6, hint:'char',  label:'Friends',
-    mech:{seal:1,stamp:1,shake:1,multi:1,shuffle:0,distract:0,golden:0}, tag:'Speedy' },
-  { n:8,  pkgs:15, speed:63, boxes:6, hint:'char',  label:'Friends',
-    mech:{seal:1,stamp:1,shake:1,multi:1,shuffle:1,distract:0,golden:0}, tag:'Shuffle' },
-  { n:9,  pkgs:18, speed:66, boxes:6, hint:'char',  label:'Friends',
-    mech:{seal:1,stamp:1,shake:1,multi:1,shuffle:1,distract:1,golden:0}, tag:'Party' },
-  { n:10, pkgs:20, speed:76, boxes:6, hint:'char',  label:'Boss',
-    mech:{seal:1,stamp:1,shake:1,multi:1,shuffle:1,distract:1,golden:1}, tag:'Golden Boss' },
+    mech:{}, tag:'Colors' },
+  { n:3,  pkgs:10, speed:42, boxes:4, hint:'shape', label:'Shapes',
+    mech:{shapeOnly:1}, tag:'Shapes!' },
+  { n:4,  pkgs:10, speed:45, boxes:4, hint:'shape', label:'Shapes',
+    mech:{shapeOnly:1, seal:1}, tag:'Seal!' },
+  { n:5,  pkgs:12, speed:47, boxes:4, hint:'shape', label:'Shapes',
+    mech:{shapeOnly:1, seal:1, twoBelts:1}, tag:'Two Belts' },
+  { n:6,  pkgs:12, speed:50, boxes:4, hint:'shape', label:'Shapes',
+    mech:{shapeOnly:1, seal:1, twoBelts:1, stamp:1}, tag:'Stamp!' },
+  { n:7,  pkgs:15, speed:52, boxes:4, hint:'shape', label:'Shapes',
+    mech:{shapeOnly:1, seal:1, twoBelts:1, stamp:1, decoy:1}, tag:'Return to Sender' },
+  { n:8,  pkgs:15, speed:55, boxes:4, hint:'shape', label:'Shapes',
+    mech:{shapeOnly:1, seal:1, twoBelts:1, stamp:1, decoy:1, shake:1}, tag:'Shake!' },
+  { n:9,  pkgs:18, speed:58, boxes:6, hint:'char',  label:'Friends',
+    mech:{}, tag:'Friends' },
+  { n:10, pkgs:20, speed:64, boxes:6, hint:'char',  label:'Boss',
+    mech:{seal:1, stamp:1, shake:1, twoBelts:1, decoy:1, golden:1}, tag:'Golden Boss' },
 ];
 function curLevel(){ return LEVELS[Math.max(0,Math.min(LEVELS.length-1,currentLevel-1))]; }
 /* wordless level-map badge (A3): the level's newest/highest-tier active mechanic, cascading so every
@@ -97,10 +102,12 @@ function curLevel(){ return LEVELS[Math.max(0,Math.min(LEVELS.length-1,currentLe
    along the path already communicates ORDER, this only communicates WHAT. */
 function levelIcon(L){
   const m=L.mech;
-  if(m.golden) return 'crown';
-  if(m.shake) return 'bolt';
-  if(m.stamp) return 'stamp';
-  if(m.seal) return 'seal';
+  if(m.golden)   return 'crown';
+  if(m.shake)    return 'bolt';
+  if(m.decoy)    return 'eye';
+  if(m.stamp)    return 'stamp';
+  if(m.twoBelts) return 'box';
+  if(m.seal)     return 'seal';
   return 'star';
 }
 
@@ -550,7 +557,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-26';
+const BUILD='20260708-27';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1132,6 +1139,13 @@ function drawDecor(id){
 /* --------------------------------------------------------------- LAYOUT */
 const BELT={ x1:600, x2:1210, y:672 };
 const CONVEYOR={ cx:(600+1210)/2, cy:712, w:820, ar:317/1276 };
+/* MULTI-BELT (twoBelts levels): a second conveyor LANE runs below the main one. Parcels arrive on
+   either lane and are sorted from either — same drag gesture, just two rows in flight at once. Lane 0
+   = the existing belt; lane 1 rides ~200px lower on its own strip. Everything else (pickup, drop,
+   recycle, no-fail return) is lane-agnostic because it reads each parcel's own x/y. */
+const BELT2_PKGY=852;                        // lane-1 package row
+const BELT2_CY=912;                          // lane-1 conveyor visual center (pkgY + 60, matching lane 0)
+function laneY(lane){ return (lane===1)?BELT2_PKGY:(BELT.y-20); }
 const PKG_S=152;
 const STATION={ x:905, y:392 };            // special-mechanic station (center)
 
@@ -1362,6 +1376,7 @@ let mistakesThisLevel=0;
 let levelStartT=0;
 let levelDone=false;
 let spawnTimer=0;
+let decoyTimer=0;
 let doneScreen=null;        // {stars, stamps} for LEVELDONE
 /* FIX5: LEVELDONE's own celebration + auto-advance — separate from the mid-Drive arrival hug that
    already plays earlier in the flow. doneScreenT drives the ~3.5s non-reader auto-advance timer;
@@ -1393,13 +1408,23 @@ function buildAmbient(kind){
 }
 
 /* ------------------------------------------------------ PACKAGE / TASK FLOW */
-function newBeltPkg(x,type,golden){
-  return { type, golden, x, y:BELT.y-20, state:'belt', scale:1, wob:Math.random()*6, born:time };
+function newBeltPkg(x,type,golden,lane){
+  lane=lane||0;
+  return { type, golden, lane, x, y:laneY(lane), state:'belt', scale:1, wob:Math.random()*6, born:time };
 }
-function spawnBeltPackage(x){
+let nextLane=0;
+function pickLane(){ if(!curLevel().mech.twoBelts) return 0; nextLane=nextLane?0:1; return nextLane; }
+function spawnBeltPackage(x,lane){
   const g=curLevel().mech.golden ? true : (Math.random()<GOLDEN_CHANCE);
-  packages.push(newBeltPkg(x!=null?x:BELT.x1-40, randType(), g));
+  packages.push(newBeltPkg(x!=null?x:BELT.x1-40, randType(), g, lane!=null?lane:pickLane()));
   spawnedThisLevel++;
+}
+/* DECOY (return-to-sender): a parcel that belongs to nobody. It is NOT counted toward the level target
+   (spawnedThisLevel untouched), never delivers to any box (gentle "aww" + return on any drop), and if
+   left alone it slides itself off the belt end back to the sender — so it can never clutter or soft-lock. */
+function spawnDecoy(){
+  const p=newBeltPkg(BELT.x1-40, randType(), false, pickLane());
+  p.decoy=true; packages.push(p);
 }
 function shuffleArr(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
 function beginNextTask(){
@@ -1430,20 +1455,20 @@ function beginNextTask(){
 function resolveSeal(){
   if(!activeTask||activeTask.kind!=='seal'||activeTask.done) return;
   activeTask.done=true; Audio_.seal(); burst(STATION.x,STATION.y,'#fff3c4',18,7);
-  packages.push(newBeltPkg(BELT.x1-40, activeTask.type, activeTask.golden)); spawnedThisLevel++;
+  packages.push(newBeltPkg(BELT.x1-40, activeTask.type, activeTask.golden, pickLane())); spawnedThisLevel++;
   setTimeout(()=>{ if(activeTask&&activeTask.kind==='seal') activeTask=null; }, 260);
 }
 function resolveStamp(){
   if(!activeTask||activeTask.kind!=='stamp'||activeTask.stamped) return;
   activeTask.stamped=true; Audio_.stamp(); burst(STATION.x,STATION.y,'#E3A93E',16,6);
-  packages.push(newBeltPkg(BELT.x1-40, activeTask.type, activeTask.golden)); spawnedThisLevel++;
+  packages.push(newBeltPkg(BELT.x1-40, activeTask.type, activeTask.golden, pickLane())); spawnedThisLevel++;
   setTimeout(()=>{ if(activeTask&&activeTask.kind==='stamp') activeTask=null; }, 300);
 }
 function resolveShake(){
   if(!activeTask||activeTask.kind!=='shake'||activeTask.sorted) return;
   activeTask.sorted=true; Audio_.rattle(); Audio_.pop(); burst(STATION.x,STATION.y,'#98D7B4',22,8);
   const items=activeTask.items;
-  for(let i=0;i<items.length;i++){ packages.push(newBeltPkg(BELT.x1-40-i*140, items[i].type, items[i].golden)); spawnedThisLevel++; }
+  for(let i=0;i<items.length;i++){ packages.push(newBeltPkg(BELT.x1-40-i*140, items[i].type, items[i].golden, pickLane())); spawnedThisLevel++; }
   setTimeout(()=>{ if(activeTask&&activeTask.kind==='shake') activeTask=null; }, 320);
 }
 
@@ -1515,7 +1540,7 @@ function startLevel(n){
   state='PLAYING';
   packages=[]; particles=[]; popups=[]; floatTexts=[]; dragging=null; hoverType=null; sealSwipe=null;
   activeTask=null; taskNo=0; spawnedThisLevel=0; deliveredThisLevel=0; mistakesThisLevel=0;
-  levelDone=false; spawnTimer=0.4; levelStartT=time; shuffleActive=false;
+  levelDone=false; spawnTimer=0.4; decoyTimer=4; nextLane=0; levelStartT=time; shuffleActive=false;
   tutorial = (!SAVE.tutorialDone && currentLevel===1) ? {fading:false, ft:0} : null;
   Audio_.resume(); Audio_.setHum(true); Audio_.setMusicRoot(SCENES[currentScene].music.root);
   consumeWrapQueueForLevel();
@@ -2998,9 +3023,12 @@ function onUp(cx,cy){
   if(sealSwipe){ sealSwipe=null; if(activeTask&&activeTask.kind==='seal') activeTask.prog=0; }
   if(!dragging) return;
   const b=boxAt(dragging.x,dragging.y);
-  if(b && b.type.id===dragging.type.id){ deliver(dragging,b); }
+  if(b && !dragging.decoy && b.type.id===dragging.type.id){ deliver(dragging,b); }
   else { dragging.state='returning'; mistakesThisLevel++;
-    if(hasUp('autoSorter')) Audio_.slide(); else Audio_.boop();
+    // DECOY belongs to nobody: gentle "aww, that one goes back" (never a boop-fail); it returns to the
+    // belt and eventually slides itself off to the sender. Real wrong-drops keep the existing feedback.
+    if(dragging.decoy) Audio_.aww();
+    else if(hasUp('autoSorter')) Audio_.slide(); else Audio_.boop();
     burst(dragging.x,dragging.y,'#cbb',8,4); }
   dragging.scale=1; dragging=null; hoverType=null;
 }
@@ -3162,15 +3190,17 @@ function update(dt){
     const beltSpeed=curLevel().speed * (hasUp('speedBelt')?1.2:1);
     spawnTimer-=dt;
     for(const p of packages){
-      if(p.state==='belt'){ p.x+=beltSpeed*dt; p.y=BELT.y-20+Math.sin(time*2+p.wob)*4;
+      if(p.state==='belt'){ p.x+=beltSpeed*dt; p.y=laneY(p.lane)+Math.sin(time*2+p.wob)*4;
         // FIX (P0 soft-lock #1/#2): a no-fail conveyor must NEVER lose a package. It used to be
         // deleted at the belt end while spawnedThisLevel still counted it — stranding the level
         // permanently at e.g. 7/8 or 9/10 whenever the toddler missed even one. Now the package
         // simply loops back to the belt start and keeps coming around until it's delivered, so
         // deliveredThisLevel can always reach the target and the level is ALWAYS completable.
-        if(p.x>BELT.x2+150){ p.x=BELT.x1-40; p.wob=Math.random()*7; } }
+        // DECOY is the ONE exception: it belongs to nobody, so at the belt end it slides itself off
+        // (return-to-sender) instead of looping — it never counted toward the target, so no soft-lock.
+        if(p.x>BELT.x2+150){ if(p.decoy){ p.state='sentoff'; p.offT=0; Audio_.slide(); } else { p.x=BELT.x1-40; p.wob=Math.random()*7; } } }
       else if(p.state==='sentoff'){ p.offT=(p.offT||0)+dt; p.x+=beltSpeed*dt*1.4; p.scale=Math.max(0,1-p.offT*3); }
-      else if(p.state==='returning'){ const ty=BELT.y-20; p.y+=(ty-p.y)*Math.min(1,dt*8);
+      else if(p.state==='returning'){ const ty=laneY(p.lane); p.y+=(ty-p.y)*Math.min(1,dt*8);
         const tx=Math.max(BELT.x1,Math.min(BELT.x2,p.x)); p.x+=(tx-p.x)*Math.min(1,dt*8);
         if(Math.abs(p.y-ty)<3) p.state='belt'; }
       else if(p.state==='delivering'){ p.tState=(p.tState||0)+dt;
@@ -3179,17 +3209,20 @@ function update(dt){
     // safety: any package orphaned in 'dragging' (multi-touch / lost pointerup) returns to the belt — never deadlock
     for(const p of packages){ if(p.state==='dragging' && p!==dragging){ p.state='returning'; p.scale=1; } }
     packages=packages.filter(p=>!(p.state==='sentoff'&&p.scale<=0.02));
-    const beltCap=curLevel().mech.multi?3:2;
+    // twoBelts runs two lanes, so allow one more parcel in flight; single belt stays at 2.
+    const beltCap=curLevel().mech.twoBelts?3:2;
     const beltActive=packages.filter(p=>p.state==='belt'||p.state==='returning'||p.state==='dragging').length;
     if(!activeTask && spawnedThisLevel<curLevel().pkgs && beltActive<beltCap && spawnTimer<=0){
-      beginNextTask(); spawnTimer=curLevel().mech.multi?0.6:0.9;
+      beginNextTask(); spawnTimer=curLevel().mech.twoBelts?0.7:0.9;
     }
-    // "party" levels: gentle decorative confetti drifting down — purely festive, never blocks play
-    if(curLevel().mech.distract && Math.random()<dt*3){
-      const cols=['#FF9DB6','#8ECFEC','#FFD15C','#B79BEA','#98D7B4'];
-      particles.push({x:Math.random()*W, y:-20, vx:(Math.random()-0.5)*2, vy:1.5+Math.random()*1.5,
-        life:2.2, color:cols[(Math.random()*cols.length)|0], size:9+Math.random()*7,
-        rot:Math.random()*7, vr:(Math.random()-0.5)*0.3, shape:'rect', grav:0.05});
+    // DECOY spawner: at most ONE decoy on the belt at a time, on a slow timer, and only while there is
+    // belt room and real parcels still to come — it self-clears (slides off) so it never blocks the win.
+    if(curLevel().mech.decoy && !activeTask){
+      decoyTimer-=dt;
+      const hasDecoy=packages.some(p=>p.decoy && p.state!=='sentoff' && p.state!=='delivering');
+      if(decoyTimer<=0 && !hasDecoy && beltActive<beltCap && spawnedThisLevel<curLevel().pkgs){
+        spawnDecoy(); decoyTimer=6+Math.random()*3;
+      }
     }
   }
   for(const pt of particles){ pt.x+=pt.vx; pt.y+=pt.vy; pt.vy+=(pt.grav||0.4); pt.vx*=0.99; pt.rot+=pt.vr; pt.life-=dt*(pt.shape==='rect'?0.6:1.4); }
@@ -3365,15 +3398,22 @@ function drawParentDashboard(){
 }
 
 /* ------------------------------------------------------------- RENDER: PLAY */
+/* SHAPE-ONLY levels: the 4 mailboxes are all the SAME cozy kraft color, so the child can only tell them
+   apart — and match them — by the embossed SHAPE, never the color. This neutral type carries the real
+   shape icon but a uniform palette. */
+const NEUTRAL_BOX={ light:'#EAD9BE', mid:'#D6BB90', deep:'#A98A5F' };
+function shapeNeutral(type){ return { id:type.id, icon:type.icon, light:NEUTRAL_BOX.light, mid:NEUTRAL_BOX.mid, deep:NEUTRAL_BOX.deep }; }
 function drawMailboxes(){
   const hint=curLevel().hint, mbSkin=equipped('mailbox'), scan=hasUp('scanner');
-  const skinKey=mbSkin?'cos-'+mbSkin.replace(/_/g,'-'):null, skinReady=skinKey&&has(skinKey);
+  const shapeOnly=!!curLevel().mech.shapeOnly, dragDecoy=!!(dragging&&dragging.decoy);
+  const skinKey=mbSkin?'cos-'+mbSkin.replace(/_/g,'-'):null, skinReady=skinKey&&has(skinKey)&&!shapeOnly;
   for(const b of activeBoxes()){ const type=b.type, i=b.typeIdx;
     const hovered=hoverType===type.id;
     let glow=0;
-    if(dragging && hovered && dragging.type.id===type.id) glow=1+Math.sin(time*10)*0.3;
-    else if(dragging && dragging.type.id===type.id) glow=0.4+Math.sin(time*6)*0.18;
-    if(scan && dragging && dragging.type.id===type.id) glow=Math.max(glow,0.7+Math.sin(time*8)*0.2);
+    // a decoy parcel matches no box, so never glow a box "correct" while one is being dragged.
+    if(dragging && !dragDecoy && hovered && dragging.type.id===type.id) glow=1+Math.sin(time*10)*0.3;
+    else if(dragging && !dragDecoy && dragging.type.id===type.id) glow=0.4+Math.sin(time*6)*0.18;
+    if(scan && dragging && !dragDecoy && dragging.type.id===type.id) glow=Math.max(glow,0.7+Math.sin(time*8)*0.2);
     const bn=boxBounce[i], pop=bn>0?Math.sin((1-bn)*Math.PI)*0.14:0;
     const sx=1+pop*0.4, sy=1-pop*0.4;
     // FIX 3: replaced the big translucent colored disc (which made each box read as floating on a puck)
@@ -3383,7 +3423,10 @@ function drawMailboxes(){
     ctx.save(); ctx.translate(b.x,b.y+(glow>0.6?-6:0)); ctx.scale(sx,sy);
     if(glow>0) shadow(46*glow,type.deep);
     const s=b.w*(1+(hovered&&glow>0.6?0.05:0));
-    if(skinReady){
+    if(shapeOnly){
+      // uniform kraft body for every box — color is deliberately removed as a cue; the shape reads.
+      ph_mailbox(shapeNeutral(type),0,0,b.w*0.9,glow);
+    } else if(skinReady){
       ctx.drawImage(IMG[skinKey].img,-s/2,-s/2,s,s);
       // the skin reskins the BODY, so overlay the type's own identity glyph on top — kids still need
       // to tell the 6 boxes apart at a glance no matter which cosmetic is equipped (never a regression).
@@ -3391,27 +3434,31 @@ function drawMailboxes(){
     } else if(has('mailbox_'+type.id)) ctx.drawImage(IMG['mailbox_'+type.id].img,-s/2,-s/2,s,s);
     else ph_mailbox(type,0,0,b.w*0.9,glow);
     noShadow(); ctx.restore();
-    drawBoxTag(b,hint);
+    drawBoxTag(b,hint,shapeOnly);
   }
 }
-function drawBoxTag(b,hint){
+function drawBoxTag(b,hint,shapeOnly){
   // FIX 3: seat the label bauble ONTO the box — lowered so it rests on the roof, plus a short mounting
   // neck + base plate so it reads as a badge pinned to the mailbox, never a disc hovering above it.
   const tx=b.x, ty=b.y-b.h*0.47, r=b.w*0.17, type=b.type;
+  // SHAPE-ONLY: neutralize the bauble ink too, so even the label gives no color clue — pure shape read.
+  const midC=shapeOnly?'#C7A87E':type.mid, deepC=shapeOnly?'#8A6A45':type.deep;
   const neckTop=ty+r*0.55, neckBot=b.y-b.h*0.30;
   if(neckBot>neckTop){ ctx.save(); shadow(6,'rgba(0,0,0,0.14)',0,3);
-    ctx.fillStyle='#fffdf6'; ctx.strokeStyle=type.deep; ctx.lineWidth=r*0.13;
+    ctx.fillStyle='#fffdf6'; ctx.strokeStyle=deepC; ctx.lineWidth=r*0.13;
     const nw=r*0.5; rr(tx-nw/2,neckTop,nw,neckBot-neckTop,nw*0.4); ctx.fill(); noShadow(); ctx.stroke();
     // base plate where the neck meets the box
-    ctx.fillStyle=type.deep; ctx.beginPath(); ctx.ellipse(tx,neckBot,r*0.5,r*0.16,0,0,7); ctx.fill(); ctx.restore(); }
+    ctx.fillStyle=deepC; ctx.beginPath(); ctx.ellipse(tx,neckBot,r*0.5,r*0.16,0,0,7); ctx.fill(); ctx.restore(); }
   ctx.save(); shadow(10,'rgba(0,0,0,0.14)',0,4); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(tx,ty,r,0,7); ctx.fill(); noShadow();
-  ctx.lineWidth=r*0.16; ctx.strokeStyle=type.deep; ctx.stroke();
+  ctx.lineWidth=r*0.16; ctx.strokeStyle=deepC; ctx.stroke();
   if(hint==='color'){ // saturated mid→deep chip (never light-on-white, which read as an empty ring) + a soft top gloss
     const cg=ctx.createLinearGradient(tx,ty-r,tx,ty+r); cg.addColorStop(0,type.mid); cg.addColorStop(1,type.deep);
     ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(tx,ty,r*0.80,0,7); ctx.fill();
     ctx.lineWidth=r*0.12; ctx.strokeStyle=type.deep; ctx.stroke();
     ctx.save(); ctx.globalAlpha=0.35; ctx.fillStyle=type.light; ctx.beginPath(); ctx.ellipse(tx,ty-r*0.28,r*0.42,r*0.22,0,0,7); ctx.fill(); ctx.restore(); }
-  else if(hint==='shape') glyphIcon(type.icon,tx,ty,r*1.25,type.mid,type.deep);
+  // shape hint: on SHAPE-ONLY levels draw the glyph procedurally so it honours the neutral ink (the
+  // raster ic_ icons are colored and would leak a color cue); otherwise use the premium raster glyph.
+  else if(hint==='shape'){ if(shapeOnly) drawIcon(type.icon,tx,ty,r*1.25,midC,deepC); else glyphIcon(type.icon,tx,ty,r*1.25,midC,deepC); }
   else drawFaceCircle(type,tx,ty,r*0.9);
   ctx.restore();
 }
@@ -3422,11 +3469,29 @@ function drawPackage(p){
   const key='pkg_'+p.type.id;
   if(has(key)) ctx.drawImage(IMG[key].img,-s/2,-s/2,s,s); else ph_package(p.type,0,0,s,p.golden);
   if(p.golden){ noShadow(); ctx.restore(); }
+  if(p.decoy){
+    // DECOY = "return to sender": a wordless back-arrow tag pinned to the parcel so a toddler learns,
+    // by the badge (not by failing), that this one goes back and never into a mailbox.
+    const bs=s*0.40, bx=s*0.28, by=-s*0.30, pulse=1+Math.sin(time*5)*0.08;
+    ctx.save(); ctx.translate(bx,by); ctx.scale(pulse,pulse);
+    shadow(8,'rgba(0,0,0,0.22)',0,3); ctx.fillStyle='#FFF3D6'; ctx.beginPath(); ctx.arc(0,0,bs*0.5,0,7); ctx.fill(); noShadow();
+    ctx.lineWidth=bs*0.11; ctx.strokeStyle='#C97A4E'; ctx.stroke();
+    if(!uiIcon('replay',0,0,bs*0.66)) drawIcon('replay',0,0,bs*0.66,'#C97A4E','#8a4f2e');
+    ctx.restore();
+  }
   ctx.restore();
 }
-function drawConveyorScroll(){
+function drawConveyorAt(cyc){
+  const cw=CONVEYOR.w, ch=cw*CONVEYOR.ar;
+  if(has('conveyor')) ctx.drawImage(IMG.conveyor.img,CONVEYOR.cx-cw/2,cyc-ch/2,cw,ch);
+  else ph_conveyor(CONVEYOR.cx,cyc,BELT.x2-BELT.x1+40,60);
+  conveyorSkinOverlay(CONVEYOR.cx,cyc,cw,ch,equipped('conveyor'));
+  drawConveyorScroll(cyc);
+}
+function drawConveyorScroll(cyc){
+  cyc=cyc||CONVEYOR.cy;
   const cw=CONVEYOR.w, ch=cw*CONVEYOR.ar, x0=CONVEYOR.cx-cw*0.42, x1=CONVEYOR.cx+cw*0.42;
-  const yTop=CONVEYOR.cy-ch*0.16, yBot=CONVEYOR.cy+ch*0.16;
+  const yTop=cyc-ch*0.16, yBot=cyc+ch*0.16;
   ctx.save(); ctx.beginPath(); ctx.rect(x0,yTop,x1-x0,yBot-yTop); ctx.clip();
   ctx.globalAlpha=0.10; ctx.strokeStyle='#fff'; ctx.lineWidth=10; ctx.lineCap='round';
   const off=(time*130)%70;
@@ -3559,11 +3624,8 @@ function drawPlayHUD(){
 function drawPlaying(){
   drawBackground(); drawAmbient();
   drawDecor(equipped('decor'));
-  const cw=CONVEYOR.w, ch=cw*CONVEYOR.ar;
-  if(has('conveyor')) ctx.drawImage(IMG.conveyor.img,CONVEYOR.cx-cw/2,CONVEYOR.cy-ch/2,cw,ch);
-  else ph_conveyor(CONVEYOR.cx,CONVEYOR.cy,BELT.x2-BELT.x1+40,60);
-  conveyorSkinOverlay(CONVEYOR.cx,CONVEYOR.cy,cw,ch,equipped('conveyor'));
-  drawConveyorScroll();
+  drawConveyorAt(CONVEYOR.cy);
+  if(curLevel().mech.twoBelts) drawConveyorAt(BELT2_CY);   // MULTI-BELT: second lane's conveyor strip
   drawMailboxes();
   const poppuKey=poppuCelebrateT>0?'poppu_celebrate':'poppu_postal';
   const pj=poppuCelebrateT>0?-Math.abs(Math.sin(time*12))*18:0;
@@ -4984,14 +5046,16 @@ window.__t = {
   task(){ return activeTask; },
   forceTask(kind){ activeTask=null; taskNo=(kind==='shake'?7:kind==='stamp'?4:2); beginNextTask(); return activeTask; },
   resolveTask(){ if(!activeTask) return false; if(activeTask.kind==='seal') resolveSeal(); else if(activeTask.kind==='stamp') resolveStamp(); else resolveShake(); return true; },
-  deliverOne(){ const p=packages.find(p=>p.state==='belt'||p.state==='returning'); if(!p) return false;
+  deliverOne(){ const p=packages.find(p=>!p.decoy&&(p.state==='belt'||p.state==='returning')); if(!p) return false;
     const b=activeBoxes().find(b=>b.type.id===p.type.id); if(!b) return false; deliver(p,b); return true; },
-  realDrag(){ const p=packages.find(p=>p.state==='belt'); if(!p) return false;
+  realDrag(){ const p=packages.find(p=>!p.decoy&&p.state==='belt'); if(!p) return false;
     const b=activeBoxes().find(b=>b.type.id===p.type.id); if(!b) return false;
     const cl=(sx,sy)=>({x:sx*scale+offX,y:sy*scale+offY});
     const a=cl(p.x,p.y); onDown(a.x,a.y);
     const c=cl(b.x,b.y); onMove(c.x,c.y); onUp(c.x,c.y); return true; },
-  levelInfo(){ return { level:currentLevel, delivered:deliveredThisLevel, target:curLevel().pkgs, spawned:spawnedThisLevel, done:levelDone }; },
+  get packages(){ return packages.map(p=>({type:p.type.id,state:p.state,lane:p.lane,decoy:!!p.decoy,x:Math.round(p.x),y:Math.round(p.y),golden:!!p.golden})); },
+  mech(){ return curLevel().mech; },
+  levelInfo(){ return { level:currentLevel, delivered:deliveredThisLevel, target:curLevel().pkgs, spawned:spawnedThisLevel, done:levelDone, mech:curLevel().mech }; },
 
   /* ---- Poppu's Post Town (Phase 0) ---- */
   openTown(){ enterTown(); },
