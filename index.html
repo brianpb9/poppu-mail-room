@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-15';
+const BUILD='20260708-16';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -628,6 +628,15 @@ COSMETICS.forEach(c=>{ ASSET_SRC['cos-'+c.id.replace(/_/g,'-')]='assets/cos-'+c.
    the moment a Rory Friend scene is added — no further art or wiring needed. */
 const DRESSED_FRIENDS=['heart','gear','moon','drop','cloud','star'];
 ['hat_chef','hat_cowboy','hat_pirate','hat_crown'].forEach(h=>DRESSED_FRIENDS.forEach(fk=>{ ASSET_SRC['dress-'+fk+'-'+h]='assets/dress-'+fk+'-'+h+'.png'; }));
+/* Baked Poppu-dress sprites — Poppu's OWN base pose sprite with a cosmetic hat integrated onto his fox
+   head (replacing his baked-in brown explorer hat), mirroring the friend dress-up system above so the
+   mascot's equipped hats read as premium/integrated instead of a floating overlay. Keyed
+   dress-poppu-<pose>-<hatid> (pose = wave/postal/celebrate). Only poses whose full 4-hat set is baked
+   on disk are listed here so the loader never 404s a missing one; drawPoppuPosed falls back to the base
+   sprite + drawPoppuWornHat overlay for any pose/hat not yet baked (and for hat_gold, which maps to the
+   crown bake). */
+const POPPU_DRESSED_POSES=['wave'];
+['hat_chef','hat_cowboy','hat_pirate','hat_crown'].forEach(h=>POPPU_DRESSED_POSES.forEach(pk=>{ ASSET_SRC['dress-poppu-'+pk+'-'+h]='assets/dress-poppu-'+pk+'-'+h+'.png'; }));
 /* Friend-house illustrated interiors (Phase 1) — a cozy painted room per friend, keyed by house name */
 ['peeky','orby','zaza','wavey','puffy'].forEach(n=>{ ASSET_SRC['friendbg_'+n]='assets/bg-house-'+n+'.webp'; });
 /* Production raster pack (Phase 2) — 20 UI/glyph icons (ic_<name> -> assets/ic-<dashed>.png) and
@@ -1004,6 +1013,20 @@ function drawPoppuWornHat(spriteKey,cx,cy,size){
   const A=POPPU_HAT_ANCHOR[spriteKey]||POPPU_HAT_ANCHOR.poppu_wave;
   const F=HAT_FIT[id]||{ddy:0,dsc:1};
   drawPoppuHat(cx+A.dx*size, cy+(A.dy+F.ddy)*size, A.sc*F.dsc*size, id);
+}
+/* Premium baked Poppu dress-up (mirrors the friend dress-up system): if a cosmetic hat is equipped AND a
+   baked Poppu+hat sprite exists for this pose, draw that ONE integrated image in place of the base sprite
+   and SKIP the floating drawPoppuWornHat overlay. Otherwise fall back to the base sprite + overlay hat
+   (unchanged), so hat_gold or any un-baked pose still works. hat_gold maps to the crown bake (matching the
+   existing hat_gold->cos-hat-crown mapping). Returns true if a real sprite (baked or base) was drawn, false
+   if the caller must draw its ph_poppu placeholder. */
+function drawPoppuPosed(poseKey,x,y,size,idle){
+  const id=equipped('hat')||(SAVE.goldenHat?'hat_gold':null);
+  const bakeKey=id?('dress-poppu-'+poseKey.replace('poppu_','')+'-'+(id==='hat_gold'?'hat_crown':id)):null;
+  if(bakeKey&&has(bakeKey)) return drawPoppuSprite(bakeKey,x,y,size,idle);
+  const ok=drawPoppuSprite(poseKey,x,y,size,idle);
+  drawPoppuWornHat(poseKey,x,y,size);
+  return ok;
 }
 function drawPoppuHat(x,y,s,id){
   if(!id){ if(SAVE.goldenHat) id='hat_gold'; else return; }
@@ -3495,8 +3518,7 @@ function drawPlaying(){
   const poppuKey=poppuCelebrateT>0?'poppu_celebrate':'poppu_postal';
   const pj=poppuCelebrateT>0?-Math.abs(Math.sin(time*12))*18:0;
   const ppx=250, ppy=812+pj;
-  if(!drawPoppuSprite(poppuKey,ppx,ppy,380,poppuCelebrateT<=0)) ph_poppu(poppuCelebrateT>0?'celebrate':'wave',ppx,ppy-10,250);
-  drawPoppuWornHat(poppuKey,ppx,ppy,380);
+  if(!drawPoppuPosed(poppuKey,ppx,ppy,380,poppuCelebrateT<=0)) ph_poppu(poppuCelebrateT>0?'celebrate':'wave',ppx,ppy-10,250);
   packages.filter(p=>p.state!=='dragging'&&p.state!=='delivering').forEach(drawPackage);
   packages.filter(p=>p.state==='delivering').forEach(drawPackage);
   if(dragging) drawPackage(dragging);
@@ -3512,8 +3534,7 @@ function drawStart(){
   ctx.save(); ctx.globalAlpha=0.22; ctx.fillStyle='#fff5e0'; ctx.fillRect(0,0,W,H); ctx.restore();
   drawAmbient(); drawDecor(equipped('decor'));
   const ppx=300, ppy=760;
-  if(!drawPoppuSprite('poppu_wave',ppx,ppy,500,true)) ph_poppu('wave',ppx,ppy-40,300);
-  drawPoppuWornHat('poppu_wave',ppx,ppy,500);
+  if(!drawPoppuPosed('poppu_wave',ppx,ppy,500,true)) ph_poppu('wave',ppx,ppy-40,300);
   const tx=W/2, ty=170;
   const g=ctx.createLinearGradient(0,ty-64,0,ty+64); g.addColorStop(0,'#FFE79A'); g.addColorStop(1,'#F4A93E');
   drawText("Poppu's Mail Room",tx,ty,112,g,'#5a3d24','center','800',24);
@@ -3774,8 +3795,7 @@ function drawLevelDone(){
   // ---- LEVEL-DONE POLISH: Poppu shrunk + raised (was 300px @ y700, spilling down onto the "Next"
   // button at y760); stamps pill kept where it was and now drawn AFTER Poppu so it still reads as a
   // badge on her chest, but the two never overlap the button row (y760..870) ----
-  if(has('poppu_celebrate')) sprite('poppu_celebrate',W/2,560,220,220); else ph_poppu('celebrate',W/2,510,130);
-  drawPoppuWornHat('poppu_celebrate',W/2,560,220);
+  if(!drawPoppuPosed('poppu_celebrate',W/2,560,220,false)) ph_poppu('celebrate',W/2,510,130);
   // FIX5: the friend "hug" pop for THIS results card (reuses the mailbox-delivery popup renderer) —
   // was previously only drawn on PLAYING/DRIVE, never here, leaving the results card completely flat.
   drawPopups();
