@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-18';
+const BUILD='20260708-19';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -2239,11 +2239,17 @@ function ph_wrapBg(){
 /* soft cream work-MAT that groups the 3 decorate steps into ONE obvious station (kills the old
    scattered-across-the-wall read). Drawn first, behind box/ribbon/stickers. */
 function drawWrapMat(){
-  const m=WRAP_MAT;
+  const m=WRAP_MAT, x=m.x-m.w/2, y=m.y-m.h/2;
   ctx.save();
-  shadow(30,'rgba(90,61,36,0.20)',0,12); ctx.fillStyle='rgba(255,251,242,0.86)';
-  rr(m.x-m.w/2, m.y-m.h/2, m.w, m.h, 48); ctx.fill(); noShadow();
-  ctx.lineWidth=8; ctx.strokeStyle='rgba(201,122,78,0.55)'; rr(m.x-m.w/2,m.y-m.h/2,m.w,m.h,48); ctx.stroke();
+  // FIX 1c: SOLID crafted paper card (was a 0.86 translucent panel that let the shelf bleed through).
+  // Opaque cream paper with a soft top-light gradient + double kraft border + drop shadow, matching the
+  // shop's tag/counter styling so the wrap station reads as a real object, not a see-through overlay.
+  shadow(34,'rgba(90,61,36,0.26)',0,14);
+  const pg=ctx.createLinearGradient(0,y,0,y+m.h);
+  pg.addColorStop(0,'#FFFDF7'); pg.addColorStop(0.5,'#FDF6E7'); pg.addColorStop(1,'#F6EAD2');
+  ctx.fillStyle=pg; rr(x,y,m.w,m.h,48); ctx.fill(); noShadow();
+  ctx.lineWidth=9; ctx.strokeStyle='#C97A4E'; rr(x,y,m.w,m.h,48); ctx.stroke();
+  ctx.lineWidth=3; ctx.strokeStyle='rgba(201,122,78,0.35)'; rr(x+13,y+13,m.w-26,m.h-26,38); ctx.stroke();
   ctx.restore();
 }
 /* one bold gold flow-arrow (used mat->ship and ship->queue) — the always-visible "then send it here"
@@ -3626,7 +3632,15 @@ function drawSceneBtn(r){
 
 /* ------------------------------------------------------------- RENDER: LEVELMAP */
 function drawLevelMap(){
-  drawBackground(); ctx.save(); ctx.fillStyle='rgba(255,248,235,0.92)'; ctx.fillRect(0,0,W,H); ctx.restore();
+  // FIX 1a: the mail-room now reads at near-full strength (was a ~0.92 cream ghost wash). A light warm
+  // legibility wash + soft vignette keeps the rope medallions crisp without washing the scene out.
+  drawBackground();
+  ctx.save();
+  ctx.fillStyle='rgba(255,247,232,0.34)'; ctx.fillRect(0,0,W,H);
+  const lvg=ctx.createRadialGradient(W/2,H*0.46,H*0.16,W/2,H*0.5,H*0.98);
+  lvg.addColorStop(0,'rgba(255,250,240,0)'); lvg.addColorStop(1,'rgba(120,86,54,0.16)');
+  ctx.fillStyle=lvg; ctx.fillRect(0,0,W,H);
+  ctx.restore();
   // wordless (P0): "Choose a Level" header dropped — the level path + star/lock nodes already read
   const nodes=levelNodes();
   const curLv=Math.min(SAVE.maxLevel||1,LEVELS.length);
@@ -3648,8 +3662,12 @@ function drawLevelMap(){
     if(unlocked && has('node_medallion')){
       ctx.save(); shadow(16,'rgba(90,61,36,0.22)',0,9);
       ctx.drawImage(IMG.node_medallion.img,nd.x-D/2,nd.y-D/2,D,D); noShadow(); ctx.restore();
-      // mechanic icon centered in the cream panel
-      glyphIcon(levelIcon(L),nd.x,nd.y+D*0.03,D*0.34,'#F4CE7A','#E3A93E');
+      // mechanic icon centered in the cream panel — FIX 1a: the pale ic_stamp / ic_seal rasters read
+      // as faint tan-on-cream, so draw those two procedurally in FULL rich gold with a dark outline for
+      // unmistakable contrast; the already-vivid rasters (star/crown/bolt) keep their art.
+      { const ic=levelIcon(L);
+        if(ic==='stamp'||ic==='seal') drawIcon(ic,nd.x,nd.y+D*0.03,D*0.34,'#F5B324','#7A491A');
+        else glyphIcon(ic,nd.x,nd.y+D*0.03,D*0.34,'#F4CE7A','#E3A93E'); }
       // 3 rating stars arced across the medallion's upper cream panel
       for(let s=0;s<3;s++) glyphIcon('star',nd.x+(s-1)*D*0.17,nd.y-D*0.30,D*0.15,s<stars?'#FFD15C':'#efe3c8',s<stars?'#E3A93E':'#d8c8a4');
     } else if(!unlocked && has('node_locked')){
@@ -3839,8 +3857,36 @@ function gardenSlotFlower(i){
   if(n%4===0) return 'flower_rare';
   return 'flower_common';
 }
+/* FIX 1b: a soft, varied "seed waiting to bloom" slot — cycles pastel tint + shape (seed / sprout /
+   bud) per index so the empty garden reads colourful and alive, not 32 identical grey buds. */
+const GARDEN_PASTEL=[['#FFE0AE','#F6C25E'],['#FFF0A6','#EBCF4E'],['#E6D4FF','#B79BEA'],['#FFD3E1','#F0A0BC'],['#CBEBFB','#7EC7E8'],['#D6F3D9','#8FD6A0']];
+function drawEmptyGardenSlot(cx,cy,i,bob){
+  const pal=GARDEN_PASTEL[i%GARDEN_PASTEL.length], shp=i%3;
+  ctx.save(); ctx.translate(cx,cy+bob);
+  // soft pastel pot-of-soil disc
+  ctx.fillStyle=pal[0]; ctx.globalAlpha=0.55; ctx.beginPath(); ctx.arc(0,4,50,0,7); ctx.fill(); ctx.globalAlpha=1;
+  ctx.strokeStyle='#8FCF9E'; ctx.lineWidth=6; ctx.lineCap='round'; ctx.lineJoin='round';
+  if(shp===0){ // seed pod
+    ctx.fillStyle=pal[1]; ctx.beginPath(); ctx.ellipse(0,2,15,20,0,0,7); ctx.fill();
+    ctx.strokeStyle=pal[1]; ctx.lineWidth=5; ctx.beginPath(); ctx.moveTo(0,-12); ctx.lineTo(0,4); ctx.stroke();
+  } else if(shp===1){ // little sprout, two leaves
+    ctx.beginPath(); ctx.moveTo(0,22); ctx.lineTo(0,-4); ctx.stroke();
+    for(const s of[-1,1]){ ctx.fillStyle='#A6DCB0'; ctx.beginPath();
+      ctx.ellipse(s*14,-2,14,9,s*0.7,0,7); ctx.fill(); }
+  } else { // closed bud on a stem
+    ctx.beginPath(); ctx.moveTo(0,24); ctx.lineTo(0,-2); ctx.stroke();
+    ctx.fillStyle=pal[1]; ctx.beginPath();
+    ctx.moveTo(0,-24); ctx.bezierCurveTo(16,-18,14,2,0,4); ctx.bezierCurveTo(-14,2,-16,-18,0,-24); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
 function drawSticker(){
-  drawBackground(); ctx.save(); ctx.fillStyle='rgba(255,248,235,0.95)'; ctx.fillRect(0,0,W,H); ctx.restore();
+  // FIX 1b: SOLID warm garden-paper background (was a ~0.95 cream ghost wash over the mail-room).
+  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#FFF6E6'); g.addColorStop(0.6,'#FBEBD2'); g.addColorStop(1,'#F3E0C4');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  ctx.save(); ctx.globalAlpha=0.05; ctx.fillStyle='#8FCF9E';
+  for(let x=110;x<W;x+=200) for(let y=120;y<H;y+=200) drawIcon('heart',x,y,54,'#8FCF9E','#8FCF9E');
+  ctx.restore();
   // wordless (P0): "My Garden" header dropped — the flower grid reads on its own.
   // wordless (P0): "N blooms grown" -> a flower icon + the bare numeral (no words).
   flowerGlyph(W/2-30,190,48); drawText(''+SAVE.stickers.length,W/2+30,190,40,'#a88a5c',null,'left','800');
@@ -3858,13 +3904,11 @@ function drawSticker(){
       if(has(key)) ctx.drawImage(IMG[key].img,cx-58,cy-58+bob,116,116);
       else { const type=T[SAVE.stickers[dataIdx]]||TYPES[i%6]; if(has('pkg_'+type.id)) ctx.drawImage(IMG['pkg_'+type.id].img,cx-58,cy-58+bob,116,116); else ph_face(type,cx,cy,110); }
     } else {
-      // not-yet-grown: a warm, lush "waiting to bloom" bud — same wordless "keep going" language as
-      // locked buildings, but alive: a soft cream/peach glow, a slow bob, and a staggered twinkle so
-      // the collection reads as a garden filling in, never a flat gray homework grid.
-      const lbob=Math.sin(time*1.2+i*0.7)*3, warm=warmFlowerLocked();
-      ctx.save(); ctx.fillStyle='rgba(255,201,138,0.30)'; ctx.beginPath(); ctx.arc(cx,cy,56,0,7); ctx.fill(); ctx.restore();
-      if(warm){ ctx.save(); ctx.globalAlpha=0.85; ctx.drawImage(warm,cx-52,cy-52+lbob,104,104); ctx.restore(); }
-      else { ctx.save(); ctx.globalAlpha=0.55; ctx.fillStyle='#FFC98A'; ctx.beginPath(); ctx.arc(cx,cy+lbob,44,0,7); ctx.fill(); ctx.restore(); }
+      // FIX 1b: not-yet-grown slot — a VARIED soft pastel "seed / sprout / bud" (tint + shape cycle per
+      // slot) with a slow bob + staggered twinkle, so the empty garden reads colourful and alive rather
+      // than 32 identical grey buds.
+      const lbob=Math.sin(time*1.2+i*0.7)*3;
+      drawEmptyGardenSlot(cx,cy,dataIdx,lbob);
       const sp=(Math.sin(time*1.6+i*2.1)+1)/2;   // 0..1, staggered per slot so twinkles don't blink in unison
       if(sp>0.74){ ctx.save(); ctx.globalAlpha=(sp-0.74)/0.26; drawIcon('star',cx-46,cy-46+lbob,26,'#FFD15C','#fff'); ctx.restore(); }
     }
