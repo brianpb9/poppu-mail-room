@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-22';
+const BUILD='20260708-23';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1241,7 +1241,7 @@ const DRIVE_BIOMES = {
            interact:{ mode:'bloom', key:'flower_common', emit:'drive_butterfly', band:[430,720], spd:0, sz:132, bobAmp:6,  chime:'butterflyPop', cols:['#C8A2F0','#FF9DB6','#FFE0EA'] } },
   moon:  { name:'twilight',  bgKey:'bg_space',     tint:'rgba(150,130,220,0.05)', roadTint:'rgba(140,120,190,0.14)', particleKind:'star',   particleCol:['#FFE9A8','#E6DBFF','#FFF3C4'],
            interact:{ mode:'jar', goal:5, key:'drive_firefly',   band:[170,620], spd:48, sz:104, bobAmp:20, chime:'fireflyPop',   cols:['#FFE9A8','#FFF3C4','#E6DBFF'] } },
-  drop:  { name:'riverside', bgKey:'bg_riverside', tint:'rgba(120,190,220,0.05)', roadTint:'rgba(100,170,210,0.13)', particleKind:'bubble', particleCol:['#BFE6F6','#8ECFEC','#E0F5FF'],
+  drop:  { name:'riverside', bgKey:'bg_riverside', tint:'rgba(58,164,230,0.11)', roadTint:'rgba(50,150,215,0.20)', particleKind:'bubble', particleCol:['#9FD8F5','#3AA4E6','#E0F5FF'],
            interact:{ mode:'hop', key:'drive_lilypad',   band:[470,760], spd:30, sz:126, bobAmp:6,  chime:'plip',         cols:['#BFE6F6','#8ECFEC','#7EC77E'] } },
   cloud: { name:'sky',       bgKey:'bg_sky',       tint:'rgba(235,245,255,0.06)', roadSurface:'cloud',              particleKind:'puff',   particleCol:['#FFFFFF','#EAF4FF','#DCEBF7'],
            interact:{ mode:'gap', key:'drive_cloudpuff', band:[150,520], spd:44, sz:150, bobAmp:16, chime:'puffPop',      cols:['#FFFFFF','#EAF4FF','#CDEBFA'] } },
@@ -4263,8 +4263,10 @@ function drawRoad(){
   // 1. road body — a soft pastel CLOUD-WALKWAY on the sky biome (no brown dirt floating in clouds —
   //    creative-director seam fix), else the tiled dirt path.
   if(surf==='cloud'){
+    // FIX 4: deepen the sky walkway value so the road no longer reads as near-white-on-white clouds
+    // (the truck + collectibles were blending in). A clearly saturated periwinkle-blue path.
     roadPath(); const g=ctx.createLinearGradient(0,cy0-500,0,H);
-    g.addColorStop(0,'#F2F8FF'); g.addColorStop(1,'#D9EAFB'); ctx.fillStyle=g; ctx.fill();
+    g.addColorStop(0,'#C4DCF6'); g.addColorStop(1,'#93BBEA'); ctx.fillStyle=g; ctx.fill();
   } else if(has('road_tex')){
     roadPath(); ctx.save(); ctx.clip();
     const pat=ctx.createPattern(IMG.road_tex.img,'repeat');
@@ -4286,7 +4288,7 @@ function drawRoad(){
   const near=ctx.createLinearGradient(0,cy0-160,0,H);
   // on the cloud path, "near" BRIGHTENS to airy white instead of browning to grey (creative note: the sky
   // lane was reading as a muddy UI gradient because a warm-brown near-grade sat over the pale blue).
-  const nearC=(surf==='cloud')?'255,255,255':'70,50,30', nearA=(surf==='cloud')?0.42:0.13;
+  const nearC=(surf==='cloud')?'110,150,205':'70,50,30', nearA=(surf==='cloud')?0.34:0.13;
   near.addColorStop(0,'rgba('+nearC+',0)'); near.addColorStop(1,'rgba('+nearC+','+nearA+')');
   ctx.fillStyle=near; ctx.fillRect(0,cy0-160,W,H-(cy0-160));
   ctx.restore();
@@ -4316,9 +4318,9 @@ function drawRoad(){
   //    (review-board polish) the dirt verge is now FEATHERED — a wide soft grass rim + a mid transition
   //    band + a thin, low-alpha SOFTENED outline, so the road/grass border no longer reads as a hard ruler.
   const cloudy = surf==='cloud';
-  const edgeGrass = cloudy ? 'rgba(198,222,245,0.6)'  : 'rgba(126,152,90,0.26)';
-  const edgeMid   = cloudy ? 'rgba(198,222,245,0.34)' : 'rgba(150,170,104,0.22)';
-  const edgeLine  = cloudy ? 'rgba(150,186,222,0.7)'  : 'rgba(107,66,38,0.42)';
+  const edgeGrass = cloudy ? 'rgba(170,202,238,0.65)' : 'rgba(126,152,90,0.26)';
+  const edgeMid   = cloudy ? 'rgba(150,186,226,0.42)' : 'rgba(150,170,104,0.22)';
+  const edgeLine  = cloudy ? 'rgba(96,140,200,0.85)'  : 'rgba(107,66,38,0.42)';
   for(const edge of [left,right]){
     tracePoly(edge); ctx.lineWidth=46; ctx.strokeStyle=edgeGrass; ctx.stroke();   // wide soft grass rim
     tracePoly(edge); ctx.lineWidth=24; ctx.strokeStyle=edgeMid;   ctx.stroke();   // mid transition feather
@@ -4449,6 +4451,13 @@ function drawDriveItems(){
     const bob=Math.sin(time*4+it.d)*6;
     const tt=T[it.kind]||T.star, gf=tt.mid, gs=tt.deep;   // per-friend themed glyph color
     groundShadow(x,y+34,25,8,0.12,0.55);   // fixed line — ignores the icon's own bob
+    // FIX 4: a soft contrasting backing halo so collectibles POP off any biome — a periwinkle glow on
+    // the pale sky/riverside paths, a warm cream glow elsewhere (they were blending into white clouds).
+    { const cloudy=(D.biome&&D.biome.roadSurface)==='cloud', pale=cloudy||(D.biome&&D.biome.name==='riverside');
+      ctx.save(); const hal=ctx.createRadialGradient(x,y+bob,0,x,y+bob,60);
+      const hc=pale?'70,110,175':'255,250,236';
+      hal.addColorStop(0,'rgba('+hc+','+(pale?0.55:0.75)+')'); hal.addColorStop(1,'rgba('+hc+',0)');
+      ctx.fillStyle=hal; ctx.beginPath(); ctx.arc(x,y+bob,60,0,7); ctx.fill(); ctx.restore(); }
     if(it.missed){
       // brief no-penalty "aww" wiggle + fade as it drops behind the truck, uncaught
       const wob=Math.sin(it.missT*16)*0.3*Math.max(0,1-it.missT*1.4);
@@ -4726,7 +4735,13 @@ function drawTruck(){
   // flat contact shadow OUTSIDE the rotate block — stays flush on the road, never tilts with the truck
   bakedContactShadow(renderX,890,100,24,0.36);
   ctx.save(); ctx.translate(renderX,820+bob); ctx.rotate(D.truck.rot+sway);
-  if(has('mail_truck')) ctx.drawImage(IMG.mail_truck.img,-100,-80,200,160); else ph_truck();
+  // FIX 4: a soft drop-shadow rim so the van separates from the pale sky/riverside backdrops (it was
+  // blending into the near-white cloud road). Biome-aware tone; subtle on the darker dirt biomes.
+  const cloudy=(D.biome&&D.biome.roadSurface)==='cloud', pale=cloudy||(D.biome&&D.biome.name==='riverside');
+  if(has('mail_truck')){
+    if(pale){ shadow(16,cloudy?'rgba(40,64,110,0.5)':'rgba(30,90,130,0.42)',0,3); }
+    ctx.drawImage(IMG.mail_truck.img,-100,-80,200,160); noShadow();
+  } else ph_truck();
   ctx.restore();
 }
 /* The chosen friend (rotates — see startDrive) runs in from over the road and lands beside Poppu
