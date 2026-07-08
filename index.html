@@ -81,16 +81,16 @@ const LEVELS = [
     mech:{}, tag:'Colors' },
   { n:3,  pkgs:10, speed:42, boxes:4, hint:'shape', label:'Shapes',
     mech:{shapeOnly:1}, tag:'Shapes!' },
-  { n:4,  pkgs:10, speed:45, boxes:4, hint:'shape', label:'Shapes',
-    mech:{shapeOnly:1, seal:1}, tag:'Seal!' },
-  { n:5,  pkgs:12, speed:47, boxes:4, hint:'shape', label:'Shapes',
-    mech:{shapeOnly:1, seal:1, twoBelts:1}, tag:'Two Belts' },
-  { n:6,  pkgs:12, speed:50, boxes:4, hint:'shape', label:'Shapes',
-    mech:{shapeOnly:1, seal:1, twoBelts:1, stamp:1}, tag:'Stamp!' },
-  { n:7,  pkgs:15, speed:52, boxes:4, hint:'shape', label:'Shapes',
-    mech:{shapeOnly:1, seal:1, twoBelts:1, stamp:1, decoy:1}, tag:'Return to Sender' },
-  { n:8,  pkgs:15, speed:55, boxes:4, hint:'shape', label:'Shapes',
-    mech:{shapeOnly:1, seal:1, twoBelts:1, stamp:1, decoy:1, shake:1}, tag:'Shake!' },
+  { n:4,  pkgs:10, speed:45, boxes:4, hint:'color', label:'Seal',
+    mech:{seal:1}, tag:'Seal!' },
+  { n:5,  pkgs:12, speed:47, boxes:4, hint:'color', label:'Two Belts',
+    mech:{seal:1, twoBelts:1}, tag:'Two Belts' },
+  { n:6,  pkgs:12, speed:50, boxes:5, hint:'color', label:'Stamp',
+    mech:{seal:1, twoBelts:1, stamp:1}, tag:'Stamp!' },
+  { n:7,  pkgs:15, speed:52, boxes:5, hint:'color', label:'Return',
+    mech:{seal:1, twoBelts:1, stamp:1, decoy:1}, tag:'Return to Sender' },
+  { n:8,  pkgs:15, speed:55, boxes:6, hint:'color', label:'Shake',
+    mech:{seal:1, twoBelts:1, stamp:1, decoy:1, shake:1}, tag:'Shake!' },
   { n:9,  pkgs:18, speed:58, boxes:6, hint:'char',  label:'Friends',
     mech:{}, tag:'Friends' },
   { n:10, pkgs:20, speed:64, boxes:6, hint:'char',  label:'Boss',
@@ -557,7 +557,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-27';
+const BUILD='20260708-28';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
