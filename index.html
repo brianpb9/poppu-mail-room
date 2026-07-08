@@ -438,6 +438,9 @@ const Audio_ = (()=>{
   }
   return {
     resume,
+    /* silence ALL audio (music, hum, ambience, SFX) when the app is backgrounded /
+       swiped up — suspending the AudioContext stops every scheduled sound at once. */
+    suspend(){ try{ if(ac && ac.state==='running') ac.suspend(); }catch(e){} },
     setVolume(level){ masterTarget=VOL_LEVELS[level]!=null?VOL_LEVELS[level]:0.9;
       if(master&&ac) master.gain.setTargetAtTime(masterTarget, now(), 0.02); },
     setMusic(v){ musicOn=v; }, isMusic(){ return musicOn; },
@@ -547,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-1';
+const BUILD='20260708-2';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -2962,7 +2965,12 @@ canvas.addEventListener('pointerup',e=>{ e.preventDefault();
   if(activePointerId!==null && e.pointerId!==activePointerId) return; activePointerId=null; onUp(e.clientX,e.clientY); },{passive:false});
 canvas.addEventListener('pointercancel',e=>{ if(e&&e.pointerId===activePointerId) activePointerId=null; if(dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } sealSwipe=null; wrapRibbonSwipe=null; friendDragItem=null; if(drive) drive.dragActiveX=null; cancelLongPress(); });
 window.addEventListener('blur',()=>{ activePointerId=null; if(dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } sealSwipe=null; wrapRibbonSwipe=null; friendDragItem=null; if(drive) drive.dragActiveX=null; cancelLongPress(); });
-document.addEventListener('visibilitychange',()=>{ if(document.hidden && dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } });
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){ Audio_.suspend();   // swipe-up / background → kill the music+hum+ambience
+    if(dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } }
+  else { Audio_.resume(); }                  // back to foreground → bring audio back
+});
+window.addEventListener('pagehide',()=>{ Audio_.suspend(); });   // iOS swipe-up-to-home fires pagehide, not always visibilitychange
 window.addEventListener('touchmove',e=>{ e.preventDefault(); },{passive:false});
 let lastShake=0;
 function onDeviceMotion(e){
