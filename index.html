@@ -54,7 +54,7 @@
 /* ------------------------------------------------------------------ CONFIG */
 const W = 1920, H = 1080;
 const TYPES = [
-  { id:'star',  name:'Poppu', light:'#FBE8C0', mid:'#F4CE7A', deep:'#E3A93E', icon:'star'  },
+  { id:'star',  name:'Rory',  light:'#FFC7BE', mid:'#FF7B6B', deep:'#E5483A', icon:'star'  },
   { id:'gear',  name:'Peeky', light:'#FFE79A', mid:'#FFD15C', deep:'#E9A32E', icon:'gear'  },
   { id:'moon',  name:'Orby',  light:'#D8C8F4', mid:'#B79BEA', deep:'#8E6FD6', icon:'moon'  },
   { id:'heart', name:'Zaza',  light:'#FFC2D3', mid:'#FF9DB6', deep:'#F06A8E', icon:'heart' },
@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-2';
+const BUILD='20260708-3';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
