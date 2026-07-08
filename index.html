@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-6';
+const BUILD='20260708-7';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1122,9 +1122,14 @@ const TOWN_BUILDINGS = {
   heart: { id:'heart', key:'house_heart', cx:735,  groundY:672, w:150, h:250, bobAmp:0, bobPeriod:2.9, bobPhase:1.1 },
   wrap:  { id:'wrap',  key:'wrap_shop',   cx:980,  groundY:748, w:420, h:440, bobAmp:0, bobPeriod:3.0, bobPhase:1.0 },
   peeky: { id:'peeky', key:'house_peeky', cx:1560, groundY:628, w:330, h:350, bobAmp:0, bobPeriod:2.8, bobPhase:2.0 },
-  drop:  { id:'drop',  key:'house_drop',  cx:1365, groundY:862, w:246, h:231, bobAmp:0, bobPeriod:3.1, bobPhase:2.0 },
-  cloud: { id:'cloud', key:'house_cloud', cx:1575, groundY:902, w:262, h:234, bobAmp:0, bobPeriod:3.0, bobPhase:2.6 },
-  moon:  { id:'moon',  key:'house_moon',  cx:1780, groundY:886, w:238, h:236, bobAmp:0, bobPeriod:2.7, bobPhase:0.3 },
+  /* DEFINITIVE FLOAT FIX (BUILD 20260708-7): the moon/drop/cloud sprites had a baked-in grass-oval PAD
+     at their base that read as a floating island on the terrain-only town map. That grass oval (+ its
+     dark disc outline + flower wings) is now CROPPED off each PNG in PIL so the sprite bottom IS the
+     house's own foundation (walls/step/crate). w/h/cx re-derived from the tight crop; groundY keeps the
+     old ground line so the foundation plants ON the town grass with a strong code contact shadow below. */
+  drop:  { id:'drop',  key:'house_drop',  cx:1366, groundY:862, w:230, h:221, bobAmp:0, bobPeriod:3.1, bobPhase:2.0 },
+  cloud: { id:'cloud', key:'house_cloud', cx:1573, groundY:902, w:239, h:224, bobAmp:0, bobPeriod:3.0, bobPhase:2.6 },
+  moon:  { id:'moon',  key:'house_moon',  cx:1780, groundY:886, w:217, h:222, bobAmp:0, bobPeriod:2.7, bobPhase:0.3 },
 };
 /* back (smaller groundY = farther up the terrain) drawn first so nearer/lower buildings overlap on top */
 const TOWN_ORDER=['peeky','heart','wrap','drop','moon','cloud','post'];
@@ -1138,9 +1143,9 @@ const TOWN_BUILDING_SHADOW = {
   heart: { cx:735,  cy:672, rw:70,  rh:16, a:0.34 },
   wrap:  { cx:980,  cy:748, rw:186, rh:40, a:0.40 },
   peeky: { cx:1560, cy:628, rw:150, rh:32, a:0.40 },
-  drop:  { cx:1365, cy:858, rw:108, rh:22, a:0.30 },
-  cloud: { cx:1575, cy:898, rw:116, rh:24, a:0.30 },
-  moon:  { cx:1780, cy:882, rw:104, rh:22, a:0.30 },
+  drop:  { cx:1366, cy:862, rw:112, rh:25, a:0.36 },
+  cloud: { cx:1573, cy:902, rw:116, rh:26, a:0.36 },
+  moon:  { cx:1780, cy:886, rw:102, rh:25, a:0.36 },
 };
 /* R4 #4: Peeky's house sits high on a hill spot with no painted clearing under it, so its base read
    as FLOATING (founder catch). We plant a soft grassy clearing knoll beneath it — a green mound with
