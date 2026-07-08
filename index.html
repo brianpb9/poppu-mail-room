@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-25';
+const BUILD='20260708-26';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -3262,7 +3262,15 @@ function backButton(){
    icon (glyphIcon/drawCategoryThumb/fitImage/etc.), so hit-rect geometry (r) is completely untouched. */
 function pill(r,fill,strokeCol,strokeW,content,labelCol){
   ctx.save(); shadow(12,'rgba(0,0,0,0.14)',0,6); ctx.fillStyle=fill; rr(r.x,r.y,r.w,r.h,r.h/2); ctx.fill(); noShadow();
-  if(strokeW){ ctx.lineWidth=strokeW; ctx.strokeStyle=strokeCol; rr(r.x,r.y,r.w,r.h,r.h/2); ctx.stroke(); }
+  // FIX 7b: crafted detail — a soft top gloss + an inner highlight border so the pill reads as a
+  // tactile designed button, not a flat empty white capsule.
+  ctx.save(); rr(r.x,r.y,r.w,r.h,r.h/2); ctx.clip();
+  const gl=ctx.createLinearGradient(0,r.y,0,r.y+r.h*0.62);
+  gl.addColorStop(0,'rgba(255,255,255,0.55)'); gl.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.fillStyle=gl; ctx.fillRect(r.x,r.y,r.w,r.h*0.62); ctx.restore();
+  if(strokeW){ ctx.lineWidth=strokeW; ctx.strokeStyle=strokeCol; rr(r.x,r.y,r.w,r.h,r.h/2); ctx.stroke();
+    const inw=strokeW*0.75; ctx.lineWidth=Math.max(1.5,strokeW*0.35); ctx.strokeStyle='rgba(255,255,255,0.7)';
+    rr(r.x+inw,r.y+inw,r.w-inw*2,r.h-inw*2,(r.h-inw*2)/2); ctx.stroke(); }
   if(content) content(r.x+r.w/2,r.y+r.h/2,labelCol);
   ctx.restore();
 }
@@ -3627,12 +3635,14 @@ function drawStart(){
   // wordless: the Play caption is dropped (P0) — the pulsing button + Poppu's wave already read as "go"
   for(const b of START_BTNS()){
     const col=b.id==='levels'?'#8ECFEC':b.id==='shop'?'#FFD15C':'#B79BEA';
+    // FIX 7b: a soft category-colored icon chip fills the pill so it reads designed, not empty.
+    const chip=(cx,cy)=>{ ctx.save(); ctx.globalAlpha=0.20; ctx.fillStyle=col; ctx.beginPath(); ctx.arc(cx,cy,b.h*0.40,0,7); ctx.fill(); ctx.restore(); };
     // wordless nav pills (P1): Levels->post office thumbnail, Shop->tote-bag icon, Stickers->flower icon
     const iconFn = b.id==='levels'
-      ? (cx,cy)=>{ if(!fitImage('post_office',cx,cy,76,76)) ph_building('post',cx,cy+34,66,72); }
+      ? (cx,cy)=>{ chip(cx,cy); if(!fitImage('post_office',cx,cy,84,84)) ph_building('post',cx,cy+34,72,78); }
       : b.id==='shop'
-        ? (cx,cy)=>glyphIcon('shop_bag',cx,cy,60,'#FFE0A0','#7a4a20')
-        : (cx,cy)=>flowerGlyph(cx,cy,64);
+        ? (cx,cy)=>{ chip(cx,cy); glyphIcon('shop_bag',cx,cy,68,'#FFE0A0','#7a4a20'); }
+        : (cx,cy)=>{ chip(cx,cy); flowerGlyph(cx,cy,72); };
     pill(b,'#fffdf6',col,6, iconFn,'#6a4a2a');
   }
   // wordless: "Pick a place" caption dropped (P0) — the 3 scene thumbnails read on their own
@@ -3879,12 +3889,14 @@ function drawCosmeticCard(c){
   const cx=F.cx, py=F.py-F.ph*0.06, pr=Math.min(70,F.pw*0.46);
   const spriteKey='cos-'+it.id.replace(/_/g,'-');
   ctx.save(); ctx.beginPath(); ctx.arc(cx,py,pr,0,7); ctx.fillStyle='#F7F1E4'; ctx.fill(); ctx.clip();
-  if(has(spriteKey)){
-    // real IN-CONTEXT preview art (hat ON a mini Poppu, skin ON a mini mailbox/conveyor, decor in a corner)
+  // FIX 7a: conveyor skins ALWAYS preview as a mini BELT (the cos-cv-* art is a seamless strip that,
+  // drawn square+circle-clipped, read as an abstract fabric swatch). Now it reads as a conveyor skin.
+  if(it.cat==='conveyor'){ ph_conveyor(cx,py,pr*2.5,pr*1.05); conveyorSkinOverlay(cx,py,pr*2.5,pr*1.05,it.id); }
+  else if(has(spriteKey)){
+    // real IN-CONTEXT preview art (hat ON a mini Poppu, skin ON a mini mailbox, decor in a corner)
     sprite(spriteKey,cx,py,pr*2.3,pr*2.3);
   } else if(it.cat==='hat'){ drawMiniPoppuHead(cx,py+16,pr*1.6); drawPoppuHat(cx,py-4,pr*1.8,it.id); }
   else if(it.cat==='mailbox'){ const fake={x:cx,y:py,w:pr*1.8,type:TYPES[3]}; mailboxSkinRing(fake,it.id); ph_mailbox(TYPES[3],cx,py,pr*1.35,0); }
-  else if(it.cat==='conveyor'){ ph_conveyor(cx,py,pr*2.3,40); conveyorSkinOverlay(cx,py,pr*2.3,40,it.id); }
   else { drawRoomCorner(cx,py);
     if(it.id==='dec_plant') drawIcon('cloud',cx,py,pr*1.35,'#5FB985','#3a6a4a');
     else if(it.id==='dec_poster'){ ctx.fillStyle='#fffdf6'; rr(cx-30,py-42,60,84,8); ctx.fill(); drawIcon('heart',cx,py,50,'#FF9DB6','#F06A8E'); }
