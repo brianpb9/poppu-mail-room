@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-9';
+const BUILD='20260708-10';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -618,6 +618,13 @@ ASSET_SRC['wrap_sticker_sheet']='assets/wrap-sticker-sheet.png';
    skin ON a mini mailbox/conveyor swatch, decor in a room corner), not a floating icon. Falls back
    to the existing procedural in-context placeholder (drawCosmeticCard) until real art lands. */
 COSMETICS.forEach(c=>{ ASSET_SRC['cos-'+c.id.replace(/_/g,'-')]='assets/cos-'+c.id.replace(/_/g,'-')+'.png'; });
+/* Baked friend-dress sprites — the friend's own on-model base sprite with a hat integrated naturally
+   onto their head (crown nestled in front of the horn, cowboy brim tilted, etc). Replaces the old
+   floating hat-overlay that read as a random hat balancing on them. Keyed dress-<friendkey>-<hatid>.
+   Only friends whose full 4-hat set is baked are listed here so the loader never 404s a missing one;
+   drawFriendBody falls back to base sprite + overlay hat for any friend not yet baked. */
+const DRESSED_FRIENDS=['heart'];
+['hat_chef','hat_cowboy','hat_pirate','hat_crown'].forEach(h=>DRESSED_FRIENDS.forEach(fk=>{ ASSET_SRC['dress-'+fk+'-'+h]='assets/dress-'+fk+'-'+h+'.png'; }));
 /* Friend-house illustrated interiors (Phase 1) — a cozy painted room per friend, keyed by house name */
 ['peeky','orby','zaza','wavey','puffy'].forEach(n=>{ ASSET_SRC['friendbg_'+n]='assets/bg-house-'+n+'.webp'; });
 /* Production raster pack (Phase 2) — 20 UI/glyph icons (ic_<name> -> assets/ic-<dashed>.png) and
@@ -2645,9 +2652,16 @@ function drawFriendBody(){
   const squishX=squishY!==0?1/squishY:1;   // volume-preserving — never looks like it lost mass
   const breathe=F.breathing?1.02+0.02*Math.sin(time*2*Math.PI/1.2):1;   // A8 entry breathing (cancels on first touch)
   const bob=Math.sin(time*1.6*flair.speed)*10+extraBob, key=fullBodyKey(t);
+  // Premium dress-up: if this friend has a hat equipped AND a baked (friend+hat) sprite exists, draw
+  // that single integrated image and SKIP the base sprite + floating overlay hat entirely. The baked
+  // image is exported at the base sprite's dims so it lands identically here. Falls back otherwise.
+  const equippedHat=SAVE.friendHats[F.id];
+  const dressKey=equippedHat?('dress-'+t.id+'-'+equippedHat):null;
+  const useDress=!!(dressKey&&has(dressKey));
+  const bodyKey=useDress?dressKey:key;
   ctx.save(); ctx.translate(FRIEND_POS.x,FRIEND_POS.y+bob);
   ctx.rotate(giggle); ctx.scale(squishX*breathe,squishY*breathe);
-  if(has(key)){ const im=IMG[key].img, hgt=460, w=hgt*(im.naturalWidth/im.naturalHeight||0.8);
+  if(has(bodyKey)){ const im=IMG[bodyKey].img, hgt=460, w=hgt*(im.naturalWidth/im.naturalHeight||0.8);
     groundShadow(0,hgt*0.42,w*0.32,hgt*0.05,0.22,0.5);
     ctx.drawImage(im,-w/2,-hgt/2,w,hgt);
   } else { groundShadow(0,190,150,32,0.22,0.5); ph_face(t,0,0,220); }
@@ -2668,7 +2682,7 @@ function drawFriendBody(){
   }
   ctx.restore();
   const hatId=SAVE.friendHats[F.id];
-  if(hatId){
+  if(hatId && !useDress){   // baked dress sprites carry the hat already — only the fallback needs the overlay
     const dp=F.hatDropT!=null?(1-F.hatDropT)/2.2:null;
     const fall=dp!=null ? -120*(1-easeOutBack(Math.min(1,dp/0.66))) : 0;   // drops in from above, lands with overshoot
     const landSquash=F.hatLandT!=null ? 1-0.12*F.hatLandT : 1;             // quick squash the instant it lands
