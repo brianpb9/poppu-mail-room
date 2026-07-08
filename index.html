@@ -568,7 +568,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-34';
+const BUILD='20260709-35';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -829,6 +829,24 @@ function glyphIcon(kind,cx,cy,s,fill,stroke){
   if(uiIcon(GLYPH_ICON_MAP[kind]||kind,cx,cy,s)) return true;
   drawIcon(kind,cx,cy,s,fill,stroke); return false;
 }
+/* TINTED raster-first glyph — draws the premium ic_<name> PNG but recolored to `tint` while KEEPING
+   the art's own 3D shading/luminance (canvas 'color' blend), so a state-colored slot (muted/empty
+   star, neutral shape-only hint, green garden watermark) stays real raster art instead of a flat
+   vector shape. Falls back to procedural drawIcon(tint,tint) when the PNG isn't loaded yet — never
+   breaks a frame. One reused offscreen canvas keeps it cheap for the handful of per-frame glyphs. */
+const _tintCv=document.createElement('canvas'); const _tintCx=_tintCv.getContext('2d');
+function tintIcon(kind,cx,cy,s,tint){
+  const k='ic_'+(GLYPH_ICON_MAP[kind]||kind);
+  if(!has(k)){ drawIcon(kind,cx,cy,s,tint,tint); return false; }
+  const px=Math.max(16,Math.ceil(s)); _tintCv.width=px; _tintCv.height=px;
+  const img=IMG[k].img;
+  _tintCx.globalCompositeOperation='source-over'; _tintCx.clearRect(0,0,px,px);
+  _tintCx.drawImage(img,0,0,px,px);
+  _tintCx.globalCompositeOperation='color'; _tintCx.fillStyle=tint; _tintCx.fillRect(0,0,px,px);
+  _tintCx.globalCompositeOperation='destination-in'; _tintCx.drawImage(img,0,0,px,px);
+  _tintCx.globalCompositeOperation='source-over';
+  ctx.drawImage(_tintCv,cx-s/2,cy-s/2,s,s); return true;
+}
 function drawText(txt,x,y,size,fill,stroke,align='center',weight='800',sw){
   ctx.save(); ctx.textAlign=align; ctx.textBaseline='middle';
   ctx.font=weight+' '+size+'px "Baloo 2","Arial Rounded MT Bold",system-ui,sans-serif';
@@ -865,7 +883,7 @@ function ph_package(type,x,y,s,golden){
   rr(-s*0.5,-s*0.5,s,s,s*0.14); ctx.fill(); ctx.stroke();
   ctx.fillStyle=light; rr(-s*0.5,-s*0.5,s,s*0.32,s*0.14); ctx.fill();
   ctx.fillStyle=deep; ctx.fillRect(-s*0.09,-s*0.5,s*0.18,s);
-  drawIcon(type.icon,0,s*0.06,s*0.5,light,'#5a3d24');
+  glyphIcon(type.icon,0,s*0.06,s*0.5,light,'#5a3d24');
   ctx.restore();
 }
 function ph_mailbox(type,x,y,s,glow){
@@ -876,7 +894,7 @@ function ph_mailbox(type,x,y,s,glow){
   ctx.beginPath(); ctx.moveTo(-s*0.42,s*0.28); ctx.lineTo(-s*0.42,-s*0.05);
   ctx.arc(0,-s*0.05,s*0.42,Math.PI,0); ctx.lineTo(s*0.42,s*0.28); ctx.closePath(); ctx.fill(); noShadow(); ctx.stroke();
   ctx.fillStyle=type.light; ctx.beginPath(); ctx.ellipse(0,-s*0.02,s*0.26,s*0.24,0,0,7); ctx.fill(); ctx.stroke();
-  drawIcon(type.icon,0,-s*0.02,s*0.3,type.deep,'#5a3d24');
+  glyphIcon(type.icon,0,-s*0.02,s*0.3,type.deep,'#5a3d24');
   ctx.fillStyle='#3a2a1a'; rr(-s*0.2,-s*0.24,s*0.4,s*0.06,s*0.03); ctx.fill();
   ctx.restore();
 }
@@ -888,7 +906,7 @@ function ph_face(type,x,y,s){
   ctx.fillStyle='#3a2a1a'; for(const sx of[-1,1]){ ctx.beginPath(); ctx.arc(sx*s*0.16,-s*0.05,s*0.08,0,7); ctx.fill(); }
   ctx.fillStyle='#FF9DB6'; ctx.beginPath(); ctx.arc(-s*0.28,s*0.08,s*0.08,0,7); ctx.arc(s*0.28,s*0.08,s*0.08,0,7); ctx.fill();
   ctx.strokeStyle='#5a3d24'; ctx.lineWidth=s*0.04; ctx.beginPath(); ctx.arc(0,s*0.05,s*0.12,0.15,Math.PI-0.15); ctx.stroke();
-  drawIcon(type.icon,0,-s*0.62,s*0.22,type.deep,'#5a3d24');
+  glyphIcon(type.icon,0,-s*0.62,s*0.22,type.deep,'#5a3d24');
   ctx.restore();
 }
 function ph_poppu(pose,x,y,s){
@@ -1067,12 +1085,12 @@ function drawPoppuHat(x,y,s,id){
   else if(id==='hat_pirate'){ ctx.fillStyle='#33313a'; ctx.beginPath();
       ctx.moveTo(-s*0.42,s*0.08); ctx.quadraticCurveTo(0,-s*0.34,s*0.42,s*0.08);
       ctx.quadraticCurveTo(0,-s*0.02,-s*0.42,s*0.08); ctx.fill(); ctx.stroke();
-      drawIcon('star',0,-s*0.06,s*0.2,'#fff','#fff'); }
+      glyphIcon('star',0,-s*0.06,s*0.2,'#fff','#fff'); }
   else if(id==='hat_crown'){ ctx.fillStyle='#FFD54A'; ctx.beginPath();
       ctx.moveTo(-s*0.3,s*0.1); ctx.lineTo(-s*0.3,-s*0.1); ctx.lineTo(-s*0.15,s*0.02); ctx.lineTo(0,-s*0.18);
       ctx.lineTo(s*0.15,s*0.02); ctx.lineTo(s*0.3,-s*0.1); ctx.lineTo(s*0.3,s*0.1); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.fillStyle='#F06A8E'; ctx.beginPath(); ctx.arc(0,s*0.0,s*0.05,0,7); ctx.fill(); }
-  else if(id==='hat_gold'){ drawIcon('star',0,0,s*0.5,'#FFD54A','#E3A93E'); }
+  else if(id==='hat_gold'){ glyphIcon('star',0,0,s*0.5,'#FFD54A','#E3A93E'); }
   ctx.restore();
 }
 function mailboxSkinRing(b,skin){
@@ -1126,7 +1144,7 @@ function drawCategoryThumb(catId,cx,cy,r){
     // unreadable sliver inside this square chip
     if(!coverImage('conveyor',cx,cy,r*1.8,r*1.8)) ph_conveyor(cx,cy,r*1.8,r*0.6); }
   else { // decor
-    if(!sprite('cos-dec-plant',cx,cy,r*1.7,r*1.7)) drawIcon('cloud',cx,cy,r*1.3,'#5FB985','#3a6a4a'); }
+    if(!sprite('cos-dec-plant',cx,cy,r*1.7,r*1.7)) tintIcon('cloud',cx,cy,r*1.3,'#5FB985'); }
   ctx.restore();
 }
 /* raster-first decor piece — draws cos-dec-<name> at its natural aspect, fit to targetW, anchored per
@@ -1151,7 +1169,7 @@ function drawDecor(id){
       ctx.save(); ctx.translate(560,300);
       shadow(16,'rgba(0,0,0,0.2)',0,8); ctx.fillStyle='#fffdf6'; rr(-90,-120,180,240,14); ctx.fill(); noShadow();
       ctx.strokeStyle='#B79BEA'; ctx.lineWidth=8; rr(-90,-120,180,240,14); ctx.stroke();
-      drawIcon('heart',0,-30,120,'#FF9DB6','#F06A8E'); drawText('POPPU',0,80,40,'#8E6FD6',null); ctx.restore(); }
+      glyphIcon('heart',0,-30,120,'#FF9DB6','#F06A8E'); drawText('POPPU',0,80,40,'#8E6FD6',null); ctx.restore(); }
 }
 
 /* --------------------------------------------------------------- LAYOUT */
@@ -2281,8 +2299,8 @@ function drawBow(x,y,s,col){
 function ph_wrapBg(){
   const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#FFE9F1'); g.addColorStop(1,'#FFD7E4');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-  ctx.save(); ctx.globalAlpha=0.14; ctx.fillStyle='#fff';
-  for(let x=80;x<W;x+=220) for(let y=80;y<H;y+=220) drawIcon('heart',x,y,60,'#fff','#fff');
+  ctx.save(); ctx.globalAlpha=0.14;
+  for(let x=80;x<W;x+=220) for(let y=80;y<H;y+=220) tintIcon('heart',x,y,60,'#FFE1EC');
   ctx.restore();
 }
 /* soft cream work-MAT that groups the 3 decorate steps into ONE obvious station (kills the old
@@ -2391,7 +2409,7 @@ function drawWrapBoxScene(){
     ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,isz*0.5,0,7); ctx.fill(); noShadow();
     const skey='ic_'+wrapBox.sticker;
     if(has(skey)) ctx.drawImage(IMG[skey].img,-isz/2,-isz/2,isz,isz);
-    else { const gp=WRAP_STICKER_PAL[wrapBox.sticker]||['#FFD15C','#E3A93E']; drawIcon(wrapBox.sticker,0,0,isz*0.82,gp[0],gp[1]); }
+    else { const gp=WRAP_STICKER_PAL[wrapBox.sticker]||['#FFD15C','#E3A93E']; glyphIcon(wrapBox.sticker,0,0,isz*0.82,gp[0],gp[1]); }
     ctx.restore();
   } else {
     // inviting sticker PREVIEW affordance (board polish) — a FILLED soft sticker disc with a clearly
@@ -2800,14 +2818,14 @@ function drawFriendFeedAnim(){
     ctx.beginPath(); ctx.ellipse(FRIEND_POS.x,FRIEND_POS.y+170,r,r*0.35,0,0,7); ctx.stroke(); ctx.restore();
   } else if(id==='moon' && t>=0.72 && t<1.2){
     for(let i=0;i<3;i++){ const ph=t-0.72-i*0.16; if(ph>0&&ph<0.5){ const e=easeOutBack(Math.min(1,ph/0.3)), fade=Math.max(0,1-ph/0.5);
-      ctx.save(); ctx.globalAlpha=fade; drawIcon('star',FRIEND_POS.x+(i-1)*70,FRIEND_POS.y-220-i*18,30*Math.max(0,e),'#FFF3C4','#E6DBFF'); ctx.restore(); } }
+      ctx.save(); ctx.globalAlpha=fade; glyphIcon('star',FRIEND_POS.x+(i-1)*70,FRIEND_POS.y-220-i*18,30*Math.max(0,e),'#FFF3C4','#E6DBFF'); ctx.restore(); } }
   } else if(id==='heart' && t>=0.58 && t<1.3){
     for(let i=0;i<3;i++){ const ph=t-0.58-i*0.22; if(ph>0&&ph<0.7){ const rise=ph/0.7;
-      ctx.save(); ctx.globalAlpha=Math.max(0,1-rise); drawIcon('heart',FRIEND_POS.x+(i-1)*36,FRIEND_POS.y-140-rise*90,26,FRIEND_FLAIR.heart.col,'#F06A8E'); ctx.restore(); } }
+      ctx.save(); ctx.globalAlpha=Math.max(0,1-rise); glyphIcon('heart',FRIEND_POS.x+(i-1)*36,FRIEND_POS.y-140-rise*90,26,FRIEND_FLAIR.heart.col,'#F06A8E'); ctx.restore(); } }
   } else if(id==='cloud' && t>=0.58 && t<1.3){
     const pp=t-0.58;
     for(let i=0;i<2;i++){ const ph=pp-i*0.3; if(ph>0){ const fade=Math.max(0,1-ph*1.4);
-      ctx.save(); ctx.globalAlpha=fade*0.7; drawIcon('cloud',FRIEND_POS.x+(i?70:-70),FRIEND_POS.y-160-ph*60,40,'#fff',FRIEND_FLAIR.cloud.col); ctx.restore(); } }
+      ctx.save(); ctx.globalAlpha=fade*0.7; glyphIcon('cloud',FRIEND_POS.x+(i?70:-70),FRIEND_POS.y-160-ph*60,40,'#fff',FRIEND_FLAIR.cloud.col); ctx.restore(); } }
   }
 }
 function drawFriendItemTray(){
@@ -3476,9 +3494,10 @@ function drawBoxTag(b,hint,shapeOnly){
     ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(tx,ty,r*0.80,0,7); ctx.fill();
     ctx.lineWidth=r*0.12; ctx.strokeStyle=type.deep; ctx.stroke();
     ctx.save(); ctx.globalAlpha=0.35; ctx.fillStyle=type.light; ctx.beginPath(); ctx.ellipse(tx,ty-r*0.28,r*0.42,r*0.22,0,0,7); ctx.fill(); ctx.restore(); }
-  // shape hint: on SHAPE-ONLY levels draw the glyph procedurally so it honours the neutral ink (the
-  // raster ic_ icons are colored and would leak a color cue); otherwise use the premium raster glyph.
-  else if(hint==='shape'){ if(shapeOnly) drawIcon(type.icon,tx,ty,r*1.25,midC,deepC); else glyphIcon(type.icon,tx,ty,r*1.25,midC,deepC); }
+  // shape hint: on SHAPE-ONLY levels tint the premium raster glyph to the neutral tan ink so it gives
+  // NO colour cue (pure shape read) yet stays real raster art, never a flat vector shape; otherwise
+  // draw the glyph in its natural premium raster colours.
+  else if(hint==='shape'){ if(shapeOnly) tintIcon(type.icon,tx,ty,r*1.25,'#B79572'); else glyphIcon(type.icon,tx,ty,r*1.25,midC,deepC); }
   else drawFaceCircle(type,tx,ty,r*0.9);
   ctx.restore();
 }
@@ -3697,8 +3716,8 @@ function drawClearBeat(){
   for(let i=0;i<3;i++){ const fx=cx+(i-1)*160, filled=i<doneScreen.stars, appT=0.35+i*0.42;
     if(filled && clearBeatT>=appT){ const pp=Math.min(1,(clearBeatT-appT)/0.32), sc=easeOutBack(pp);
       ctx.save(); ctx.translate(fx,starY); ctx.scale(sc,sc);
-      shadow(16,'rgba(227,150,40,0.6)',0,3); drawIcon('star',0,0,116,'#FFCB2E','#C67C15'); noShadow(); ctx.restore();
-    } else { drawIcon('star',fx,starY,102,'#ECE1CA','#CFC0A0'); }   // muted empty / not-yet-landed slot
+      shadow(16,'rgba(227,150,40,0.6)',0,3); glyphIcon('star',0,0,116,'#FFCB2E','#C67C15'); noShadow(); ctx.restore();
+    } else { tintIcon('star',fx,starY,102,'#E7DAC0'); }   // muted empty / not-yet-landed slot (raster, tinted cream)
   }
   // packets-delivered tally
   if(clearBeatT>1.55){ const a=Math.min(1,(clearBeatT-1.55)/0.3), y=cy+70; ctx.save(); ctx.globalAlpha=a;
@@ -3707,12 +3726,12 @@ function drawClearBeat(){
     drawText('×'+dc,cx-40,y,56,'#7a5a34','#fff','left','800',8); ctx.restore(); }
   // stamps-earned tally
   if(clearBeatT>1.95){ const a=Math.min(1,(clearBeatT-1.95)/0.3), y=cy+160; ctx.save(); ctx.globalAlpha=a;
-    drawIcon('star',cx-96,y,60,'#FFCB2E','#C67C15');
+    glyphIcon('star',cx-96,y,60,'#FFCB2E','#C67C15');
     drawText('+'+doneScreen.stamps,cx-52,y,56,'#E3A93E','#fff','left','800',8); ctx.restore(); }
   ctx.restore();
   // wordless "tap to keep going" chevron below the card
   if(clearBeatT>1.7){ const bob=Math.sin(time*4)*6;
-    ctx.save(); ctx.globalAlpha=0.55+0.4*Math.sin(time*3); drawIcon('arrow',cx,bottom+52+bob,64,'#F4A93E','#E3A93E'); ctx.restore(); }
+    ctx.save(); ctx.globalAlpha=0.55+0.4*Math.sin(time*3); ctx.translate(cx,bottom+52+bob); ctx.rotate(Math.PI/2); glyphIcon('arrow',0,0,64,'#F4A93E','#E3A93E'); ctx.restore(); }
 }
 
 /* ------------------------------------------------------------- RENDER: START */
@@ -3854,19 +3873,21 @@ function drawLevelMap(){
     if(unlocked && has('node_medallion')){
       ctx.save(); shadow(16,'rgba(90,61,36,0.22)',0,9);
       ctx.drawImage(IMG.node_medallion.img,nd.x-D/2,nd.y-D/2,D,D); noShadow(); ctx.restore();
-      // mechanic icon centered in the cream panel — FIX 1a: the pale ic_stamp / ic_seal rasters read
-      // as faint tan-on-cream, so draw those two procedurally in FULL rich gold with a dark outline for
-      // unmistakable contrast; the already-vivid rasters (star/crown/bolt) keep their art.
-      { const ic=levelIcon(L);
-        if(ic==='stamp'||ic==='seal') drawIcon(ic,nd.x,nd.y+D*0.03,D*0.34,'#F5B324','#7A491A');
-        else glyphIcon(ic,nd.x,nd.y+D*0.03,D*0.34,'#F4CE7A','#E3A93E'); }
-      // 3 rating stars arced across the upper cream panel — FIX 2: drawn PROCEDURALLY so the colours
-      // actually apply (glyphIcon draws the fixed pale ic_star raster, ignoring fill → filled looked
-      // identical to empty). Earned = vibrant full-gold w/ dark-gold outline; empty = muted cream.
+      // mechanic icon centered in the cream panel — premium RASTER glyph on a soft honey chip so the
+      // paler rasters (ic_seal / ic_stamp) still read with contrast on the cream medallion, never a
+      // flat vector shape (founder: zero vector). Pale-reading kinds get the backing chip; vivid ones
+      // (star/crown/bolt/eye/box) sit straight on the panel.
+      { const ic=levelIcon(L), gy=nd.y+D*0.03, gs=D*0.34;
+        if(ic==='stamp'||ic==='seal'){
+          ctx.save(); shadow(5,'rgba(122,73,26,0.28)',0,2);
+          ctx.fillStyle='#FBE4B0'; ctx.beginPath(); ctx.arc(nd.x,gy,gs*0.62,0,7); ctx.fill(); noShadow();
+          ctx.lineWidth=Math.max(2,gs*0.05); ctx.strokeStyle='#E3A93E'; ctx.stroke(); ctx.restore(); }
+        glyphIcon(ic,nd.x,gy,gs,'#F4CE7A','#E3A93E'); }
+      // 3 rating stars arced across the upper cream panel — premium RASTER: earned = the vivid gold
+      // ic_star; empty = the SAME raster tinted muted cream (keeps the art's shading, never a flat ring)
       for(let s=0;s<3;s++){ const f=s<stars;
-        if(f){ ctx.save(); shadow(6,'rgba(227,150,40,0.5)',0,1); }
-        drawIcon('star',nd.x+(s-1)*D*0.17,nd.y-D*0.30,D*0.155,f?'#FFCB2E':'#ECE1CA',f?'#C67C15':'#CFC0A0');
-        if(f){ noShadow(); ctx.restore(); } }
+        if(f){ ctx.save(); shadow(6,'rgba(227,150,40,0.5)',0,1); glyphIcon('star',nd.x+(s-1)*D*0.17,nd.y-D*0.30,D*0.185,'#FFCB2E','#C67C15'); noShadow(); ctx.restore(); }
+        else tintIcon('star',nd.x+(s-1)*D*0.17,nd.y-D*0.30,D*0.185,'#E1D4BB'); }
     } else if(!unlocked && has('node_locked')){
       const bob=Math.sin(time*1.6+nd.n)*2;   // gentle "sleeping" breathe, never static/broken
       ctx.save(); shadow(14,'rgba(90,61,36,0.18)',0,8);
@@ -3910,10 +3931,10 @@ function drawMapBanner(cx,cy){
   ctx.fillStyle=g; rr(x,y,w,h,26); ctx.fill(); noShadow();
   ctx.lineWidth=8; ctx.strokeStyle='#B9772E'; rr(x,y,w,h,26); ctx.stroke();
   ctx.lineWidth=3; ctx.strokeStyle='rgba(255,255,255,0.5)'; rr(x+9,y+9,w-18,h-18,18); ctx.stroke();
-  // envelope motif flanked by 2 stars
-  drawIcon('seal',cx,cy+4,58,'#FFF6E0','#7A491A');
-  drawIcon('star',cx-120,cy,44,'#FFCB2E','#C67C15');
-  drawIcon('star',cx+120,cy,44,'#FFCB2E','#C67C15');
+  // envelope motif flanked by 2 stars — premium raster glyphs
+  glyphIcon('envelope',cx,cy+4,66,'#FFF6E0','#7A491A');
+  glyphIcon('star',cx-120,cy,48,'#FFCB2E','#C67C15');
+  glyphIcon('star',cx+120,cy,48,'#FFCB2E','#C67C15');
   ctx.restore();
 }
 
@@ -4008,8 +4029,8 @@ function drawCosmeticCard(c){
   } else if(it.cat==='hat'){ drawMiniPoppuHead(cx,py+16,pr*1.6); drawPoppuHat(cx,py-4,pr*1.8,it.id); }
   else if(it.cat==='mailbox'){ const fake={x:cx,y:py,w:pr*1.8,type:TYPES[3]}; mailboxSkinRing(fake,it.id); ph_mailbox(TYPES[3],cx,py,pr*1.35,0); }
   else { drawRoomCorner(cx,py);
-    if(it.id==='dec_plant') drawIcon('cloud',cx,py,pr*1.35,'#5FB985','#3a6a4a');
-    else if(it.id==='dec_poster'){ ctx.fillStyle='#fffdf6'; rr(cx-30,py-42,60,84,8); ctx.fill(); drawIcon('heart',cx,py,50,'#FF9DB6','#F06A8E'); }
+    if(it.id==='dec_plant'){ if(!sprite('cos-dec-plant',cx,py,pr*1.5,pr*1.5)) tintIcon('cloud',cx,py,pr*1.35,'#5FB985'); }
+    else if(it.id==='dec_poster'){ ctx.fillStyle='#fffdf6'; rr(cx-30,py-42,60,84,8); ctx.fill(); glyphIcon('heart',cx,py,50,'#FF9DB6','#F06A8E'); }
     else { ctx.fillStyle='#E39B6E'; ctx.beginPath(); ctx.ellipse(cx,py,60,26,0,0,7); ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=6; ctx.stroke(); } }
   ctx.restore();
   ctx.lineWidth=5; ctx.strokeStyle='#d9c4a0'; ctx.beginPath(); ctx.arc(cx,py,pr,0,7); ctx.stroke();
@@ -4113,8 +4134,8 @@ function drawSticker(){
   // FIX 1b: SOLID warm garden-paper background (was a ~0.95 cream ghost wash over the mail-room).
   const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#FFF6E6'); g.addColorStop(0.6,'#FBEBD2'); g.addColorStop(1,'#F3E0C4');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-  ctx.save(); ctx.globalAlpha=0.05; ctx.fillStyle='#8FCF9E';
-  for(let x=110;x<W;x+=200) for(let y=120;y<H;y+=200) drawIcon('heart',x,y,54,'#8FCF9E','#8FCF9E');
+  ctx.save(); ctx.globalAlpha=0.05;
+  for(let x=110;x<W;x+=200) for(let y=120;y<H;y+=200) tintIcon('heart',x,y,54,'#8FCF9E');
   ctx.restore();
   // wordless (P0): "My Garden" header dropped — the flower grid reads on its own.
   // wordless (P0): "N blooms grown" -> a flower icon + the bare numeral (no words).
@@ -4139,7 +4160,7 @@ function drawSticker(){
       const lbob=Math.sin(time*1.2+i*0.7)*3;
       drawEmptyGardenSlot(cx,cy,dataIdx,lbob);
       const sp=(Math.sin(time*1.6+i*2.1)+1)/2;   // 0..1, staggered per slot so twinkles don't blink in unison
-      if(sp>0.74){ ctx.save(); ctx.globalAlpha=(sp-0.74)/0.26; drawIcon('star',cx-46,cy-46+lbob,26,'#FFD15C','#fff'); ctx.restore(); }
+      if(sp>0.74){ ctx.save(); ctx.globalAlpha=(sp-0.74)/0.26; glyphIcon('star',cx-46,cy-46+lbob,26,'#FFD15C','#fff'); ctx.restore(); }
     }
     ctx.restore();
   }
@@ -4194,8 +4215,8 @@ function ph_building(id,cx,groundY,w,h){
   ctx.fillStyle=cols.roof; ctx.beginPath(); ctx.moveTo(-w*0.52,-bh); ctx.lineTo(0,-h); ctx.lineTo(w*0.52,-bh); ctx.closePath(); ctx.fill(); ctx.stroke();
   ctx.fillStyle='#8a5a34'; rr(-w*0.09,-bh*0.42,w*0.18,bh*0.42,w*0.03); ctx.fill();
   ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,-bh*0.68,w*0.13,0,7); ctx.fill(); ctx.stroke();
-  if(id==='post'){ drawIcon('star',0,-bh*0.68,w*0.14,cols.roof,'#5a3d24'); }
-  else if(friendType){ drawIcon(friendType.icon,0,-bh*0.68,w*0.14,cols.roof,'#5a3d24'); }
+  if(id==='post'){ glyphIcon('star',0,-bh*0.68,w*0.14,cols.roof,'#5a3d24'); }
+  else if(friendType){ glyphIcon(friendType.icon,0,-bh*0.68,w*0.14,cols.roof,'#5a3d24'); }
   ctx.restore();
 }
 /* ---- locked-building "sleeping" tint — masked to the sprite's OWN alpha, never a hard rectangle ----
@@ -4353,7 +4374,7 @@ function drawTownBuilding(b){
     ctx.save(); ctx.translate(bx,by); ctx.scale(pulse,pulse);
     const cache=newBadgeCanvas();
     if(cache) ctx.drawImage(cache,-bs/2,-bs/2,bs,bs);
-    else { shadow(10,'rgba(0,0,0,0.2)',0,4); ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,0,bs*0.5,0,7); ctx.fill(); noShadow(); drawIcon('star',0,0,bs*0.73,'#FFD15C','#E3A93E'); }
+    else { shadow(10,'rgba(0,0,0,0.2)',0,4); ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,0,bs*0.5,0,7); ctx.fill(); noShadow(); glyphIcon('star',0,0,bs*0.73,'#FFD15C','#E3A93E'); }
     ctx.restore();
   }
 }
@@ -4887,7 +4908,7 @@ function ph_truck(){
   ctx.strokeStyle='#5a3d24'; ctx.lineWidth=6; ctx.lineJoin='round';
   ctx.fillStyle='#FFD15C'; rr(-90,-50,180,100,24); ctx.fill(); ctx.stroke();
   ctx.fillStyle='#fff'; rr(-70,-40,60,50,10); ctx.fill(); ctx.stroke();
-  drawIcon('star',30,-4,60,'#F06A8E','#5a3d24');
+  glyphIcon('star',30,-4,60,'#F06A8E','#5a3d24');
   ctx.fillStyle='#3a2a1a'; ctx.beginPath(); ctx.arc(-55,52,20,0,7); ctx.arc(55,52,20,0,7); ctx.fill();
 }
 function drawTruck(){
@@ -4992,10 +5013,10 @@ function drawDriveArrival(){
 function drawDriveFriendAccent(id,t,hugP){
   if(id==='moon'){
     for(let i=0;i<3;i++){ const ph=t-1.1-i*0.32; if(ph>0&&ph<0.6){ const e=easeOutBack(Math.min(1,ph/0.3)), fade=Math.max(0,1-ph/0.6);
-      ctx.save(); ctx.globalAlpha=fade; drawIcon('star',1010+(i-1)*60,380-i*20,26*Math.max(0,e),'#FFF3C4','#E6DBFF'); ctx.restore(); } }
+      ctx.save(); ctx.globalAlpha=fade; glyphIcon('star',1010+(i-1)*60,380-i*20,26*Math.max(0,e),'#FFF3C4','#E6DBFF'); ctx.restore(); } }
   } else if(id==='heart'){
     for(let i=0;i<3;i++){ const ph=t-1.0-i*0.24; if(ph>0&&ph<0.7){ const rise=ph/0.7;
-      ctx.save(); ctx.globalAlpha=Math.max(0,1-rise); drawIcon('heart',1010+(i-1)*34,420-rise*80,22,'#FF9DB6','#F06A8E'); ctx.restore(); } }
+      ctx.save(); ctx.globalAlpha=Math.max(0,1-rise); glyphIcon('heart',1010+(i-1)*34,420-rise*80,22,'#FF9DB6','#F06A8E'); ctx.restore(); } }
   } else if(id==='drop'){
     if(hugP>=1){ const rp=Math.min(1,Math.max(0,(t-1.3)/0.4));
       if(rp>0&&rp<1){ const rebHop=Math.sin(rp*Math.PI)*10;
@@ -5003,7 +5024,7 @@ function drawDriveFriendAccent(id,t,hugP){
         ctx.beginPath(); ctx.ellipse(DRIVE_FRIEND_LAND.x,912,20+rp*140,(20+rp*140)*0.3,0,0,7); ctx.stroke(); ctx.restore(); } }
   } else if(id==='cloud'){
     for(let i=0;i<2;i++){ const ph=t-1.0-i*0.3; if(ph>0){ const fade=Math.max(0,1-ph*1.2);
-      ctx.save(); ctx.globalAlpha=fade*0.7; drawIcon('cloud',1010+(i?60:-60),400-ph*50,36,'#fff','#C4E9D4'); ctx.restore(); } }
+      ctx.save(); ctx.globalAlpha=fade*0.7; glyphIcon('cloud',1010+(i?60:-60),400-ph*50,36,'#fff','#C4E9D4'); ctx.restore(); } }
   }
 }
 /* word-free hug payoff — a heart pop (every arrival) or a bigger heart+star pop on a full/near-full
