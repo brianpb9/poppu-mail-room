@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-12';
+const BUILD='20260708-13';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -623,7 +623,7 @@ COSMETICS.forEach(c=>{ ASSET_SRC['cos-'+c.id.replace(/_/g,'-')]='assets/cos-'+c.
    floating hat-overlay that read as a random hat balancing on them. Keyed dress-<friendkey>-<hatid>.
    Only friends whose full 4-hat set is baked are listed here so the loader never 404s a missing one;
    drawFriendBody falls back to base sprite + overlay hat for any friend not yet baked. */
-const DRESSED_FRIENDS=['heart','gear','moon'];
+const DRESSED_FRIENDS=['heart','gear','moon','drop'];
 ['hat_chef','hat_cowboy','hat_pirate','hat_crown'].forEach(h=>DRESSED_FRIENDS.forEach(fk=>{ ASSET_SRC['dress-'+fk+'-'+h]='assets/dress-'+fk+'-'+h+'.png'; }));
 /* Friend-house illustrated interiors (Phase 1) — a cozy painted room per friend, keyed by house name */
 ['peeky','orby','zaza','wavey','puffy'].forEach(n=>{ ASSET_SRC['friendbg_'+n]='assets/bg-house-'+n+'.webp'; });
