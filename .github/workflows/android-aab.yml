@@ -48,6 +48,10 @@ jobs:
           # auto-increment versionCode (Play rejects a reused code) using the CI run number
           sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" android/app/build.gradle
           grep -E "versionCode|versionName" android/app/build.gradle
+          # Lock the app to LANDSCAPE (the game is landscape-only) — add screenOrientation to MainActivity
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          grep -q 'screenOrientation' "$MANIFEST" || sed -i '0,/<activity /s//<activity android:screenOrientation="sensorLandscape" /' "$MANIFEST"
+          grep -o 'screenOrientation="[^"]*"' "$MANIFEST" || echo "orientation attr not set!"
 
       # Reuse a stable upload key across builds if provided as a secret; otherwise
       # generate one so the first build is Play-uploadable. If generated, DOWNLOAD

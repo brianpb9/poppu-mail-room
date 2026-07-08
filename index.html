@@ -18,10 +18,24 @@
     touch-action:none;overscroll-behavior:none;font-family:'Baloo 2','Nunito',system-ui,sans-serif;}
   #stage{position:fixed;inset:0;display:block;width:100%;height:100%;}
   canvas{display:block;position:absolute;left:0;top:0;image-rendering:auto;}
+  /* Landscape-only game: when the device is held portrait, hide the game and ask to rotate. */
+  #rotate{display:none;}
+  @media (orientation:portrait) and (max-width:900px){
+    #stage{visibility:hidden;}
+    #rotate{display:flex;position:fixed;inset:0;z-index:99999;background:#F6EAD6;
+      flex-direction:column;align-items:center;justify-content:center;gap:26px;text-align:center;padding:24px;
+      font-family:'Baloo 2','Nunito',system-ui,sans-serif;}
+    #rotate .ph{width:76px;height:130px;border:8px solid #E3A93E;border-radius:18px;background:#fffdf6;
+      box-shadow:0 10px 26px rgba(0,0,0,.12);animation:rot 2s ease-in-out infinite;}
+    #rotate b{font-size:26px;color:#7a5a34;font-weight:800;}
+    #rotate span{font-size:16px;color:#a88a5c;font-weight:700;}
+  }
+  @keyframes rot{0%,35%{transform:rotate(0)}55%,100%{transform:rotate(90deg)}}
 </style>
 </head>
 <body>
 <div id="stage"><canvas id="game"></canvas></div>
+<div id="rotate" aria-hidden="true"><i class="ph"></i><b>Putar HP ke samping&nbsp;↻</b><span>Rotate to landscape to play&nbsp;🦊📮</span></div>
 <script>
 "use strict";
 /* ============================================================================
@@ -178,6 +192,8 @@ function loadSave(){
     if(!s || typeof s!=='object' || Array.isArray(s)) return defaultSave();
     const base = defaultSave();
     for(const k in base) if(!(k in s)) s[k]=base[k];
+    if(!s.upgrades||typeof s.upgrades!=='object'||Array.isArray(s.upgrades)) s.upgrades={...base.upgrades};
+    if(!s.equipped||typeof s.equipped!=='object'||Array.isArray(s.equipped)) s.equipped={...base.equipped};
     for(const k in base.upgrades) if(!(k in s.upgrades)) s.upgrades[k]=base.upgrades[k];
     for(const k in base.equipped) if(!(k in s.equipped)) s.equipped[k]=base.equipped[k];
     if(!s.unlocks || typeof s.unlocks!=='object' || Array.isArray(s.unlocks)) s.unlocks={};
@@ -187,6 +203,7 @@ function loadSave(){
     if(!s.driveCollection || typeof s.driveCollection!=='object' || Array.isArray(s.driveCollection)) s.driveCollection={};
     if(!s.driveCollectionTier || typeof s.driveCollectionTier!=='object' || Array.isArray(s.driveCollectionTier)) s.driveCollectionTier={};
     if(!s.friendGiftGiven || typeof s.friendGiftGiven!=='object' || Array.isArray(s.friendGiftGiven)) s.friendGiftGiven={};
+    if(typeof s.stamps!=='number' || !isFinite(s.stamps) || s.stamps<0) s.stamps=0;
     if(typeof s.wrapQueue!=='number' || s.wrapQueue<0) s.wrapQueue=0;
     if(typeof s.wrappedCount!=='number' || s.wrappedCount<0) s.wrappedCount=0;
     if(typeof s.driveVisits!=='number' || s.driveVisits<0) s.driveVisits=0;
@@ -530,7 +547,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260707-4';
+const BUILD='20260708-1';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
