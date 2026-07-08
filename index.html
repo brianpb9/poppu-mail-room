@@ -557,7 +557,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-31';
+const BUILD='20260708-32';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1189,7 +1189,7 @@ function buildingHitRect(b){ const pad=18; return { x:b.cx-b.w/2-pad, y:b.ground
 /* contact-shadow ground line per building — cy == groundY (base sits ON the clearing now), rw ~ 0.44*w.
    Deliberately NOT bobbed, and stronger than the old flat oval, so each house reads as planted. */
 const TOWN_BUILDING_SHADOW = {
-  post:  { cx:420,  cy:888, rw:252, rh:52, a:0.40 },
+  post:  { cx:420,  cy:838, rw:236, rh:46, a:0.42 },   // FLOAT FIX: post-office.png has 46px transparent bottom-pad, so its visual base sits ~54px above groundY; the shadow was landing 54px BELOW the base (house floating over a detached shadow). Move the shadow UP to hug the actual base (~y834).
   heart: { cx:735,  cy:672, rw:70,  rh:16, a:0.34 },
   wrap:  { cx:980,  cy:748, rw:186, rh:40, a:0.40 },
   peeky: { cx:1560, cy:628, rw:150, rh:32, a:0.40 },
