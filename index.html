@@ -31,10 +31,21 @@
     #rotate span{font-size:16px;color:#a88a5c;font-weight:700;}
   }
   @keyframes rot{0%,35%{transform:rotate(0)}55%,100%{transform:rotate(90deg)}}
+  /* Launch intro: two fullscreen videos (studio bumper, then Poppu bumper) above the canvas.
+     z-index below #rotate (99999) so the rotate-to-landscape overlay still wins in portrait. */
+  #intro{position:fixed;inset:0;z-index:9000;background:#0d0a06;display:flex;
+    align-items:center;justify-content:center;overflow:hidden;cursor:pointer;}
+  #introVid{width:100%;height:100%;object-fit:contain;background:#0d0a06;}
+  #introSkip{position:absolute;right:22px;bottom:20px;z-index:2;pointer-events:none;
+    min-width:62px;height:62px;padding:0 14px;border-radius:34px;background:rgba(20,14,8,0.34);
+    display:flex;align-items:center;justify-content:center;gap:2px;color:#fff;
+    font-size:26px;font-weight:800;letter-spacing:-3px;line-height:1;
+    box-shadow:0 3px 12px rgba(0,0,0,.35);opacity:.9;}
 </style>
 </head>
 <body>
 <div id="stage"><canvas id="game"></canvas></div>
+<div id="intro"><video id="introVid" playsinline webkit-playsinline muted preload="auto"></video><div id="introSkip">▷▷</div></div>
 <div id="rotate" aria-hidden="true"><i class="ph"></i><b>Putar HP ke samping&nbsp;↻</b><span>Rotate to landscape to play&nbsp;🦊📮</span></div>
 <script>
 "use strict";
@@ -557,7 +568,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-32';
+const BUILD='20260708-33';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -673,6 +684,10 @@ const POPPU_DRESSED_POSES=['wave','postal','celebrate'];
 ASSET_SRC['drive_bunny']='assets/drive-bunny.png';
 ASSET_SRC['node_medallion']='assets/node-medallion.png';
 ASSET_SRC['node_locked']='assets/node-locked.png';
+/* Founder-provided finished title logo (clean transparent-alpha sticker: "POPPU'S MAIL" + mailbox +
+   envelopes + "Sort • Deliver • Smile" ribbon). Replaces the procedural START title text; has()-gated
+   so a missing/loading PNG falls back to the old drawText title below. */
+ASSET_SRC['title_logo']='assets/title-logo.png';
 const IMG={}; let loadedCount=0, totalToLoad=Object.keys(ASSET_SRC).length, loadDone=false, loadStart=0;
 function beginLoad(){
   loadStart=performance.now();
@@ -3708,9 +3723,18 @@ function drawStart(){
   const ppx=300, ppy=760;
   if(!drawPoppuPosed('poppu_wave',ppx,ppy,500,true)) ph_poppu('wave',ppx,ppy-40,300);
   const tx=W/2, ty=170;
-  const g=ctx.createLinearGradient(0,ty-64,0,ty+64); g.addColorStop(0,'#FFE79A'); g.addColorStop(1,'#F4A93E');
-  drawText("Poppu's Mail Room",tx,ty,112,g,'#5a3d24','center','800',24);
-  drawText('Sort · Deliver · Smile!',tx,ty+86,40,'#7a5a34','#fff','center','700',10);
+  if(has('title_logo')){
+    // founder's finished title logo (clean alpha) — sits where the text title used to, centered
+    // between the top HUD and the Play button; a soft drop shadow lifts it off the cream room.
+    const im=IMG.title_logo.img, iw=im.naturalWidth||1429, ih=im.naturalHeight||701;
+    const lw=Math.min(1040, W*0.56), lh=lw*(ih/iw), lx=W/2, ly=224;
+    ctx.save(); shadow(30,'rgba(90,60,30,0.22)',0,12);
+    ctx.drawImage(im, lx-lw/2, ly-lh/2, lw, lh); noShadow(); ctx.restore();
+  } else {
+    const g=ctx.createLinearGradient(0,ty-64,0,ty+64); g.addColorStop(0,'#FFE79A'); g.addColorStop(1,'#F4A93E');
+    drawText("Poppu's Mail Room",tx,ty,112,g,'#5a3d24','center','800',24);
+    drawText('Sort · Deliver · Smile!',tx,ty+86,40,'#7a5a34','#fff','center','700',10);
+  }
   const pulse=1+Math.sin(time*3)*0.05;
   ctx.save(); ctx.translate(PLAYBTN.x,PLAYBTN.y); ctx.scale(pulse,pulse);
   if(has('ui_play')){ shadow(26,'rgba(0,0,0,0.22)',0,14); const d=PLAYBTN.r*2.4; ctx.drawImage(IMG.ui_play.img,-d/2,-d/2,d,d); noShadow(); }
@@ -5057,7 +5081,56 @@ function frame(now){
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-['pointerdown','touchstart','keydown'].forEach(ev=>window.addEventListener(ev,()=>Audio_.resume(),{once:false}));
+/* Game's Web-Audio (kalimba + hum) stays silent until the intro sequence finishes, so it never
+   overlaps the Poppu bumper's own audio. After the intro, the first gesture resumes it as before. */
+['pointerdown','touchstart','keydown'].forEach(ev=>window.addEventListener(ev,()=>{ if(!introActive) Audio_.resume(); },{once:false}));
+
+/* ---------------------------------------------------- LAUNCH INTRO SEQUENCE */
+/* Two videos on every launch, then the normal START screen:
+     1) studio bumper — MUTED + autoplay (muted autoplay is always allowed)
+     2) Poppu bumper  — plays WITH its own audio; if the browser blocks autoplay-with-sound it
+        falls back to muted playback (never hangs) and unmutes on the first tap.
+   A tap/click anywhere skips the current clip (studio→poppu→start). A small ▷▷ shows it's skippable. */
+let introActive=true;
+(function(){
+  const introEl=document.getElementById('intro');
+  const vid=document.getElementById('introVid');
+  if(!introEl||!vid){ introActive=false; return; }
+  const SEQ=[ {src:'assets/intro-studio.mp4', sound:false},
+              {src:'assets/intro-poppu.mp4',  sound:true } ];
+  let idx=0, done=false;
+  function end(){
+    if(done) return; done=true; introActive=false;
+    try{ vid.pause(); vid.removeAttribute('src'); vid.load(); }catch(e){}
+    introEl.style.display='none';
+  }
+  function next(){ if(done) return; idx++; play(); }
+  function play(){
+    const step=SEQ[idx];
+    if(!step){ end(); return; }
+    vid.muted = !step.sound;              // studio always muted; poppu tries sound
+    vid.src = step.src;
+    try{ vid.currentTime=0; }catch(e){}
+    const pr=vid.play();
+    if(pr && pr.catch){
+      pr.catch(()=>{                      // autoplay(-with-sound) rejected
+        vid.muted=true;                   // fall back to muted so it never stalls
+        const pr2=vid.play(); if(pr2 && pr2.catch) pr2.catch(()=>{ next(); });
+      });
+    }
+  }
+  vid.addEventListener('ended', next);
+  vid.addEventListener('error', next);
+  // tap/click: a should-have-sound clip that started muted (autoplay blocked) unmutes on the first
+  // tap instead of skipping; every other tap advances past the current clip.
+  introEl.addEventListener('pointerdown', ()=>{
+    if(done) return;
+    const step=SEQ[idx];
+    if(step && step.sound && vid.muted){ vid.muted=false; const p=vid.play(); if(p&&p.catch) p.catch(()=>{}); return; }
+    next();
+  });
+  play();
+})();
 
 /* __TESTHOOK__ */
 window.__t = {
