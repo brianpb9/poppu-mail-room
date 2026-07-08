@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-23';
+const BUILD='20260708-24';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -2316,24 +2316,34 @@ function drawWrapBoxScene(){
     ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,s*0.6,0,7); ctx.fill(); ctx.restore();
   }
   if(wrapBox.ribbon){
+    // FIX 5: tying a ribbon now snaps on the REAL illustrated wrap_bow (pink+gold) instead of a flat
+    // white procedural bow that read as a white blob on top of the box's own baked bow.
     let bowScale=1;
     if(wrapBowT!=null){ const bp=(1-wrapBowT)/2.4; bowScale=Math.max(0.02,easeOutBack(Math.min(1,bp/0.66))); }
-    ctx.save(); ctx.translate(0,s*0.06); ctx.scale(bowScale,bowScale); drawBow(0,0,90,'#fff'); ctx.restore();
+    ctx.save(); ctx.translate(0,-s*0.01); ctx.scale(bowScale,bowScale);
+    if(!sprite('wrap_bow',0,0,s*0.52,s*0.52)) drawBow(0,0,90,'#F06A8E'); ctx.restore();
   }
   if(wrapBox.sticker){
-    let stScale=1, stRot=0, stAlpha=1, ringP=null;
+    // FIX 5: the chosen sticker is now the REAL raster (ic-heart / ic-star / ic-moon) composited as a
+    // die-cut peel-and-stick sticker on the gift's front face — was a tiny cream disc + glyph floating
+    // off the box corner (read as a badge, not a sticker on the box).
+    let stScale=1, stRot=-0.16, stAlpha=1, ringP=null;
     if(wrapStampT!=null){
       const sp=(1-wrapStampT)/2.9, settle=easeOutBack(Math.min(1,sp/0.6));
-      stScale=1+(1-settle)*0.6; stRot=(1-settle)*0.25; stAlpha=Math.min(1,sp/0.15); ringP=Math.min(1,sp/0.5);
+      stScale=1+(1-settle)*0.6; stRot=-0.16+(1-settle)*0.4; stAlpha=Math.min(1,sp/0.15); ringP=Math.min(1,sp/0.5);
     }
-    ctx.save(); ctx.translate(s*0.28,-s*0.30);
+    const isz=s*0.36;
+    ctx.save(); ctx.translate(-s*0.19,s*0.15);
     if(ringP!=null && ringP<1){ ctx.save(); ctx.globalAlpha=(1-ringP)*0.6; ctx.strokeStyle=type.deep; ctx.lineWidth=6;
-      ctx.beginPath(); ctx.arc(0,0,54+ringP*36,0,7); ctx.stroke(); ctx.restore(); }
+      ctx.beginPath(); ctx.arc(0,0,isz*0.55+ringP*40,0,7); ctx.stroke(); ctx.restore(); }
     ctx.globalAlpha=stAlpha; ctx.rotate(stRot); ctx.scale(stScale,stScale);
-    shadow(10,'rgba(0,0,0,0.16)',0,4);
-    ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,54,0,7); ctx.fill(); noShadow();
-    ctx.lineWidth=5; ctx.strokeStyle=type.deep; ctx.stroke();
-    glyphIcon(wrapBox.sticker,0,0,60,'#FFD15C','#E3A93E'); ctx.restore();
+    // white die-cut backing so the icon reads as a real sticker slapped on the parcel
+    shadow(9,'rgba(0,0,0,0.24)',0,4);
+    ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,isz*0.5,0,7); ctx.fill(); noShadow();
+    const skey='ic_'+wrapBox.sticker;
+    if(has(skey)) ctx.drawImage(IMG[skey].img,-isz/2,-isz/2,isz,isz);
+    else { const gp=WRAP_STICKER_PAL[wrapBox.sticker]||['#FFD15C','#E3A93E']; drawIcon(wrapBox.sticker,0,0,isz*0.82,gp[0],gp[1]); }
+    ctx.restore();
   } else {
     // inviting sticker PREVIEW affordance (board polish) — a FILLED soft sticker disc with a clearly
     // visible slowly-cycling star→heart→moon preview + a gentle bob + a friendly "tap" halo, so a child
