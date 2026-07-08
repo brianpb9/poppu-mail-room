@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-24';
+const BUILD='20260708-25';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1368,6 +1368,12 @@ let doneScreen=null;        // {stars, stamps} for LEVELDONE
    doneCelebrated guards the one-shot confetti+friend-pop so it fires exactly once per results card. */
 let doneScreenT=0;
 let doneCelebrated=false;
+/* FIX6: a short, cheerful "stars earned" tally beat that plays right when a level clears (before the
+   Delivery Drive) — stars pop in one-by-one, then the packets-delivered + stamps-earned rows. Quick,
+   wordless, and skippable by tapping. clearBeatT=-1 means inactive. */
+let clearBeatT=-1;
+let clearBeatStars=0;
+const CLEAR_BEAT_DUR=2.9;
 let prevState=null;
 
 /* -------------------------------------------------------- SCENES / AMBIENT */
@@ -1549,10 +1555,10 @@ function finishLevel(){
   // NOTE: newBadge is keyed by TOWN_BUILDINGS id ('wrap'), not the save-slot name ('wrapShop')
   if(currentLevel===1 && !SAVE.unlocks.wrapShop){ SAVE.unlocks.wrapShop=true; SAVE.newBadge.wrap=true; }
   persist();
-  doneScreen={ stars, stamps:bonus, level:currentLevel };
-  // ---- Delivery Drive: a short lose-proof drive to Peeky's before the results screen ----
-  // (guarded: if the child already backed out to Home during the celebration, don't hijack them back in)
-  setTimeout(()=>{ if(state==='PLAYING') startDrive(); }, 900);
+  doneScreen={ stars, stamps:bonus, level:currentLevel, delivered:deliveredThisLevel };
+  // FIX6: play the star-earned tally beat first; the Delivery Drive starts when it finishes (or on a
+  // tap-to-skip). Handled in update() so it's cleanly interruptible if the child backs out to Home.
+  clearBeatT=0; clearBeatStars=0;
 }
 
 /* FIX5: the LEVELDONE results card's OWN big celebration beat — a generous two-origin confetti burst
@@ -2930,6 +2936,8 @@ function onDown(cx,cy){
     return;
   }
   if(state==='PLAYING'){
+    // FIX6: tap anywhere during the star-tally beat (after a short grace) to skip straight to the drive
+    if(levelDone && clearBeatT>0.4){ clearBeatT=-1; startDrive(); return; }
     if(dist(p.x,p.y,HOMEBTN.x,HOMEBTN.y)<HOMEBTN.r){ state='START'; Audio_.setHum(false); return; }
     if(dist(p.x,p.y,VOLBTN.x,VOLBTN.y)<VOLBTN.r){ cycleVolume(); return; }
     if(poppuHit(p.x,p.y)){ startLongPress(p.x,p.y); return; }
@@ -3074,6 +3082,14 @@ function update(dt){
     doneScreenT+=dt;
     if(doneScreenT>=3.5) advanceFromLevelDone();
   }
+  // FIX6: drive the level-clear star tally beat, then hand off into the Delivery Drive.
+  if(state==='PLAYING' && levelDone && clearBeatT>=0){
+    clearBeatT+=dt;
+    const sc=doneScreen?doneScreen.stars:0;
+    const shown=Math.max(0,Math.min(sc, Math.floor((clearBeatT-0.35)/0.42)+1));
+    if(shown>clearBeatStars){ clearBeatStars=shown; Audio_.pop(); }   // a cheerful blip per star as it lands
+    if(clearBeatT>=CLEAR_BEAT_DUR){ clearBeatT=-1; if(state==='PLAYING') startDrive(); }
+  } else if(state!=='PLAYING' && clearBeatT>=0){ clearBeatT=-1; }   // child left mid-beat — cancel cleanly
   if(poppuCelebrateT>0) poppuCelebrateT=Math.max(0,poppuCelebrateT-dt);
   for(let i=0;i<6;i++) if(boxBounce[i]>0) boxBounce[i]=Math.max(0,boxBounce[i]-dt*2.4);
   if(activeTask){ activeTask.t+=dt; if(activeTask.flash>0) activeTask.flash=Math.max(0,activeTask.flash-dt); }
@@ -3552,6 +3568,42 @@ function drawPlaying(){
   drawParticles(); drawPopups();
   drawPlayHUD(); drawFloatTexts();
   drawTutorial();
+  if(levelDone && clearBeatT>=0 && doneScreen) drawClearBeat();
+}
+/* FIX6: the level-clear "stars earned" reward beat — a cozy cream card, stars popping in one-by-one,
+   then the packets-delivered + stamps-earned tallies. Wordless (icons + numerals). Skippable by tap. */
+function drawClearBeat(){
+  const cx=W/2, cy=H*0.40, cw=780, ch=452, top=cy-ch/2, bottom=cy+ch/2;
+  const cardIn=Math.min(1,clearBeatT/0.28), pop=easeOutBack(cardIn);
+  // soft warm scrim so the card reads without hiding Poppu's celebration behind it
+  ctx.save(); ctx.globalAlpha=0.34*cardIn; ctx.fillStyle='rgba(120,86,54,0.5)'; ctx.fillRect(0,0,W,H); ctx.restore();
+  ctx.save(); ctx.translate(cx,cy); ctx.scale(pop,pop); ctx.translate(-cx,-cy);
+  shadow(34,'rgba(90,61,36,0.32)',0,16);
+  const pg=ctx.createLinearGradient(0,top,0,bottom); pg.addColorStop(0,'#FFFDF7'); pg.addColorStop(1,'#F6EAD2');
+  ctx.fillStyle=pg; rr(cx-cw/2,top,cw,ch,44); ctx.fill(); noShadow();
+  ctx.lineWidth=9; ctx.strokeStyle='#E3A93E'; rr(cx-cw/2,top,cw,ch,44); ctx.stroke();
+  ctx.lineWidth=3; ctx.strokeStyle='rgba(201,122,78,0.35)'; rr(cx-cw/2+13,top+13,cw-26,ch-26,34); ctx.stroke();
+  // stars pop in one-by-one
+  const starY=top+150;
+  for(let i=0;i<3;i++){ const fx=cx+(i-1)*160, filled=i<doneScreen.stars, appT=0.35+i*0.42;
+    if(filled && clearBeatT>=appT){ const pp=Math.min(1,(clearBeatT-appT)/0.32), sc=easeOutBack(pp);
+      ctx.save(); ctx.translate(fx,starY); ctx.scale(sc,sc);
+      shadow(16,'rgba(227,150,40,0.6)',0,3); drawIcon('star',0,0,116,'#FFCB2E','#C67C15'); noShadow(); ctx.restore();
+    } else { drawIcon('star',fx,starY,102,'#ECE1CA','#CFC0A0'); }   // muted empty / not-yet-landed slot
+  }
+  // packets-delivered tally
+  if(clearBeatT>1.55){ const a=Math.min(1,(clearBeatT-1.55)/0.3), y=cy+70; ctx.save(); ctx.globalAlpha=a;
+    const dc=(doneScreen.delivered||curLevel().pkgs);
+    if(!uiIcon('envelope',cx-96,y,66)) glyphIcon('seal',cx-96,y,66,'#F4CE7A','#E3A93E');
+    drawText('×'+dc,cx-40,y,56,'#7a5a34','#fff','left','800',8); ctx.restore(); }
+  // stamps-earned tally
+  if(clearBeatT>1.95){ const a=Math.min(1,(clearBeatT-1.95)/0.3), y=cy+160; ctx.save(); ctx.globalAlpha=a;
+    drawIcon('star',cx-96,y,60,'#FFCB2E','#C67C15');
+    drawText('+'+doneScreen.stamps,cx-52,y,56,'#E3A93E','#fff','left','800',8); ctx.restore(); }
+  ctx.restore();
+  // wordless "tap to keep going" chevron below the card
+  if(clearBeatT>1.7){ const bob=Math.sin(time*4)*6;
+    ctx.save(); ctx.globalAlpha=0.55+0.4*Math.sin(time*3); drawIcon('arrow',cx,bottom+52+bob,64,'#F4A93E','#E3A93E'); ctx.restore(); }
 }
 
 /* ------------------------------------------------------------- RENDER: START */
