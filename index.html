@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-7';
+const BUILD='20260708-8';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1147,13 +1147,12 @@ const TOWN_BUILDING_SHADOW = {
   cloud: { cx:1573, cy:902, rw:116, rh:26, a:0.36 },
   moon:  { cx:1780, cy:886, rw:102, rh:25, a:0.36 },
 };
-/* R4 #4: Peeky's house sits high on a hill spot with no painted clearing under it, so its base read
-   as FLOATING (founder catch). We plant a soft grassy clearing knoll beneath it — a green mound with
-   a warm dirt patch, soft-edged so it blends into the town-map — giving the house real ground to
-   stand on. Only peeky needs this; every other house sits on a painted clearing already. */
-const TOWN_GROUND_PAD = {
-  peeky: { cx:1560, cy:626, rw:210, rh:66 },
-};
+/* BUILD 20260708-8: the peeky knoll (a hard green ellipse + brown dirt oval) itself read as a stuck-on
+   floating "pad"/lily-disc under the house — the exact artifact the founder rejects. The town-map already
+   has real painted grass under Peeky's base, so the code-drawn disc was both unnecessary and harmful.
+   Removed entirely; Peeky now plants on the map grass with only its TOWN_BUILDING_SHADOW contact shadow,
+   exactly like the other six houses. Kept the map empty (no building needs a code ground pad anymore). */
+const TOWN_GROUND_PAD = {};
 function drawTownGroundPad(id){
   const P=TOWN_GROUND_PAD[id]; if(!P) return;
   ctx.save();
