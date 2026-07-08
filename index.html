@@ -568,7 +568,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-35';
+const BUILD='20260709-36';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1368,6 +1368,9 @@ let poppuCelebrateT=0;
 let ambient=[];
 let shopTab='upgrade';
 let shopCat='hat';
+/* which hub a menu screen (SHOP/LEVELMAP/STICKER) was opened from, so its Back button returns there
+   (START corner icon -> back to START;  TOWN toolbar -> back to TOWN) instead of always dumping to START. */
+let menuReturn='START';
 let shuffleActive=false;
 let tutorial=null;                 // {fading,ft} — first-play guided overlay
 let parentOpen=false;              // parent dashboard modal
@@ -1431,6 +1434,15 @@ let prevState=null;
 function setScene(i){
   currentScene=i; SAVE.currentScene=i; persist();
   Audio_.setMusicRoot(SCENES[i].music.root); buildAmbient(SCENES[i].amb);
+}
+/* TOWN scene-switch icon: hop to the next UNLOCKED gameplay backdrop (mailroom -> forest -> space,
+   wrapping), skipping any still-locked scene. Wordless: the icon's thumbnail updates to the new room.
+   If no other scene is unlocked yet, a gentle locked chime (nothing to switch to). */
+function cycleScene(){
+  const n=SCENES.length;
+  for(let step=1; step<=n; step++){ const i=(currentScene+step)%n;
+    if(i!==currentScene && sceneUnlocked(i)){ setScene(i); Audio_.pop(); return; } }
+  Audio_.locked();
 }
 function buildAmbient(kind){
   ambient=[];
@@ -2876,11 +2888,16 @@ function pickPackage(sx,sy){
 }
 
 /* screen button geometries */
-const PLAYBTN={x:W/2,y:560,r:112};
-const START_BTNS=()=>{ const y=742,w=300,h=98,gap=34,total=3*w+2*gap,x0=W/2-total/2;
-  return [{id:'levels',x:x0,y,w,h},{id:'shop',x:x0+w+gap,y,w,h},{id:'stickers',x:x0+2*(w+gap),y,w,h}]; };
-const SCENE_BTNS=()=>{ const y=H-172,w=250,h=132,gap=28,total=3*w+2*gap,x0=W/2-total/2;
-  return SCENES.map((S,i)=>({S,x:x0+i*(w+gap),y,w,h})); };
+/* START-screen Play is the single hero: enlarged ~40% (r 112->158) and centered in the now-open middle
+   of the calm home screen. The pulse in drawStart makes it the one obvious thing to tap. */
+const PLAYBTN={x:W/2,y:620,r:158};
+/* The ONLY secondary affordance on the START screen — one small wardrobe/shop icon, top-right corner.
+   Everything else (levels, garden/stickers, scene choice, shop) lives in the TOWN hub AFTER Play. */
+const START_MENU_BTN={x:W-118,y:112,r:62};
+/* TOWN hub top-left toolbar — the secondary destinations that used to crowd the START screen, relocated
+   here ("after Play"): Levels map, Shop, Garden/Stickers, Scene switch. Wordless round icon buttons. */
+const TOWN_NAV=()=>{ const r=60,y=108,x0=200,gap=152;
+  return [{id:'levels',x:x0,y,r},{id:'shop',x:x0+gap,y,r},{id:'stickers',x:x0+2*gap,y,r},{id:'scene',x:x0+3*gap,y,r}]; };
 const STAMP_CHIP={x:W-40,y:56};
 const HOMEBTN={x:96,y:96,r:64};   // 128px — clears the 120px toddler-tap floor (A4)
 const BACKBTN={x:150,y:H-120,r:70};
@@ -2935,28 +2952,25 @@ function onDown(cx,cy){
   if(state==='START'){
     if(poppuHit(p.x,p.y)) startLongPress(p.x,p.y);
     if(dist(p.x,p.y,PLAYBTN.x,PLAYBTN.y)<PLAYBTN.r){ enterTown(); return; }
-    for(const b of START_BTNS()) if(inRect(p.x,p.y,b)){
-      if(b.id==='levels'){ state='LEVELMAP'; Audio_.pop(); }
-      else if(b.id==='shop'){ state='SHOP'; shopTab='upgrade'; Audio_.pop(); }
-      else if(b.id==='stickers'){ state='STICKER'; Audio_.pop(); } return; }
-    for(const r of SCENE_BTNS()) if(inRect(p.x,p.y,r)){ if(sceneUnlocked(r.S.id)){ setScene(r.S.id); Audio_.pop(); } else Audio_.locked(); return; }
+    // single top-right wardrobe/shop icon — the ONE secondary affordance on the clean home screen
+    if(dist(p.x,p.y,START_MENU_BTN.x,START_MENU_BTN.y)<START_MENU_BTN.r){ menuReturn='START'; state='SHOP'; shopTab='cosmetic'; Audio_.pop(); return; }
     return;
   }
   if(state==='LEVELMAP'){
-    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ state='START'; return; }
+    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ state=menuReturn; if(menuReturn==='TOWN') enterTown(); return; }
     for(const nd of levelNodes()) if(dist(p.x,p.y,nd.x,nd.y)<nd.rad){
       if(levelUnlocked(nd.n)) startLevel(nd.n); else Audio_.locked(); return; }
     return;
   }
   if(state==='SHOP'){
-    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ state='START'; return; }
+    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ state=menuReturn; if(menuReturn==='TOWN') enterTown(); return; }
     for(const t of shopTabRects()) if(inRect(p.x,p.y,t)){ shopTab=t.id; Audio_.pop(); return; }
     if(shopTab==='upgrade'){ for(const c of upgradeCards()) if(inRect(p.x,p.y,c)){ buyUpgrade(c.u); return; } }
     else { for(const r of shopCatRects()) if(inRect(p.x,p.y,r)){ shopCat=r.c; Audio_.pop(); return; }
       for(const c of cosmeticCards()) if(inRect(p.x,p.y,c)){ buyOrEquip(c.c); return; } }
     return;
   }
-  if(state==='STICKER'){ if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r) state='START'; return; }
+  if(state==='STICKER'){ if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ state=menuReturn; if(menuReturn==='TOWN') enterTown(); } return; }
   if(state==='LEVELDONE'){
     for(const b of doneBtns()) if(inRect(p.x,p.y,b)){
       if(b.id==='next'){ advanceFromLevelDone(); return; }
@@ -2967,6 +2981,13 @@ function onDown(cx,cy){
   if(state==='TOWN'){
     if(townTransition) return;   // brief, non-interruptible zoom-push already in flight
     if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ leaveTown(); return; }
+    // top-left hub toolbar — the secondary destinations relocated off the START screen
+    for(const b of TOWN_NAV()) if(dist(p.x,p.y,b.x,b.y)<b.r){
+      if(b.id==='levels'){ menuReturn='TOWN'; state='LEVELMAP'; Audio_.pop(); }
+      else if(b.id==='shop'){ menuReturn='TOWN'; state='SHOP'; shopTab='upgrade'; Audio_.pop(); }
+      else if(b.id==='stickers'){ menuReturn='TOWN'; state='STICKER'; Audio_.pop(); }
+      else if(b.id==='scene'){ cycleScene(); }
+      return; }
     if(poppuHit(p.x,p.y)) startLongPress(p.x,p.y);   // 3s hold on Poppu -> parent gate (mirrors START/PLAYING; honors the dashboard promise)
     // iterate FRONT-to-back (reverse draw order) so a nearer building wins a tap in any overlap zone
     for(let i=TOWN_ORDER.length-1;i>=0;i--){ const id=TOWN_ORDER[i];
@@ -3741,43 +3762,36 @@ function drawStart(){
   drawAmbient(); drawDecor(equipped('decor'));
   const ppx=300, ppy=760;
   if(!drawPoppuPosed('poppu_wave',ppx,ppy,500,true)) ph_poppu('wave',ppx,ppy-40,300);
-  const tx=W/2, ty=170;
+  const tx=W/2, ty=150;
   if(has('title_logo')){
-    // founder's finished title logo (clean alpha) — sits where the text title used to, centered
-    // between the top HUD and the Play button; a soft drop shadow lifts it off the cream room.
+    // RECOMPOSE (BUILD 36): the title logo is shrunk ~32% (was min(1040,W*0.56)) and lifted into the top
+    // third with clear breathing room above and below — it now FRAMES the home screen, it doesn't fill it.
+    // The crowded HUD/meters/pills that used to collide with it are gone, so the logo sits alone up top.
     const im=IMG.title_logo.img, iw=im.naturalWidth||1429, ih=im.naturalHeight||701;
-    const lw=Math.min(1040, W*0.56), lh=lw*(ih/iw), lx=W/2, ly=224;
-    ctx.save(); shadow(30,'rgba(90,60,30,0.22)',0,12);
+    const lw=Math.min(720, W*0.375), lh=lw*(ih/iw), lx=W/2, ly=190;
+    ctx.save(); shadow(28,'rgba(90,60,30,0.20)',0,10);
     ctx.drawImage(im, lx-lw/2, ly-lh/2, lw, lh); noShadow(); ctx.restore();
   } else {
-    const g=ctx.createLinearGradient(0,ty-64,0,ty+64); g.addColorStop(0,'#FFE79A'); g.addColorStop(1,'#F4A93E');
-    drawText("Poppu's Mail Room",tx,ty,112,g,'#5a3d24','center','800',24);
-    drawText('Sort · Deliver · Smile!',tx,ty+86,40,'#7a5a34','#fff','center','700',10);
+    const g=ctx.createLinearGradient(0,ty-52,0,ty+52); g.addColorStop(0,'#FFE79A'); g.addColorStop(1,'#F4A93E');
+    drawText("Poppu's Mail Room",tx,ty,84,g,'#5a3d24','center','800',20);
+    drawText('Sort · Deliver · Smile!',tx,ty+66,32,'#7a5a34','#fff','center','700',8);
   }
+  // THE single hero: the enlarged Play button, centered in the now-open middle of the calm screen. A gentle
+  // pulse makes it the one obvious thing to tap; Poppu waves toward it from the left as the welcoming host.
   const pulse=1+Math.sin(time*3)*0.05;
   ctx.save(); ctx.translate(PLAYBTN.x,PLAYBTN.y); ctx.scale(pulse,pulse);
-  if(has('ui_play')){ shadow(26,'rgba(0,0,0,0.22)',0,14); const d=PLAYBTN.r*2.4; ctx.drawImage(IMG.ui_play.img,-d/2,-d/2,d,d); noShadow(); }
-  else { shadow(30,'rgba(0,0,0,0.2)',0,12); const pg=ctx.createLinearGradient(0,-PLAYBTN.r,0,PLAYBTN.r); pg.addColorStop(0,'#FFE79A'); pg.addColorStop(1,'#F4B93E');
-    ctx.fillStyle=pg; ctx.beginPath(); ctx.arc(0,0,PLAYBTN.r,0,7); ctx.fill(); noShadow(); ctx.strokeStyle='#fff'; ctx.lineWidth=12; ctx.stroke();
-    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.moveTo(-36,-50); ctx.lineTo(-36,50); ctx.lineTo(56,0); ctx.closePath(); ctx.fill(); }
+  if(has('ui_play')){ shadow(30,'rgba(0,0,0,0.24)',0,16); const d=PLAYBTN.r*2.4; ctx.drawImage(IMG.ui_play.img,-d/2,-d/2,d,d); noShadow(); }
+  else { shadow(34,'rgba(0,0,0,0.2)',0,14); const pg=ctx.createLinearGradient(0,-PLAYBTN.r,0,PLAYBTN.r); pg.addColorStop(0,'#FFE79A'); pg.addColorStop(1,'#F4B93E');
+    ctx.fillStyle=pg; ctx.beginPath(); ctx.arc(0,0,PLAYBTN.r,0,7); ctx.fill(); noShadow(); ctx.strokeStyle='#fff'; ctx.lineWidth=16; ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.moveTo(-50,-70); ctx.lineTo(-50,70); ctx.lineTo(78,0); ctx.closePath(); ctx.fill(); }
   ctx.restore();
-  // wordless: the Play caption is dropped (P0) — the pulsing button + Poppu's wave already read as "go"
-  for(const b of START_BTNS()){
-    const col=b.id==='levels'?'#8ECFEC':b.id==='shop'?'#FFD15C':'#B79BEA';
-    // FIX 7b: a soft category-colored icon chip fills the pill so it reads designed, not empty.
-    const chip=(cx,cy)=>{ ctx.save(); ctx.globalAlpha=0.20; ctx.fillStyle=col; ctx.beginPath(); ctx.arc(cx,cy,b.h*0.40,0,7); ctx.fill(); ctx.restore(); };
-    // wordless nav pills (P1): Levels->post office thumbnail, Shop->tote-bag icon, Stickers->flower icon
-    const iconFn = b.id==='levels'
-      ? (cx,cy)=>{ chip(cx,cy); if(!fitImage('post_office',cx,cy,84,84)) ph_building('post',cx,cy+34,72,78); }
-      : b.id==='shop'
-        ? (cx,cy)=>{ chip(cx,cy); glyphIcon('shop_bag',cx,cy,68,'#FFE0A0','#7a4a20'); }
-        : (cx,cy)=>{ chip(cx,cy); flowerGlyph(cx,cy,72); };
-    pill(b,'#fffdf6',col,6, iconFn,'#6a4a2a');
-  }
-  // wordless: "Pick a place" caption dropped (P0) — the 3 scene thumbnails read on their own
-  for(const r of SCENE_BTNS()) drawSceneBtn(r);
-  stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
-  drawDailyBar();
+  // The ONLY secondary affordance on the home screen — a single small wardrobe/shop icon, top-right corner.
+  // Levels, garden/stickers, scene choice and the shop itself all live in the TOWN hub after Play, so the
+  // start screen stays a calm one-tap invitation (no empty meters, no dead buttons, no scene thumbnails).
+  { const b=START_MENU_BTN; ctx.save(); shadow(14,'rgba(0,0,0,0.16)',0,6);
+    ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); noShadow();
+    ctx.lineWidth=6; ctx.strokeStyle='#FFD15C'; ctx.stroke(); ctx.restore();
+    if(!uiIcon('shop_bag',b.x,b.y,b.r*1.15)) glyphIcon('shop_bag',b.x,b.y,b.r*1.1,'#FFD15C','#7a4a20'); }
 }
 function drawDailyBar(){
   // R4 #6: premium "Today's Mailbag" meter — a cozy cream pill, a raster heart badge in a soft pink
@@ -4427,8 +4441,31 @@ function drawTown(){
   if(zoomed) ctx.restore();
   if(townTransition){ ctx.save(); ctx.globalAlpha=overlayA; ctx.fillStyle='#FFF8E8'; ctx.fillRect(0,0,W,H); ctx.restore(); }
   drawFloatTexts();
+  drawTownNav();
   backButton();
   stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
+}
+/* TOWN hub top-left toolbar: the secondary destinations relocated off the (now calm) START screen.
+   Wordless round icon buttons — Levels map, Shop, Garden/Stickers, Scene switch (thumbnail of the
+   current room, taps to the next unlocked one). Each is a soft cream chip with a category-tinted ring. */
+function drawTownNav(){
+  for(const b of TOWN_NAV()){
+    const ring=b.id==='levels'?'#8ECFEC':b.id==='shop'?'#FFD15C':b.id==='stickers'?'#B79BEA':'#98D7B4';
+    ctx.save(); shadow(12,'rgba(0,0,0,0.16)',0,5);
+    ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); noShadow();
+    ctx.lineWidth=6; ctx.strokeStyle=ring; ctx.stroke(); ctx.restore();
+    if(b.id==='levels'){ if(!fitImage('post_office',b.x,b.y,b.r*1.3,b.r*1.3)) ph_building('post',b.x,b.y+30,b.r*1.1,b.r*1.2); }
+    else if(b.id==='shop'){ if(!uiIcon('shop_bag',b.x,b.y,b.r*1.15)) glyphIcon('shop_bag',b.x,b.y,b.r*1.05,'#FFD15C','#7a4a20'); }
+    else if(b.id==='stickers'){ flowerGlyph(b.x,b.y,b.r*1.15); }
+    else { // scene switch — clip the current room's backdrop into the button as a live thumbnail
+      const S=SCENES[currentScene], key=S&&S.bg;
+      ctx.save(); ctx.beginPath(); ctx.arc(b.x,b.y,b.r-8,0,7); ctx.clip();
+      if(key&&has(key)) ctx.drawImage(IMG[key].img,b.x-b.r,b.y-b.r,b.r*2,b.r*2);
+      else { ctx.fillStyle=['#F4CE7A','#9ED89E','#B79BEA'][currentScene]||'#F4CE7A'; ctx.fillRect(b.x-b.r,b.y-b.r,b.r*2,b.r*2); }
+      ctx.restore();
+      // little "swap" arrows hint it cycles
+      ctx.save(); ctx.globalAlpha=0.9; glyphIcon('replay',b.x+b.r*0.52,b.y+b.r*0.52,b.r*0.62,'#fff','#7a4a20'); ctx.restore(); }
+  }
 }
 
 /* ------------------------------------------------------------ RENDER: DRIVE */
