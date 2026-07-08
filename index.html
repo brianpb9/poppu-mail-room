@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-16';
+const BUILD='20260708-17';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -635,7 +635,7 @@ const DRESSED_FRIENDS=['heart','gear','moon','drop','cloud','star'];
    on disk are listed here so the loader never 404s a missing one; drawPoppuPosed falls back to the base
    sprite + drawPoppuWornHat overlay for any pose/hat not yet baked (and for hat_gold, which maps to the
    crown bake). */
-const POPPU_DRESSED_POSES=['wave'];
+const POPPU_DRESSED_POSES=['wave','postal'];
 ['hat_chef','hat_cowboy','hat_pirate','hat_crown'].forEach(h=>POPPU_DRESSED_POSES.forEach(pk=>{ ASSET_SRC['dress-poppu-'+pk+'-'+h]='assets/dress-poppu-'+pk+'-'+h+'.png'; }));
 /* Friend-house illustrated interiors (Phase 1) — a cozy painted room per friend, keyed by house name */
 ['peeky','orby','zaza','wavey','puffy'].forEach(n=>{ ASSET_SRC['friendbg_'+n]='assets/bg-house-'+n+'.webp'; });
