@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-19';
+const BUILD='20260708-20';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -3668,8 +3668,13 @@ function drawLevelMap(){
       { const ic=levelIcon(L);
         if(ic==='stamp'||ic==='seal') drawIcon(ic,nd.x,nd.y+D*0.03,D*0.34,'#F5B324','#7A491A');
         else glyphIcon(ic,nd.x,nd.y+D*0.03,D*0.34,'#F4CE7A','#E3A93E'); }
-      // 3 rating stars arced across the medallion's upper cream panel
-      for(let s=0;s<3;s++) glyphIcon('star',nd.x+(s-1)*D*0.17,nd.y-D*0.30,D*0.15,s<stars?'#FFD15C':'#efe3c8',s<stars?'#E3A93E':'#d8c8a4');
+      // 3 rating stars arced across the upper cream panel — FIX 2: drawn PROCEDURALLY so the colours
+      // actually apply (glyphIcon draws the fixed pale ic_star raster, ignoring fill → filled looked
+      // identical to empty). Earned = vibrant full-gold w/ dark-gold outline; empty = muted cream.
+      for(let s=0;s<3;s++){ const f=s<stars;
+        if(f){ ctx.save(); shadow(6,'rgba(227,150,40,0.5)',0,1); }
+        drawIcon('star',nd.x+(s-1)*D*0.17,nd.y-D*0.30,D*0.155,f?'#FFCB2E':'#ECE1CA',f?'#C67C15':'#CFC0A0');
+        if(f){ noShadow(); ctx.restore(); } }
     } else if(!unlocked && has('node_locked')){
       const bob=Math.sin(time*1.6+nd.n)*2;   // gentle "sleeping" breathe, never static/broken
       ctx.save(); shadow(14,'rgba(90,61,36,0.18)',0,8);
@@ -3686,8 +3691,38 @@ function drawLevelMap(){
       ctx.restore();
     }
   }
+  // FIX 2: a gently bobbing "play here" pointer over the current node so the next level to play is
+  // unmistakable for a non-reader (on top of the existing pulsing halo).
+  { const cn=nodes[curLv-1];
+    if(cn && levelUnlocked(curLv)){ const bob=Math.sin(time*3)*7, py=cn.y-cn.rad*2.34*0.5-46+bob;
+      ctx.save(); shadow(10,'rgba(90,61,36,0.28)',0,4); ctx.fillStyle='#F5B324'; ctx.strokeStyle='#7A491A'; ctx.lineWidth=6; ctx.lineJoin='round';
+      ctx.beginPath(); ctx.moveTo(cn.x-30,py-24); ctx.lineTo(cn.x+30,py-24); ctx.lineTo(cn.x,py+18); ctx.closePath(); ctx.fill(); noShadow(); ctx.stroke(); ctx.restore(); } }
+  // FIX 2: a wordless hanging title banner (mail motif + stars) anchors the top of the map.
+  drawMapBanner(W/2,108);
+  // FIX 2: Poppu waves the child on from the bottom-right, breathing gently (reuses the wave pose sprite).
+  if(!drawPoppuPosed('poppu_wave',1792,602,272,true)) ph_poppu('wave',1792,560,175);
   backButton();
   stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
+}
+/* FIX 2: a cute hanging honey-wood sign for the level map — wordless (envelope + 3 stars), on-brand. */
+function drawMapBanner(cx,cy){
+  const w=430,h=104,x=cx-w/2,y=cy-h/2;
+  ctx.save();
+  // hanging cords + pins to the top edge
+  ctx.strokeStyle='#B98A4E'; ctx.lineWidth=5;
+  for(const sx of[-1,1]){ ctx.beginPath(); ctx.moveTo(cx+sx*w*0.36,y); ctx.lineTo(cx+sx*w*0.30,0); ctx.stroke();
+    ctx.fillStyle='#8a5a2a'; ctx.beginPath(); ctx.arc(cx+sx*w*0.30,2,7,0,7); ctx.fill(); }
+  // sign plate
+  shadow(20,'rgba(90,61,36,0.30)',0,10);
+  const g=ctx.createLinearGradient(0,y,0,y+h); g.addColorStop(0,'#FFE7A8'); g.addColorStop(1,'#F4C463');
+  ctx.fillStyle=g; rr(x,y,w,h,26); ctx.fill(); noShadow();
+  ctx.lineWidth=8; ctx.strokeStyle='#B9772E'; rr(x,y,w,h,26); ctx.stroke();
+  ctx.lineWidth=3; ctx.strokeStyle='rgba(255,255,255,0.5)'; rr(x+9,y+9,w-18,h-18,18); ctx.stroke();
+  // envelope motif flanked by 2 stars
+  drawIcon('seal',cx,cy+4,58,'#FFF6E0','#7A491A');
+  drawIcon('star',cx-120,cy,44,'#FFCB2E','#C67C15');
+  drawIcon('star',cx+120,cy,44,'#FFCB2E','#C67C15');
+  ctx.restore();
 }
 
 /* ------------------------------------------------------------- RENDER: SHOP */
