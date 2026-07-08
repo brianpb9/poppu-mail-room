@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-3';
+const BUILD='20260708-4';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -2509,7 +2509,7 @@ const FRIEND_FLAIR={
 };
 /* calibrated per-character hat seat (was eyeballed to Peeky only — every other friend's head sits at
    a different height/width, so a shared 190/1.0 made hats float or clip on anyone else). */
-const HAT_Y={ gear:190, moon:236, heart:232, drop:234, cloud:218 };
+const HAT_Y={ gear:92, moon:124, heart:120, drop:122, cloud:118 };
 const HAT_SCALE={ gear:1.0, moon:1.0, heart:1.0, drop:1.05, cloud:1.08 };
 function heartMeterPos(i){ const cx=W/2, y=60, gap=64, total=5*gap, x0=cx-total/2+gap/2; return { x:x0+i*gap, y }; }
 function enterFriend(id){
