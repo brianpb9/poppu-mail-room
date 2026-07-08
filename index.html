@@ -557,7 +557,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-28';
+const BUILD='20260708-29';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -573,6 +573,9 @@ const ASSET_FALLBACK = {
 TYPES.forEach(t=>{
   ASSET_SRC['pkg_'+t.id]='assets/pkg-'+t.id+'.png';
   ASSET_SRC['mailbox_'+t.id]='assets/mailbox-'+t.id+'.png';
+  // SHAPE-ONLY set: 6 uniform cream mailboxes, only the embossed emblem differs (star/gear/moon/
+  // heart/drop/cloud) — color gives zero cue, the SHAPE is the only match signal (L3).
+  ASSET_SRC['mbshape_'+t.id]='assets/mailbox-shape-'+t.id+'.png';
   ASSET_SRC['face_'+t.id]='assets/face-'+t.id+'.png';
 });
 /* full-body character art for the delivery greeting (Poppu reuses poppu_celebrate) */
@@ -3424,8 +3427,10 @@ function drawMailboxes(){
     if(glow>0) shadow(46*glow,type.deep);
     const s=b.w*(1+(hovered&&glow>0.6?0.05:0));
     if(shapeOnly){
-      // uniform kraft body for every box — color is deliberately removed as a cue; the shape reads.
-      ph_mailbox(shapeNeutral(type),0,0,b.w*0.9,glow);
+      // uniform CREAM mailbox — real illustrated art, only the embossed emblem differs so the SHAPE is
+      // the sole cue (color is identical across all 6). Falls back to the neutral-kraft draw pre-load.
+      if(has('mbshape_'+type.id)) ctx.drawImage(IMG['mbshape_'+type.id].img,-s/2,-s/2,s,s);
+      else ph_mailbox(shapeNeutral(type),0,0,b.w*0.9,glow);
     } else if(skinReady){
       ctx.drawImage(IMG[skinKey].img,-s/2,-s/2,s,s);
       // the skin reskins the BODY, so overlay the type's own identity glyph on top — kids still need
