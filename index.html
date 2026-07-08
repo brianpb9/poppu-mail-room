@@ -557,7 +557,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-29';
+const BUILD='20260708-30';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -661,7 +661,7 @@ const POPPU_DRESSED_POSES=['wave','postal','celebrate'];
 ['home','back','volume_on','volume_off','settings','close','star','heart','gear','moon','drop','cloud',
  'speed','capacity','arrow','reveal','x2','seal','stamp','crown','shop_bag','check','replay',
  // P1 #8/#9/#10 — premium raster icons replacing procedural draws (locked node / tutorial hand / envelope / send-glyph)
- 'lock','hand','envelope','send'].forEach(n=>{
+ 'lock','hand','envelope','send','return'].forEach(n=>{
   ASSET_SRC['ic_'+n]='assets/ic-'+n.replace(/_/g,'-')+'.png';
 });
 ['flower_common','flower_rare','flower_special','flower_locked','flower_unlocked'].forEach(n=>{
@@ -3470,7 +3470,21 @@ function drawBoxTag(b,hint,shapeOnly){
 function drawPackage(p){
   ctx.save(); ctx.translate(p.x,p.y); const s=PKG_S*p.scale;
   if(p.state==='dragging'){ ctx.save(); ctx.globalAlpha=0.2; ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(0,PKG_S*0.55,PKG_S*0.5,PKG_S*0.16,0,0,7); ctx.fill(); ctx.restore(); }
-  if(p.golden){ ctx.save(); shadow(24+Math.sin(time*6)*8,'rgba(255,214,90,0.9)'); }
+  if(p.golden){
+    // BOSS JUICE: a soft pulsing golden halo behind the parcel + a slowly-turning sparkle ring, so the
+    // golden parcel visibly shimmers (gentle — no harsh flashing). Behind the sprite so it reads as a glow.
+    const pul=0.5+Math.sin(time*4)*0.5;
+    ctx.save();
+    const hr=s*(0.62+pul*0.10), hg=ctx.createRadialGradient(0,0,s*0.18,0,0,hr);
+    hg.addColorStop(0,'rgba(255,236,150,'+(0.55+pul*0.30)+')'); hg.addColorStop(0.6,'rgba(255,210,90,'+(0.22+pul*0.14)+')'); hg.addColorStop(1,'rgba(255,200,80,0)');
+    ctx.fillStyle=hg; ctx.beginPath(); ctx.arc(0,0,hr,0,7); ctx.fill();
+    // turning 5-point sparkle ring
+    ctx.globalAlpha=0.45+pul*0.35; ctx.fillStyle='#FFF6C8';
+    for(let k=0;k<5;k++){ const a=time*0.9+k*(Math.PI*2/5), rr2=s*0.52, sx=Math.cos(a)*rr2, sy=Math.sin(a)*rr2, ss=s*0.05*(0.7+pul*0.6);
+      ctx.beginPath(); ctx.arc(sx,sy,ss,0,7); ctx.fill(); }
+    ctx.restore();
+    ctx.save(); shadow(30+Math.sin(time*6)*14,'rgba(255,214,90,0.95)');
+  }
   const key='pkg_'+p.type.id;
   if(has(key)) ctx.drawImage(IMG[key].img,-s/2,-s/2,s,s); else ph_package(p.type,0,0,s,p.golden);
   if(p.golden){ noShadow(); ctx.restore(); }
@@ -3479,9 +3493,14 @@ function drawPackage(p){
     // by the badge (not by failing), that this one goes back and never into a mailbox.
     const bs=s*0.40, bx=s*0.28, by=-s*0.30, pulse=1+Math.sin(time*5)*0.08;
     ctx.save(); ctx.translate(bx,by); ctx.scale(pulse,pulse);
-    shadow(8,'rgba(0,0,0,0.22)',0,3); ctx.fillStyle='#FFF3D6'; ctx.beginPath(); ctx.arc(0,0,bs*0.5,0,7); ctx.fill(); noShadow();
-    ctx.lineWidth=bs*0.11; ctx.strokeStyle='#C97A4E'; ctx.stroke();
-    if(!uiIcon('replay',0,0,bs*0.66)) drawIcon('replay',0,0,bs*0.66,'#C97A4E','#8a4f2e');
+    if(has('ic_return')){
+      // dedicated return-to-sender stamp (envelope + back-arrow) — reads "goes back" instantly, no circle backing needed.
+      ctx.save(); shadow(8,'rgba(0,0,0,0.22)',0,3); uiIcon('return',0,0,bs*1.5); ctx.restore();
+    } else {
+      shadow(8,'rgba(0,0,0,0.22)',0,3); ctx.fillStyle='#FFF3D6'; ctx.beginPath(); ctx.arc(0,0,bs*0.5,0,7); ctx.fill(); noShadow();
+      ctx.lineWidth=bs*0.11; ctx.strokeStyle='#C97A4E'; ctx.stroke();
+      if(!uiIcon('replay',0,0,bs*0.66)) drawIcon('replay',0,0,bs*0.66,'#C97A4E','#8a4f2e');
+    }
     ctx.restore();
   }
   ctx.restore();
