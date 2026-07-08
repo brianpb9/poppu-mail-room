@@ -550,7 +550,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260708-20';
+const BUILD='20260708-21';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -3342,7 +3342,9 @@ function drawMailboxes(){
     if(scan && dragging && dragging.type.id===type.id) glow=Math.max(glow,0.7+Math.sin(time*8)*0.2);
     const bn=boxBounce[i], pop=bn>0?Math.sin((1-bn)*Math.PI)*0.14:0;
     const sx=1+pop*0.4, sy=1-pop*0.4;
-    ctx.save(); ctx.globalAlpha=0.55; ctx.fillStyle=type.light; ctx.beginPath(); ctx.arc(b.x,b.y+b.h*0.02,b.w*0.52,0,7); ctx.fill(); ctx.restore();
+    // FIX 3: replaced the big translucent colored disc (which made each box read as floating on a puck)
+    // with a soft grounding contact shadow under the box, so it sits ON the floor.
+    ctx.save(); ctx.globalAlpha=0.18; ctx.fillStyle='#3a2a18'; ctx.beginPath(); ctx.ellipse(b.x,b.y+b.h*0.44,b.w*0.40,b.h*0.10,0,0,7); ctx.fill(); ctx.restore();
     if(!skinReady) mailboxSkinRing(b, mbSkin);   // procedural ring is fallback-only once the real skin art has landed
     ctx.save(); ctx.translate(b.x,b.y+(glow>0.6?-6:0)); ctx.scale(sx,sy);
     if(glow>0) shadow(46*glow,type.deep);
@@ -3359,7 +3361,15 @@ function drawMailboxes(){
   }
 }
 function drawBoxTag(b,hint){
-  const tx=b.x, ty=b.y-b.h*0.52, r=b.w*0.17, type=b.type;
+  // FIX 3: seat the label bauble ONTO the box — lowered so it rests on the roof, plus a short mounting
+  // neck + base plate so it reads as a badge pinned to the mailbox, never a disc hovering above it.
+  const tx=b.x, ty=b.y-b.h*0.47, r=b.w*0.17, type=b.type;
+  const neckTop=ty+r*0.55, neckBot=b.y-b.h*0.30;
+  if(neckBot>neckTop){ ctx.save(); shadow(6,'rgba(0,0,0,0.14)',0,3);
+    ctx.fillStyle='#fffdf6'; ctx.strokeStyle=type.deep; ctx.lineWidth=r*0.13;
+    const nw=r*0.5; rr(tx-nw/2,neckTop,nw,neckBot-neckTop,nw*0.4); ctx.fill(); noShadow(); ctx.stroke();
+    // base plate where the neck meets the box
+    ctx.fillStyle=type.deep; ctx.beginPath(); ctx.ellipse(tx,neckBot,r*0.5,r*0.16,0,0,7); ctx.fill(); ctx.restore(); }
   ctx.save(); shadow(10,'rgba(0,0,0,0.14)',0,4); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(tx,ty,r,0,7); ctx.fill(); noShadow();
   ctx.lineWidth=r*0.16; ctx.strokeStyle=type.deep; ctx.stroke();
   if(hint==='color'){ // saturated mid→deep chip (never light-on-white, which read as an empty ring) + a soft top gloss
