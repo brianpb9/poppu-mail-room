@@ -759,6 +759,17 @@ function pressScale(id){ const t0=btnPress[id]; if(t0==null) return 1;
   const p=el/0.12; return p<0.35 ? 1-0.10*(p/0.35) : 0.90+0.10*easeOutBack((p-0.35)/0.65); }
 /* wrap a canvas draw in a press-pop scale about (cx,cy); returns after ctx.save so caller must restore. */
 function pressPush(id,cx,cy){ const ps=pressScale(id); ctx.save(); ctx.translate(cx,cy); ctx.scale(ps,ps); ctx.translate(-cx,-cy); }
+/* small color utilities (item 4): desaturate toward luminance + mix toward another color, so the
+   mailbox color-code orb can be matte + pastel-toned to sit in the same soft world as the boxes. */
+function _hx(h){ h=h.replace('#',''); return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]; }
+function _rgb(r,g,b){ const c=x=>('0'+Math.round(Math.max(0,Math.min(255,x))).toString(16)).slice(-2); return '#'+c(r)+c(g)+c(b); }
+function mixHex(h1,h2,t){ const a=_hx(h1),b=_hx(h2); return _rgb(a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t); }
+function desatHex(hex,amt){ const [r,g,b]=_hx(hex); const l=0.3*r+0.59*g+0.11*b; return _rgb(r+(l-r)*amt,g+(l-g)*amt,b+(l-b)*amt); }
+/* matte version of a type's color chip: desaturate ~18%, and pull the hot red (star) one step toward
+   pastel so it stops shouting against the matte world. */
+function matteChip(type){ let mid=desatHex(type.mid,0.20), deep=desatHex(type.deep,0.16);
+  if(type.id==='star'){ mid=mixHex(mid,'#FFFFFF',0.14); deep=mixHex(deep,'#FFFFFF',0.06); }
+  return {mid,deep}; }
 /* soft flattened contact shadow — grounds any sprite at a FIXED ground line (draw BEFORE the sprite,
    ignore idle bob so the object hovers a hair above its own shadow, never swims with it). Radial
    gradient scaled onto an ellipse; cheap enough for every-frame use (no shadowBlur). */
@@ -3587,11 +3598,17 @@ function drawBoxTag(b,hint,shapeOnly){
     ctx.fillStyle=deepC; ctx.beginPath(); ctx.ellipse(tx,neckBot,r*0.5,r*0.16,0,0,7); ctx.fill(); ctx.restore(); }
   ctx.save(); shadow(10,'rgba(0,0,0,0.14)',0,4); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(tx,ty,r,0,7); ctx.fill(); noShadow();
   ctx.lineWidth=r*0.16; ctx.strokeStyle=deepC; ctx.stroke();
-  if(hint==='color'){ // saturated mid→deep chip (never light-on-white, which read as an empty ring) + a soft top gloss
-    const cg=ctx.createLinearGradient(tx,ty-r,tx,ty+r); cg.addColorStop(0,type.mid); cg.addColorStop(1,type.deep);
+  if(hint==='color'){ // MATTE color chip (item 4): desaturated + pastel-toned + a soft broad sheen (no candy
+    // specular hotspot), so the color-code orb sits in the same matte world as the mailboxes.
+    const {mid,deep}=matteChip(type);
+    const cg=ctx.createLinearGradient(tx,ty-r,tx,ty+r); cg.addColorStop(0,mid); cg.addColorStop(1,deep);
     ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(tx,ty,r*0.80,0,7); ctx.fill();
-    ctx.lineWidth=r*0.12; ctx.strokeStyle=type.deep; ctx.stroke();
-    ctx.save(); ctx.globalAlpha=0.35; ctx.fillStyle=type.light; ctx.beginPath(); ctx.ellipse(tx,ty-r*0.28,r*0.42,r*0.22,0,0,7); ctx.fill(); ctx.restore(); }
+    ctx.lineWidth=r*0.12; ctx.strokeStyle=deep; ctx.stroke();
+    // soft matte top sheen: a broad, low-alpha radial glow near the top — reads as gentle ambient light,
+    // NOT a hard glossy hotspot. Replaces the old bright specular ellipse.
+    ctx.save(); const sh=ctx.createRadialGradient(tx,ty-r*0.30,r*0.04,tx,ty-r*0.05,r*0.85);
+    sh.addColorStop(0,'rgba(255,255,255,0.22)'); sh.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=sh; ctx.beginPath(); ctx.arc(tx,ty,r*0.80,0,7); ctx.fill(); ctx.restore(); }
   // shape hint: on SHAPE-ONLY levels tint the premium raster glyph to the neutral tan ink so it gives
   // NO colour cue (pure shape read) yet stays real raster art, never a flat vector shape; otherwise
   // draw the glyph in its natural premium raster colours.
