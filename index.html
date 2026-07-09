@@ -749,6 +749,16 @@ function smooth(cur,target,rate,dt){ return cur+(target-cur)*(1-Math.pow(1-rate,
 /* enter the wrong-drop / cancelled-drag RETURN bounce — snapshots start-y so the box springs back onto
    the belt with an easeOutBack overshoot + damped wobble (item 8). Always route returns through here. */
 function returnPkg(p){ p.state='returning'; p.scale=1; p.rtT=0; p.rty0=p.y; }
+/* BUTTON PRESS-JUICE (item 3): every chrome button dips to 0.9 on tap then springs back to 1.0 on
+   easeOutBack over ~120ms. Keyed by id, timed off the global `time` clock (no per-frame bookkeeping).
+   firePress(id) on tap; pressScale(id) around the button's draw. */
+const btnPress={};
+function firePress(id){ btnPress[id]=time; }
+function pressScale(id){ const t0=btnPress[id]; if(t0==null) return 1;
+  const el=time-t0; if(el>=0.12){ delete btnPress[id]; return 1; }
+  const p=el/0.12; return p<0.35 ? 1-0.10*(p/0.35) : 0.90+0.10*easeOutBack((p-0.35)/0.65); }
+/* wrap a canvas draw in a press-pop scale about (cx,cy); returns after ctx.save so caller must restore. */
+function pressPush(id,cx,cy){ const ps=pressScale(id); ctx.save(); ctx.translate(cx,cy); ctx.scale(ps,ps); ctx.translate(-cx,-cy); }
 /* soft flattened contact shadow — grounds any sprite at a FIXED ground line (draw BEFORE the sprite,
    ignore idle bob so the object hovers a hair above its own shadow, never swims with it). Radial
    gradient scaled onto an ellipse; cheap enough for every-frame use (no shadowBlur). */
@@ -2585,7 +2595,7 @@ function drawSendGlyph(active){
 function drawWrapShipButton(){
   const active=!!(wrapBox&&wrapBox.acted), b=WRAP_SHIP_BTN, pulse=active?1+Math.sin(time*3)*0.06:1;
   const bounce=wrapShipBounceT!=null?1+Math.max(0,0.30-wrapShipBounceT*1.0):1;   // A6: "not yet" tap feedback
-  ctx.save(); ctx.translate(b.x,b.y); ctx.scale(pulse*bounce,pulse*bounce);
+  ctx.save(); ctx.translate(b.x,b.y); ctx.scale(pulse*bounce*pressScale('ship'),pulse*bounce*pressScale('ship'));
   // ready-glow ring when there's something to send
   if(active){ ctx.save(); ctx.globalAlpha=0.4+0.2*Math.sin(time*3); ctx.strokeStyle='#FFE08A'; ctx.lineWidth=16;
     ctx.beginPath(); ctx.arc(0,0,b.r+14,0,7); ctx.stroke(); ctx.restore(); }
@@ -2945,7 +2955,7 @@ const TOWN_NAV=()=>{ const r=60,y=108,x0=200,gap=152;
 const STAMP_CHIP={x:W-40,y:56};
 const HOMEBTN={x:96,y:96,r:64};   // 128px — clears the 120px toddler-tap floor (A4)
 const BACKBTN={x:150,y:H-120,r:70};
-const VOLBTN={x:224,y:90,r:56};
+const VOLBTN={x:224,y:90,r:62};   // item 3/UI#5: >=60 clears the 120px toddler-tap floor
 const PARENT_PANEL={x:W/2-470,y:150,w:940,h:790};
 const PARENT_CLOSE={x:W/2+470-64,y:150+64,r:42};
 const PARENT_VOL=()=>({x:W/2-260,y:PARENT_PANEL.y+PARENT_PANEL.h-210,w:520,h:96});
@@ -2995,26 +3005,26 @@ function onDown(cx,cy){
   if(parentOpen){ handleParentTap(p.x,p.y); return; }
   if(state==='START'){
     if(poppuHit(p.x,p.y)) startLongPress(p.x,p.y);
-    if(dist(p.x,p.y,PLAYBTN.x,PLAYBTN.y)<PLAYBTN.r){ enterTown(); return; }
+    if(dist(p.x,p.y,PLAYBTN.x,PLAYBTN.y)<PLAYBTN.r){ firePress('play'); enterTown(); return; }
     // single top-right wardrobe/shop icon — the ONE secondary affordance on the clean home screen
     if(dist(p.x,p.y,START_MENU_BTN.x,START_MENU_BTN.y)<START_MENU_BTN.r){ menuReturn='START'; state='SHOP'; shopTab='cosmetic'; Audio_.pop(); return; }
     return;
   }
   if(state==='LEVELMAP'){
-    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ state=menuReturn; if(menuReturn==='TOWN') enterTown(); return; }
+    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ firePress('back'); state=menuReturn; if(menuReturn==='TOWN') enterTown(); return; }
     for(const nd of levelNodes()) if(dist(p.x,p.y,nd.x,nd.y)<nd.rad){
       if(levelUnlocked(nd.n)) startLevel(nd.n); else Audio_.locked(); return; }
     return;
   }
   if(state==='SHOP'){
-    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ state=menuReturn; if(menuReturn==='TOWN') enterTown(); return; }
+    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ firePress('back'); state=menuReturn; if(menuReturn==='TOWN') enterTown(); return; }
     for(const t of shopTabRects()) if(inRect(p.x,p.y,t)){ shopTab=t.id; Audio_.pop(); return; }
     if(shopTab==='upgrade'){ for(const c of upgradeCards()) if(inRect(p.x,p.y,c)){ buyUpgrade(c.u); return; } }
     else { for(const r of shopCatRects()) if(inRect(p.x,p.y,r)){ shopCat=r.c; Audio_.pop(); return; }
       for(const c of cosmeticCards()) if(inRect(p.x,p.y,c)){ buyOrEquip(c.c); return; } }
     return;
   }
-  if(state==='STICKER'){ if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ state=menuReturn; if(menuReturn==='TOWN') enterTown(); } return; }
+  if(state==='STICKER'){ if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ firePress('back'); state=menuReturn; if(menuReturn==='TOWN') enterTown(); } return; }
   if(state==='LEVELDONE'){
     for(const b of doneBtns()) if(inRect(p.x,p.y,b)){
       if(b.id==='next'){ advanceFromLevelDone(); return; }
@@ -3024,9 +3034,10 @@ function onDown(cx,cy){
   }
   if(state==='TOWN'){
     if(townTransition) return;   // brief, non-interruptible zoom-push already in flight
-    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ leaveTown(); return; }
+    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ firePress('back'); leaveTown(); return; }
     // top-left hub toolbar — the secondary destinations relocated off the START screen
     for(const b of TOWN_NAV()) if(dist(p.x,p.y,b.x,b.y)<b.r){
+      firePress('nav_'+b.id);
       if(b.id==='levels'){ menuReturn='TOWN'; state='LEVELMAP'; Audio_.pop(); }
       else if(b.id==='shop'){ menuReturn='TOWN'; state='SHOP'; shopTab='upgrade'; Audio_.pop(); }
       else if(b.id==='stickers'){ menuReturn='TOWN'; state='STICKER'; Audio_.pop(); }
@@ -3039,9 +3050,9 @@ function onDown(cx,cy){
     return;
   }
   if(state==='WRAP'){
-    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ leaveWrap(); return; }
+    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ firePress('back'); leaveWrap(); return; }
     if(!wrapBox) return;   // ship-flight in progress (wrapBox is null between startWrapShip and finalizeWrapShip) — graceful no-op
-    if(wrapBox.acted && dist(p.x,p.y,WRAP_SHIP_BTN.x,WRAP_SHIP_BTN.y)<WRAP_SHIP_BTN.r){ startWrapShip(); return; }
+    if(wrapBox.acted && dist(p.x,p.y,WRAP_SHIP_BTN.x,WRAP_SHIP_BTN.y)<WRAP_SHIP_BTN.r){ firePress('ship'); startWrapShip(); return; }
     { const r=WRAP_RIBBON_STRIP;
       if(Math.abs(p.x-r.x)<r.w/2 && Math.abs(p.y-r.y)<r.h/2){ wrapRibbonSwipe={x0:p.x,dx:0}; return; } }
     for(const st of wrapStickerTray()){ if(dist(p.x,p.y,st.x,st.y)<st.r){ applyWrapSticker(st.icon); return; } }
@@ -3049,14 +3060,14 @@ function onDown(cx,cy){
     return;
   }
   if(state==='FRIEND'){
-    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ leaveFriend(); return; }
+    if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ firePress('back'); leaveFriend(); return; }
     for(const it of friendItemTray()){ if(dist(p.x,p.y,it.x,it.y)<it.r){ friendDragItem={kind:'item',icon:it.icon,x:p.x,y:p.y}; return; } }
     for(const h of friendHatTray()){ if(dist(p.x,p.y,h.x,h.y)<h.r){ friendDragItem={kind:'hat',id:h.id,x:p.x,y:p.y}; return; } }
     if(dist(p.x,p.y,FRIEND_POS.x,FRIEND_POS.y)<230){ petFriend(); return; }
     return;
   }
   if(state==='DRIVE'){
-    if(dist(p.x,p.y,HOMEBTN.x,HOMEBTN.y)<HOMEBTN.r){ Audio_.stopTruck(); Audio_.setMusicRoot(SCENES[currentScene].music.root); drive=null; state='START'; floatTexts=[]; popups=[]; return; }
+    if(dist(p.x,p.y,HOMEBTN.x,HOMEBTN.y)<HOMEBTN.r){ firePress('home'); Audio_.stopTruck(); Audio_.setMusicRoot(SCENES[currentScene].music.root); drive=null; state='START'; floatTexts=[]; popups=[]; return; }
     if(tryCatchFloaterAt(p.x,p.y)) return;   // biome finger-toy tap wins over steer (discrete, air-layer)
     if(drive && !drive.arriving) drive.dragActiveX=p.x;
     return;
@@ -3064,8 +3075,8 @@ function onDown(cx,cy){
   if(state==='PLAYING'){
     // FIX6: tap anywhere during the star-tally beat (after a short grace) to skip straight to the drive
     if(levelDone && clearBeatT>0.4){ clearBeatT=-1; startDrive(); return; }
-    if(dist(p.x,p.y,HOMEBTN.x,HOMEBTN.y)<HOMEBTN.r){ state='START'; Audio_.setHum(false); return; }
-    if(dist(p.x,p.y,VOLBTN.x,VOLBTN.y)<VOLBTN.r){ cycleVolume(); return; }
+    if(dist(p.x,p.y,HOMEBTN.x,HOMEBTN.y)<HOMEBTN.r){ firePress('home'); state='START'; Audio_.setHum(false); return; }
+    if(dist(p.x,p.y,VOLBTN.x,VOLBTN.y)<VOLBTN.r){ firePress('vol'); cycleVolume(); return; }
     if(poppuHit(p.x,p.y)){ startLongPress(p.x,p.y); return; }
     if(activeTask){
       if(activeTask.kind==='seal' && !activeTask.done){
@@ -3390,21 +3401,23 @@ function stampChip(x,y,align){
   ctx.restore();
 }
 function homeButton(){
+  pressPush('home',HOMEBTN.x,HOMEBTN.y);
   ctx.save(); shadow(12,'rgba(0,0,0,0.14)',0,5); ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(HOMEBTN.x,HOMEBTN.y,HOMEBTN.r,0,7); ctx.fill(); noShadow();
   ctx.strokeStyle='#E3A93E'; ctx.lineWidth=5; ctx.stroke();
   if(!uiIcon('home',HOMEBTN.x,HOMEBTN.y,HOMEBTN.r*1.15)){
     ctx.fillStyle='#E3A93E'; ctx.beginPath(); ctx.moveTo(HOMEBTN.x,HOMEBTN.y-24); ctx.lineTo(HOMEBTN.x-26,HOMEBTN.y); ctx.lineTo(HOMEBTN.x-16,HOMEBTN.y); ctx.lineTo(HOMEBTN.x-16,HOMEBTN.y+22); ctx.lineTo(HOMEBTN.x+16,HOMEBTN.y+22); ctx.lineTo(HOMEBTN.x+16,HOMEBTN.y); ctx.lineTo(HOMEBTN.x+26,HOMEBTN.y); ctx.closePath(); ctx.fill();
   }
-  ctx.restore();
+  ctx.restore(); ctx.restore();
 }
 function backButton(){
+  pressPush('back',BACKBTN.x,BACKBTN.y);
   ctx.save(); shadow(14,'rgba(0,0,0,0.16)',0,6); const b=BACKBTN;
   ctx.fillStyle='#98D7B4'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); noShadow();
   ctx.strokeStyle='#fff'; ctx.lineWidth=8; ctx.stroke();
   if(!uiIcon('back',b.x,b.y,b.r*1.15)){
     ctx.strokeStyle='#3a6a4a'; ctx.lineWidth=12; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(b.x+20,b.y-28); ctx.lineTo(b.x-24,b.y); ctx.lineTo(b.x+20,b.y+28); ctx.stroke();
   }
-  ctx.restore();
+  ctx.restore(); ctx.restore();
 }
 /* WORDLESS pill chrome (P1) — same rounded-pill fill/border/shadow as before (kept as the pill's
    colored-border "secondary cue" per ui-ux-designer spec), but the content slot is now an ICON
@@ -3428,9 +3441,10 @@ function pill(r,fill,strokeCol,strokeW,content,labelCol){
 
 function drawVolumeButton(){
   const b=VOLBTN, lvl=SAVE.volume, col='#4FA9D6';
+  pressPush('vol',b.x,b.y);
   ctx.save(); shadow(12,'rgba(0,0,0,0.14)',0,5); ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); noShadow();
   ctx.strokeStyle='#8ECFEC'; ctx.lineWidth=5; ctx.stroke();
-  if(uiIcon(lvl>0?'volume_on':'volume_off',b.x,b.y,b.r*1.15)){ ctx.restore(); return; }
+  if(uiIcon(lvl>0?'volume_on':'volume_off',b.x,b.y,b.r*1.15)){ ctx.restore(); ctx.restore(); return; }
   ctx.translate(b.x,b.y); ctx.lineJoin='round';
   ctx.fillStyle=col; ctx.beginPath();
   ctx.moveTo(-24,-10); ctx.lineTo(-10,-10); ctx.lineTo(4,-22); ctx.lineTo(4,22); ctx.lineTo(-10,10); ctx.lineTo(-24,10); ctx.closePath(); ctx.fill();
@@ -3439,7 +3453,7 @@ function drawVolumeButton(){
   else { ctx.strokeStyle=col; ctx.lineWidth=5; ctx.lineCap='round';
     ctx.beginPath(); ctx.arc(8,0,14,-0.7,0.7); ctx.stroke();
     if(lvl>=2){ ctx.beginPath(); ctx.arc(8,0,26,-0.7,0.7); ctx.stroke(); } }
-  ctx.restore();
+  ctx.restore(); ctx.restore();
 }
 function drawHand(x,y){
   if(has('ic_hand')){   // P1 #8: premium illustrated pointer paw replaces the procedural hand
@@ -3950,7 +3964,7 @@ function drawStart(){
   }
   // THE single hero: the enlarged Play button, centered in the now-open middle of the calm screen. A gentle
   // pulse makes it the one obvious thing to tap; Poppu waves toward it from the left as the welcoming host.
-  const pulse=1+Math.sin(time*3)*0.05;
+  const pulse=(1+Math.sin(time*3)*0.05)*pressScale('play');
   ctx.save(); ctx.translate(PLAYBTN.x,PLAYBTN.y); ctx.scale(pulse,pulse);
   if(has('ui_play')){ shadow(30,'rgba(0,0,0,0.24)',0,16); const d=PLAYBTN.r*2.4; ctx.drawImage(IMG.ui_play.img,-d/2,-d/2,d,d); noShadow(); }
   else { shadow(34,'rgba(0,0,0,0.2)',0,14); const pg=ctx.createLinearGradient(0,-PLAYBTN.r,0,PLAYBTN.r); pg.addColorStop(0,'#FFE79A'); pg.addColorStop(1,'#F4B93E');
@@ -4910,6 +4924,7 @@ function drawTown(){
 function drawTownNav(){
   for(const b of TOWN_NAV()){
     const ring=b.id==='levels'?'#8ECFEC':b.id==='shop'?'#FFD15C':b.id==='stickers'?'#B79BEA':'#98D7B4';
+    pressPush('nav_'+b.id,b.x,b.y);
     ctx.save(); shadow(12,'rgba(0,0,0,0.16)',0,5);
     ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); noShadow();
     ctx.lineWidth=6; ctx.strokeStyle=ring; ctx.stroke(); ctx.restore();
@@ -4924,6 +4939,7 @@ function drawTownNav(){
       ctx.restore();
       // little "swap" arrows hint it cycles
       ctx.save(); ctx.globalAlpha=0.9; glyphIcon('replay',b.x+b.r*0.52,b.y+b.r*0.52,b.r*0.62,'#fff','#7a4a20'); ctx.restore(); }
+    ctx.restore();
   }
 }
 
