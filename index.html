@@ -201,6 +201,11 @@ function defaultSave(){
        friendGiftGiven: one-time "best friends" (5-heart) celebration+reward, fired exactly once per
        friend and kept forever. */
     driveCollection: {}, driveCollectionTier: {}, friendGiftGiven: {},
+    /* ------ Living Town / bloom (retention 9-10 lever) ------
+       townBloom: monotonic "the place is alive" tier (0..BLOOM_MAX) grown by cumulative
+       deliveries + unlocked friends — NEVER regresses, so returning kids find the town they grew.
+       houseAlive: { buildingId:true } — that friend has "moved in" (lit windows + peek/wave). */
+    townBloom: 0, houseAlive: {},
   };
 }
 let SAVE = loadSave();
@@ -221,6 +226,8 @@ function loadSave(){
     if(!s.driveCollection || typeof s.driveCollection!=='object' || Array.isArray(s.driveCollection)) s.driveCollection={};
     if(!s.driveCollectionTier || typeof s.driveCollectionTier!=='object' || Array.isArray(s.driveCollectionTier)) s.driveCollectionTier={};
     if(!s.friendGiftGiven || typeof s.friendGiftGiven!=='object' || Array.isArray(s.friendGiftGiven)) s.friendGiftGiven={};
+    if(typeof s.townBloom!=='number' || !isFinite(s.townBloom) || s.townBloom<0) s.townBloom=0;
+    if(!s.houseAlive || typeof s.houseAlive!=='object' || Array.isArray(s.houseAlive)) s.houseAlive={};
     if(typeof s.stamps!=='number' || !isFinite(s.stamps) || s.stamps<0) s.stamps=0;
     if(typeof s.wrapQueue!=='number' || s.wrapQueue<0) s.wrapQueue=0;
     if(typeof s.wrappedCount!=='number' || s.wrappedCount<0) s.wrappedCount=0;
@@ -586,7 +593,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-41';
+const BUILD='20260709-42';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -2188,6 +2195,7 @@ function enterTown(){
   // wordless "new" reveal: the first time a building with an unclaimed badge is SHOWN this session,
   // it does a one-shot look-at-me wiggle (never replays on later re-entries while still unclaimed)
   for(const id in TOWN_BUILDINGS){ if(SAVE.newBadge[id] && !newBadgeSeen[id]){ newBadgeSeen[id]=true; newBadgeAnimState[id]={t:0}; } }
+  armTownBloomGrowth();   // grow the town to match progress; pop fresh life for anything new this session
   Audio_.setTownAmbience(true); Audio_.pop();
 }
 function leaveTown(){
@@ -3250,6 +3258,7 @@ function update(dt){
   }
 
   if(state==='TOWN'){
+    updateTownLife(dt);
     if(buildingSqueeze){ buildingSqueeze.t+=dt; if(buildingSqueeze.t>0.26) buildingSqueeze=null; }
     if(poppuPoint){ poppuPoint.t+=dt; if(poppuPoint.t>0.9) poppuPoint=null; }
     if(lockedPulse){ lockedPulse.t+=dt; if(lockedPulse.t>0.9) lockedPulse=null; }
@@ -4572,6 +4581,8 @@ function drawTownBuilding(b){
     }
   }
   ctx.restore();
+  // once a house is unlocked/"alive" it reads INHABITED — lit window, cozy motes, friend peeking & waving
+  if(unlocked) drawLivingHouse(b, groundY);
   if(SAVE.newBadge[b.id]){
     // corner-of-the-roof placement (tucked onto the roofline itself, not floating in the sky above it)
     // so the badge never covers the house's own identity art; genuinely small (~80px) so it reads as a
@@ -4624,6 +4635,212 @@ function drawPoppuTownPointGesture(pp){
   ctx.restore();
 }
 let _townBeckonId=null;   // QC: only ONE house shows the "tap me" paw (the next locked one) — the rest just glow+bob, so the town reads guided/calm, not a field of pointing hands
+
+/* =========================================================================
+   LIVING TOWN — the place visibly BLOOMS as the child plays (retention 9-10 lever).
+   A monotonic bloom tier grown by cumulative deliveries + unlocked friends scatters
+   more flowers/blossoms/butterflies each level; unlocked friend houses light their
+   windows, breathe cozy smoke-motes, and the friend peeks & waves from a window.
+   Persisted (SAVE.townBloom / SAVE.houseAlive) so the grown town survives a reload.
+   Static flower art is baked to ONE cached layer per tier (rebuilt only on tier
+   change) so it costs a single drawImage/frame — no perf hit. Preschool-safe:
+   slow, soft, no flashing, tasteful counts (never a flower explosion). */
+const BLOOM_MAX=5;
+function computeTownBloomTarget(){
+  let unlocked=0; for(const id in FRIEND_UNLOCK) if(buildingUnlocked(id)) unlocked++;
+  const td=SAVE.totalDelivered||0;
+  const dTier = td>=64?5: td>=40?4: td>=24?3: td>=12?2: td>=4?1: 0;
+  return Math.min(BLOOM_MAX, Math.max(unlocked, dTier));
+}
+/* recompute + monotonically bump the persisted bloom tier; mark newly-unlocked friend houses "alive". */
+function refreshTownBloom(){
+  const tgt=computeTownBloomTarget(); let changed=false;
+  if(tgt>(SAVE.townBloom||0)){ SAVE.townBloom=tgt; changed=true; }
+  for(const id in FRIEND_UNLOCK){ if(buildingUnlocked(id) && !SAVE.houseAlive[id]){ SAVE.houseAlive[id]=true; changed=true; } }
+  if(changed) persist();
+}
+function houseIsAlive(id){ return id==='post' || !!SAVE.houseAlive[id]; }
+/* deterministic, seeded scatter of bloom spots across the town ground (stable across sessions so the
+   cached layer is a clean subset as the tier rises). Each spot carries the tier at which it opens. */
+function _bloomRng(seed){ let s=(seed>>>0)||1; return ()=>{ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
+const _BLOOM_COLS=['#FF9DB6','#FFC2D3','#C8A2F0','#FFD98A','#B7E3B0','#FF8FB0','#E6C6FF','#FFB3C7'];
+let _bloomSpots=null;
+function bloomSpots(){
+  if(_bloomSpots) return _bloomSpots;
+  const rnd=_bloomRng(20260709), spots=[], avoid=[];
+  for(const id in TOWN_BUILDINGS){ const b=TOWN_BUILDINGS[id]; avoid.push({x:b.cx, y:b.groundY-b.h*0.28, rw:b.w*0.5, rh:b.h*0.58}); }
+  avoid.push({x:960,y:900,rw:170,rh:200});    // Poppu's clearing
+  for(let i=0;i<700 && spots.length<30;i++){
+    const x=150+rnd()*1620, y=655+rnd()*375;
+    let ok=true;
+    for(const a of avoid){ if(Math.abs(x-a.x)<a.rw && Math.abs(y-a.y)<a.rh){ ok=false; break; } }
+    if(ok) for(const s of spots){ if(Math.abs(x-s.x)<74 && Math.abs(y-s.y)<48){ ok=false; break; } }
+    if(!ok) continue;
+    const thr=1+Math.min(BLOOM_MAX-1, (rnd()*BLOOM_MAX)|0);
+    const r=rnd(), kind = r<0.16?'art' : r<0.52?'blossom' : 'tuft';
+    spots.push({ x:Math.round(x), y:Math.round(y), thr, kind, sz:0.75+rnd()*0.55, hue:_BLOOM_COLS[(rnd()*_BLOOM_COLS.length)|0] });
+  }
+  spots.sort((a,b)=>a.thr-b.thr);
+  _bloomSpots=spots; return spots;
+}
+function drawBlossom(o, cx, cy, r, col){
+  o.save();
+  o.strokeStyle='#7FB56A'; o.lineWidth=r*0.2; o.lineCap='round';
+  o.beginPath(); o.moveTo(cx, cy+r*1.7); o.lineTo(cx, cy+r*0.35); o.stroke();
+  o.fillStyle=col;
+  for(let i=0;i<5;i++){ const a=i*Math.PI*2/5 - Math.PI/2; o.beginPath(); o.ellipse(cx+Math.cos(a)*r*0.58, cy+Math.sin(a)*r*0.58, r*0.4, r*0.6, a, 0, 7); o.fill(); }
+  o.fillStyle='#FFE27A'; o.beginPath(); o.arc(cx,cy,r*0.34,0,7); o.fill();
+  o.strokeStyle='rgba(150,90,40,0.22)'; o.lineWidth=r*0.06; o.beginPath(); o.arc(cx,cy,r*0.34,0,7); o.stroke();
+  o.restore();
+}
+function drawBloomSpot(o, s){
+  const depth=0.65+0.75*Math.max(0,Math.min(1,(s.y-655)/375));   // nearer the foreground => a touch bigger
+  const base=30*s.sz*depth;
+  o.save();
+  if(s.kind==='art' && has('flower_common')){
+    o.drawImage(IMG.flower_common.img, s.x-base*0.95, s.y-base*1.7, base*1.9, base*1.9);
+  } else if(s.kind==='tuft'){
+    o.strokeStyle='#84BA64'; o.lineWidth=base*0.16; o.lineCap='round';
+    for(let i=-1;i<=1;i++){ o.beginPath(); o.moveTo(s.x+i*base*0.22, s.y); o.quadraticCurveTo(s.x+i*base*0.3, s.y-base*0.65, s.x+i*base*0.46, s.y-base*0.92); o.stroke(); }
+    o.fillStyle=s.hue; o.beginPath(); o.arc(s.x, s.y-base*0.5, base*0.2, 0, 7); o.fill();
+  } else {
+    drawBlossom(o, s.x, s.y-base*0.35, base*0.66, s.hue);
+  }
+  o.restore();
+}
+let _bloomLayer=null, _bloomLayerLevel=-1;
+function bloomLayerCanvas(level){
+  if(_bloomLayer && _bloomLayerLevel===level) return _bloomLayer;
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const o=c.getContext('2d');
+  for(const s of bloomSpots()) if(s.thr<=level) drawBloomSpot(o, s);
+  _bloomLayer=c; _bloomLayerLevel=level; return c;
+}
+/* session growth state — _bloomShownLevel is the tier already SETTLED into the cached layer; when the
+   persisted tier rises during play, the new spots POP in (grow-in animation) before settling, so the
+   child SEES their delivery plant fresh life. null until the first town view (returning players never
+   re-pop what they already grew). */
+let _bloomShownLevel=null, bloomPops=[];
+let _houseAliveShown=null, _houseMoveIn={};
+function armTownBloomGrowth(){
+  refreshTownBloom();
+  const cur=SAVE.townBloom||0;
+  if(_bloomShownLevel===null){ _bloomShownLevel=cur; }         // first view: town is already as-grown, no pop storm
+  else if(cur>_bloomShownLevel){
+    const news=bloomSpots().filter(s=>s.thr>_bloomShownLevel && s.thr<=cur);
+    news.forEach((s,i)=>bloomPops.push({ spot:s, t:-i*0.16, sparked:false }));
+    if(news.length) Audio_.collect();
+  }
+  // friend "moves in" — a one-shot wave + sparkle the first time each unlocked house is shown this session
+  if(_houseAliveShown===null){ _houseAliveShown={}; for(const id in FRIEND_UNLOCK) if(buildingUnlocked(id)) _houseAliveShown[id]=true; }
+  else for(const id in FRIEND_UNLOCK){
+    if(SAVE.houseAlive[id] && !_houseAliveShown[id]){
+      _houseAliveShown[id]=true; _houseMoveIn[id]=0;
+      const b=TOWN_BUILDINGS[id]; if(b){ const wp=houseWindowPos(b,b.groundY); burst(wp.x,wp.y,'#FFD98A',12,4.6); }
+      const info=FRIEND_UNLOCK[id]; if(info&&T[info.type]) Audio_.greet(T[info.type].index);
+    }
+  }
+}
+function updateTownLife(dt){
+  if(bloomPops.length){
+    for(const bp of bloomPops){ bp.t+=dt; if(bp.t>=0 && !bp.sparked){ bp.sparked=true; burst(bp.spot.x, bp.spot.y-10, bp.spot.hue, 6, 3); } }
+    bloomPops=bloomPops.filter(bp=>bp.t<0.7);
+    if(!bloomPops.length && _bloomShownLevel<(SAVE.townBloom||0)) _bloomShownLevel=SAVE.townBloom;   // settle into the cached layer
+  }
+  for(const id in _houseMoveIn){ _houseMoveIn[id]+=dt; if(_houseMoveIn[id]>2.8) delete _houseMoveIn[id]; }
+}
+function drawTownBloomLayer(){
+  const lvl=_bloomShownLevel==null?(SAVE.townBloom||0):_bloomShownLevel;
+  if(lvl>0) ctx.drawImage(bloomLayerCanvas(lvl), 0, 0, W, H);
+}
+function drawBloomPops(){
+  for(const bp of bloomPops){ if(bp.t<0) continue;
+    const e=easeOutBack(Math.min(1,bp.t/0.5)), s=bp.spot;
+    ctx.save(); ctx.translate(s.x,s.y); ctx.scale(e,e); ctx.translate(-s.x,-s.y);
+    drawBloomSpot(ctx, s); ctx.restore();
+  }
+}
+/* butterflies by day, a few fireflies at high bloom — cheap live drift computed straight off `time`
+   (no per-frame state), only from tier 2 up so an early town stays calm. */
+let _townBflies=null, _townBfliesLvl=-1;
+function townButterflies(level){
+  if(_townBflies && _townBfliesLvl===level) return _townBflies;
+  const n=Math.min(6, Math.max(0, level-1)), arr=[], rnd=_bloomRng(97*level+11);
+  for(let i=0;i<n;i++) arr.push({ x:rnd()*W, baseY:430+rnd()*470, ph:rnd()*7, spd:16+rnd()*22, amp:36+rnd()*46, col:['#FFB3C7','#C8A2F0','#FFD98A'][i%3], firefly:level>=4 && i%2===0 });
+  _townBflies=arr; _townBfliesLvl=level; return arr;
+}
+function drawTownButterflies(){
+  const lvl=SAVE.townBloom||0; if(lvl<2) return;
+  for(const bf of townButterflies(lvl)){
+    const x=((bf.x + time*bf.spd) % (W+140)) - 70, y=bf.baseY + Math.sin(time*0.7+bf.ph)*bf.amp;
+    ctx.save(); ctx.translate(x,y);
+    if(bf.firefly){
+      const tw=0.35+0.65*Math.abs(Math.sin(time*3+bf.ph));
+      ctx.globalAlpha=tw*0.9; ctx.fillStyle='#FFF0A8'; ctx.shadowColor='rgba(255,230,150,0.9)'; ctx.shadowBlur=14;
+      ctx.beginPath(); ctx.arc(0,0,4,0,7); ctx.fill();
+    } else {
+      const flap=0.3+Math.abs(Math.sin(time*6+bf.ph))*0.7;
+      ctx.globalAlpha=0.92; ctx.fillStyle=bf.col;
+      ctx.beginPath(); ctx.ellipse(-6,0,7,10*flap,0.3,0,7); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(6,0,7,10*flap,-0.3,0,7); ctx.fill();
+      ctx.fillStyle='rgba(90,60,40,0.55)'; ctx.beginPath(); ctx.ellipse(0,0,2,7,0,0,7); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+/* per-house lit-window + friend-peek placement (fraction of the house box) */
+const HOUSE_LIFE = {
+  post:  { winDX:-0.14, winFrac:0.50, wr:0.11 },
+  heart: { winDX:0.00,  winFrac:0.60, wr:0.30 },
+  peeky: { winDX:0.03,  winFrac:0.60, wr:0.24 },
+  moon:  { winDX:0.00,  winFrac:0.60, wr:0.26 },
+  drop:  { winDX:0.00,  winFrac:0.60, wr:0.27 },
+  cloud: { winDX:0.00,  winFrac:0.60, wr:0.27 },
+};
+function houseWindowPos(b, groundY){
+  const life=HOUSE_LIFE[b.id]||{winDX:0,winFrac:0.55}, gy=groundY!=null?groundY:b.groundY;
+  return { x:b.cx + b.w*life.winDX, y:gy - b.h*life.winFrac };
+}
+/* draws the "someone's home" life for an ALIVE house: a soft honey-lit window (gentle slow flicker),
+   two rising warm cozy-motes, and the friend peeking + waving from the window on a slow loop. */
+function drawLivingHouse(b, groundY){
+  if(!houseIsAlive(b.id)) return;
+  const life=HOUSE_LIFE[b.id]; if(!life) return;
+  const wp=houseWindowPos(b, groundY), wx=wp.x, wy=wp.y;
+  // 1) warm lit window (additive honey glow, slow soft flicker — never harsh/flashing)
+  const gi=0.72+0.28*(0.5+0.5*Math.sin(time*1.25 + b.bobPhase*1.7)), gr=b.w*0.34;
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  const g=ctx.createRadialGradient(wx,wy,0,wx,wy,gr);
+  g.addColorStop(0,'rgba(255,214,130,'+(0.5*gi).toFixed(3)+')');
+  g.addColorStop(0.5,'rgba(255,190,110,'+(0.2*gi).toFixed(3)+')');
+  g.addColorStop(1,'rgba(255,190,110,0)');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(wx,wy,gr,0,7); ctx.fill();
+  ctx.restore();
+  // 2) two cozy warm motes rising off the roof (reads "warm / inhabited", pooled off `time`)
+  const rx=b.cx + b.w*0.16, rTop=groundY-b.h*0.96;
+  for(let i=0;i<2;i++){
+    const sp=((time*0.32 + i*0.5 + b.bobPhase)%1), a=Math.sin(sp*Math.PI)*0.42;
+    if(a<=0.02) continue;
+    ctx.save(); ctx.globalAlpha=a; ctx.fillStyle='#FFE7B8';
+    ctx.beginPath(); ctx.arc(rx+Math.sin(sp*6+i)*10, rTop-sp*70, 4+sp*4, 0, 7); ctx.fill(); ctx.restore();
+  }
+  // 3) friend peeks & waves from the window on a slow ~8.5s loop (move-in override: stays up waving)
+  const info=FRIEND_UNLOCK[b.id]; if(!info) return;
+  const fk='face_'+info.type; if(!has(fk)) return;
+  const moveIn=_houseMoveIn[b.id], P=8.5, ph=(time + b.bobPhase*1.9)%P;
+  let peek=0;
+  if(moveIn!=null){ peek=Math.min(1, moveIn/0.4) * (moveIn>2.4?Math.max(0,1-(moveIn-2.4)/0.4):1); }
+  else if(ph<0.5) peek=ph/0.5; else if(ph<2.2) peek=1; else if(ph<2.7) peek=1-(ph-2.2)/0.5; else peek=0;
+  if(peek<=0.01) return;
+  const ww=b.w*life.wr*1.7;
+  ctx.save();
+  roundRectPath(wx-ww*0.6, wy-ww*0.62, ww*1.2, ww*1.1, ww*0.28); ctx.clip();   // window frame the friend peeks through
+  const rise=(1-peek)*ww*0.85, tilt=(peek>0.5?Math.sin(time*4.6)*0.11:0);
+  ctx.translate(wx, wy+rise); ctx.rotate(tilt);
+  ctx.drawImage(IMG[fk].img, -ww*0.6, -ww*0.62, ww*1.2, ww*1.2);
+  ctx.restore();
+}
+
 function drawTown(){
   let zoomed=false, overlayA=0;
   if(townTransition){
@@ -4634,6 +4851,8 @@ function drawTown(){
   }
   if(has('town_map')) ctx.drawImage(IMG.town_map.img,0,0,W,H); else ph_townBackground();
   drawAmbient();
+  drawTownBloomLayer();   // baked flower/blossom carpet that grows with cumulative progress
+  drawBloomPops();        // fresh life popping in this session (a delivery grew the world)
   _townBeckonId = TOWN_ORDER.find(id=>id!=='post' && !buildingUnlocked(id)) || null;
   for(const id of TOWN_ORDER) drawTownBuilding(TOWN_BUILDINGS[id]);
   const pp=poppuTownPos();
@@ -4645,6 +4864,7 @@ function drawTown(){
   ctx.restore();
   drawPoppuTownPointGesture(pp);
   drawParticles();
+  drawTownButterflies();   // butterflies/fireflies drift above the grown town
   if(zoomed) ctx.restore();
   if(townTransition){ ctx.save(); ctx.globalAlpha=overlayA; ctx.fillStyle='#FFF8E8'; ctx.fillRect(0,0,W,H); ctx.restore(); }
   drawFloatTexts();
