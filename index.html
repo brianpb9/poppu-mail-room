@@ -3866,11 +3866,31 @@ function drawClearBeat(){
     ctx.save(); ctx.globalAlpha=0.55+0.4*Math.sin(time*3); ctx.translate(cx,bottom+52+bob); ctx.rotate(Math.PI/2); glyphIcon('arrow',0,0,64,'#F4A93E','#E3A93E'); ctx.restore(); }
 }
 
+/* HOME-SCREEN framing prop (Product + Creative fix): the right ~40% was empty wood with Play floating
+   alone — the composition leaned left (Poppu + desk). A cozy stack of real delivered parcels rests on
+   the floor lower-right to balance it and make the plank field read finished, using EXISTING package
+   art (no new assets) and staying well clear of the single hero Play CTA. */
+function drawStartParcelStack(){
+  const bx=1590, by=760, bob=Math.sin(time*1.3)*3;
+  // soft grounded contact shadow so the pile sits ON the floor (not floating)
+  ctx.save(); ctx.globalAlpha=0.18; ctx.fillStyle='#6b4a2c';
+  ctx.beginPath(); ctx.ellipse(bx, by+150, 250, 42, 0, 0, 7); ctx.fill(); ctx.restore();
+  const parcel=(id,x,y,s,rot)=>{ ctx.save(); ctx.translate(x,y+bob); ctx.rotate(rot);
+    const k='pkg_'+id;
+    ctx.save(); shadow(16,'rgba(90,60,30,0.22)',0,8);
+    if(has(k)) ctx.drawImage(IMG[k].img,-s/2,-s/2,s,s); else ph_package(T[id]||TYPES[0],0,0,s,false);
+    ctx.restore(); ctx.restore(); };
+  // a neat pyramid: two on the floor, one crowning the top — warm mixed colours
+  parcel('drop',  bx-96, by+66, 210, -0.05);
+  parcel('star',  bx+104, by+80, 196, 0.06);
+  parcel('heart', bx+8,  by-74, 188, -0.02);
+}
 /* ------------------------------------------------------------- RENDER: START */
 function drawStart(){
   drawBackground();
   ctx.save(); ctx.globalAlpha=0.22; ctx.fillStyle='#fff5e0'; ctx.fillRect(0,0,W,H); ctx.restore();
   drawAmbient(); drawDecor(equipped('decor'));
+  drawStartParcelStack();
   const ppx=300, ppy=760;
   if(!drawPoppuPosed('poppu_wave',ppx,ppy,500,true)) ph_poppu('wave',ppx,ppy-40,300);
   const tx=W/2, ty=150;
