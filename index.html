@@ -593,7 +593,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-49';
+const BUILD='20260709-50';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -2976,9 +2976,9 @@ const START_MENU_BTN={x:W-118,y:112,r:62};
 const TOWN_NAV=()=>{ const r=60,y=108,x0=200,gap=152;
   return [{id:'levels',x:x0,y,r},{id:'shop',x:x0+gap,y,r},{id:'stickers',x:x0+2*gap,y,r},{id:'scene',x:x0+3*gap,y,r}]; };
 const STAMP_CHIP={x:W-40,y:56};
-const HOMEBTN={x:96,y:96,r:64};   // 128px — clears the 120px toddler-tap floor (A4)
+const HOMEBTN={x:120,y:108,r:66};   // 132px — oversized MATCHED nav disc; clears the 120px toddler-tap floor (UI/UX→9)
 const BACKBTN={x:150,y:H-120,r:70};
-const VOLBTN={x:224,y:90,r:62};   // item 3/UI#5: >=60 clears the 120px toddler-tap floor
+const VOLBTN={x:280,y:108,r:66};    // 132px — EQUAL to HOMEBTN so the pair reads as one matched nav set, not two drifting discs (UI/UX→9)
 const PARENT_PANEL={x:W/2-470,y:150,w:940,h:790};
 const PARENT_CLOSE={x:W/2+470-64,y:150+64,r:42};
 const PARENT_VOL=()=>({x:W/2-260,y:PARENT_PANEL.y+PARENT_PANEL.h-210,w:520,h:96});
@@ -3418,7 +3418,10 @@ function stampChip(x,y,align){
   ctx.font='800 40px "Baloo 2",system-ui,sans-serif';
   const wTxt=ctx.measureText(txt).width, cw=wTxt+120, ch=72;
   const bx=align==='right'?x-cw:x, by=y;
-  shadow(14,'rgba(0,0,0,0.15)',0,5); ctx.fillStyle='rgba(255,252,244,0.95)'; rr(bx,by,cw,ch,ch/2); ctx.fill(); noShadow();
+  // STATUS READOUT, not a button (UI/UX→9): a FLAT badge — grounded ambient shadow (no button-style
+  // lift), NO ring / press affordance — so a toddler reads it as the score and never tries to tap it.
+  // Deliberately distinct from the round, white, ringed nav discs top-left.
+  shadow(7,'rgba(120,90,40,0.10)',0,1); ctx.fillStyle='rgba(255,249,238,0.84)'; rr(bx,by,cw,ch,ch/2); ctx.fill(); noShadow();
   glyphIcon('star',bx+42,by+ch/2,50,'#FFD15C','#E3A93E');
   drawText(txt,bx+78,by+ch/2+2,40,'#6a4a2a',null,'left','800');
   ctx.restore();
@@ -3431,6 +3434,27 @@ function homeButton(){
     ctx.fillStyle='#E3A93E'; ctx.beginPath(); ctx.moveTo(HOMEBTN.x,HOMEBTN.y-24); ctx.lineTo(HOMEBTN.x-26,HOMEBTN.y); ctx.lineTo(HOMEBTN.x-16,HOMEBTN.y); ctx.lineTo(HOMEBTN.x-16,HOMEBTN.y+22); ctx.lineTo(HOMEBTN.x+16,HOMEBTN.y+22); ctx.lineTo(HOMEBTN.x+16,HOMEBTN.y); ctx.lineTo(HOMEBTN.x+26,HOMEBTN.y); ctx.closePath(); ctx.fill();
   }
   ctx.restore(); ctx.restore();
+}
+/* NAV CLUSTER TRAY (UI/UX→9): a soft rounded backing that SEATS home+volume as ONE navigation group in
+   the top-left, so the two oversized discs read as "the controls" — a matched set on a shared tray — not
+   two floating buttons of drifting size. Derived from the HOMEBTN/VOLBTN geometry so it always hugs them.
+   Sits inside safe margins and left of the top-center progress meter (no overlap). */
+function drawNavTray(){
+  const pad=20;
+  const x0=Math.min(HOMEBTN.x-HOMEBTN.r, VOLBTN.x-VOLBTN.r)-pad;
+  const x1=Math.max(HOMEBTN.x+HOMEBTN.r, VOLBTN.x+VOLBTN.r)+pad;
+  const y0=Math.min(HOMEBTN.y-HOMEBTN.r, VOLBTN.y-VOLBTN.r)-pad;
+  const y1=Math.max(HOMEBTN.y+HOMEBTN.r, VOLBTN.y+VOLBTN.r)+pad;
+  const w=x1-x0, h=y1-y0;
+  ctx.save(); shadow(22,'rgba(0,0,0,0.16)',0,8);
+  ctx.fillStyle='rgba(255,250,239,0.93)'; rr(x0,y0,w,h,h/2); ctx.fill(); noShadow();
+  // soft top gloss so the tray reads as one tactile designed backing, not a flat patch
+  ctx.save(); rr(x0,y0,w,h,h/2); ctx.clip();
+  const gl=ctx.createLinearGradient(0,y0,0,y0+h*0.6);
+  gl.addColorStop(0,'rgba(255,255,255,0.5)'); gl.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.fillStyle=gl; ctx.fillRect(x0,y0,w,h*0.6); ctx.restore();
+  ctx.lineWidth=4; ctx.strokeStyle='rgba(227,169,62,0.42)'; rr(x0,y0,w,h,h/2); ctx.stroke();
+  ctx.restore();
 }
 function backButton(){
   pressPush('back',BACKBTN.x,BACKBTN.y);
@@ -3902,6 +3926,7 @@ function drawPlayHUD(){
   ctx.restore();
   ctx.restore();
   stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
+  drawNavTray();   // seat home+volume on one shared tray → reads as a single nav cluster (UI/UX→9)
   homeButton();
   drawVolumeButton();
 }
