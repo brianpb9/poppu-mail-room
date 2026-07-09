@@ -593,7 +593,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-51';
+const BUILD='20260709-52';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -3713,6 +3713,50 @@ function drawBoxTag(b,hint,shapeOnly){
   else drawFaceCircle(type,tx,ty,r*0.9);
   ctx.restore();
 }
+/* STORY LAYER — "FRIENDS ASK BEFORE THEY THANK" (P1 #1): the friend whose parcel is currently active
+   (being dragged, else the front-most parcel on the belt) LEANS out of THEIR mailbox and shows a little
+   want-bubble with their icon — so every drag reads "bring THIS friend the parcel they're waiting for",
+   and the existing thank-you pop becomes the resolution of a setup. One active want at a time; subtle,
+   cozy; reuses the same face-<type> art the mailbox friends use. Suppressed during the tutorial. */
+function activeRecipientType(){
+  if(dragging && !dragging.decoy) return dragging.type;
+  let best=null;
+  for(const p of packages){ if(p.state==='belt' && !p.decoy){ if(!best || p.x>best.x) best=p; } }
+  return best?best.type:null;
+}
+function drawSortWantMiniBubble(bx,by,r,type){
+  ctx.save();
+  shadow(9,'rgba(0,0,0,0.13)',0,4); ctx.fillStyle='#fffdf6';
+  ctx.beginPath(); ctx.arc(bx,by,r,0,7); ctx.fill(); noShadow();
+  ctx.lineWidth=r*0.14; ctx.strokeStyle='#e3d3b4'; ctx.beginPath(); ctx.arc(bx,by,r,0,7); ctx.stroke();
+  // little tail bubbles pointing down toward the peeking friend
+  ctx.beginPath(); ctx.arc(bx-r*0.62,by+r*0.86,r*0.24,0,7); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(bx-r*0.34,by+r*0.55,r*0.14,0,7); ctx.fill(); ctx.stroke();
+  glyphIcon(type.icon,bx,by,r*1.05,type.mid,type.deep);
+  ctx.restore();
+}
+function drawSortWantCue(){
+  if(state!=='PLAYING' || levelDone || tutorial || activeTask) return;
+  const rt=activeRecipientType(); if(!rt) return;
+  const b=activeBoxes().find(bx=>bx.type.id===rt.id); if(!b) return;
+  if(!has('face_'+rt.id)) return;
+  const bob=Math.sin(time*2.2)*5;
+  // lean out toward the conveyor (to the LEFT of the mailbox), rising gently — reads "peeking out, waiting"
+  const fr=b.w*0.28, fx=b.x - b.w*0.44, fy=b.y - b.h*0.10 + bob;
+  // soft warm "someone's waiting here" glow behind the peek (gentle, never a hard flash)
+  ctx.save(); const gg=ctx.createRadialGradient(fx,fy,fr*0.3,fx,fy,fr*1.9);
+  gg.addColorStop(0,'rgba(255,236,180,0.42)'); gg.addColorStop(1,'rgba(255,224,140,0)');
+  ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(fx,fy,fr*1.9,0,7); ctx.fill(); ctx.restore();
+  // the friend leaning out of their mailbox (slight tilt toward the incoming parcel)
+  ctx.save(); ctx.translate(fx,fy); ctx.rotate(-0.10+Math.sin(time*2.2)*0.03);
+  shadow(10,'rgba(0,0,0,0.12)',0,4);
+  ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,fr+3,0,7); ctx.fill(); noShadow();
+  ctx.lineWidth=5; ctx.strokeStyle='#e3d3b4'; ctx.beginPath(); ctx.arc(0,0,fr+3,0,7); ctx.stroke();
+  drawFaceCircle(rt,0,0,fr);
+  ctx.restore();
+  // want-bubble above the friend, carrying THEIR icon = "I'm waiting for this one!"
+  drawSortWantMiniBubble(fx+fr*0.5, fy-fr*1.35, fr*0.62, rt);
+}
 /* GRAB-CUE: pick the ONE package the toddler should grab next — the front-most (nearest the mailboxes)
    real, undelivered parcel on the belt. Suppressed while the child is dragging or the level-1 tutorial
    overlay is on (it draws its own guiding hand), so there's never a double-hand or a cue with nothing
@@ -3997,6 +4041,7 @@ function drawPlaying(){
   drawConveyorAt(CONVEYOR.cy);
   if(curLevel().mech.twoBelts) drawConveyorAt(BELT2_CY);   // MULTI-BELT: second lane's conveyor strip
   drawMailboxes();
+  drawSortWantCue();   // P1 #1: the active parcel's friend leans out of their mailbox + wants it (setup for the thank-you payoff)
   // CELEBRATE (Animation Director): one clean hop ARC (ease-up→ease-down) with a brief anticipation crouch
   // and a landing squash — the postal→celebrate sprite swap is hidden behind that opening crouch, so it
   // never reads as an instant pop-in. Replaces the mechanical abs(sin) metronome bob.
