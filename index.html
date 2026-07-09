@@ -603,7 +603,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-58';
+const BUILD='20260709-59';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -756,6 +756,8 @@ function noShadow(){ ctx.shadowBlur=0; ctx.shadowColor='transparent'; ctx.shadow
 function dist(a,b,c,d){ return Math.hypot(a-c,b-d); }
 function inRect(px,py,r){ return px>=r.x&&px<=r.x+r.w&&py>=r.y&&py<=r.y+r.h; }
 function easeOutBack(t){ const c1=1.70158,c3=c1+1; return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2); }
+/* tunable-overshoot easeOutBack (bigger k = bouncier spring). Used by the amplified delivery payoff pop. */
+function easeOutBackK(t,k){ const c1=k,c3=c1+1; return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2); }
 function easeOutElastic(t){ if(t<=0)return 0; if(t>=1)return 1; const c4=(2*Math.PI)/3; return Math.pow(2,-10*t)*Math.sin((t*10-0.75)*c4)+1; }
 function easeInOutCubic(t){ return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
 /* ASYMMETRIC "poke" amount, 0..1 (Animation Director): a DOUBLE poke — two quick taps (fast dip, slow
@@ -1504,6 +1506,7 @@ let spawnedThisLevel=0;
 let deliveredThisLevel=0;
 let meterPop=0;             // HUD mailbag "stamp landed" bounce (decays each frame; kicked on every delivery)
 let beltReactT=0;           // belt-face "happy squash" reaction (item 5) — kicked on every delivery, decays
+let scenePop=0;             // BUILD 59: amplified-payoff gentle whole-scene "pop" zoom (1→0, sin-eased, ~0.22s) — the firework beat
 let cuePkg=null;           // the current draggable "grab-me" package the hand/glow sits on (recomputed each frame)
 let softCuePkg=null;       // twoBelts: the OTHER lane's front parcel — soft glow only, never a paw (one finger at a time)
 let mistakesThisLevel=0;
@@ -1672,14 +1675,17 @@ function deliver(pkg, box){
   const beltLeft=packages.filter(p=>p!==pkg && (p.state==='belt'||p.state==='returning'||p.state==='dragging')).length;
   spawnTimer=Math.min(spawnTimer, beltLeft>0?0.4:0.12);
   beltReactT=0.42;                                   // belt-face happy squash reaction (cheap juice)
-  // dopamine heartbeat — EVERY correct drop gets an unmissable WORDLESS payoff (Creative #9 / Product #5):
-  // the friend springs up, floats a little cloud of hearts, and a soft bloom flash pops — a coloured sparkle
-  // burst + a FULLER confetti pop under it. No "Thank you!" words — the emote + per-friend chime carry it.
-  burst(bp.x,bp.y-40,pkg.type.deep,32,11);
-  confetti(bp.x,bp.y-56,pkg.golden?100:56);
-  heartBurst(bp.x,bp.y-60,pkg.golden?12:8);           // floating friend-hearts (the emote that replaces words)
-  bloomFlash(bp.x,bp.y-36,box.w*0.95,'#FFF3C4');      // soft warm "pow" flash
-  boxBounce[ti]=1; poppuCelebrateT=0.9; meterPop=1;   // kick the HUD mailbag "stamp landed" bounce
+  // dopamine heartbeat (BUILD 59 — AMPLIFIED "firework"): EVERY correct drop gets a BIG, unmissable, WORDLESS
+  // payoff (Creative #9 / Product #5). The friend springs up LARGER + bouncier and holds the happy beat; a
+  // fuller cloud of hearts + confetti + radiating sparkle-stars burst out, a soft golden bloom-flash pops, and
+  // the whole scene gives a tiny gentle "pop" zoom (scenePop). No words — emote + per-friend chime carry it.
+  burst(bp.x,bp.y-40,pkg.type.deep,pkg.golden?54:40,12);            // coloured confetti-chunk burst
+  confetti(bp.x,bp.y-56,pkg.golden?130:78);                         // fuller rain of confetti
+  heartBurst(bp.x,bp.y-60,pkg.golden?18:12);                        // floating friend-hearts (words → emote)
+  burst(bp.x,bp.y-50,'#FFF6D0',pkg.golden?14:8,10);                 // radiating sparkle-STARS (white-gold twinkle)
+  bloomFlash(bp.x,bp.y-40,box.w*(pkg.golden?1.5:1.2),'#FFF3C4');    // bigger soft warm "pow" flash
+  scenePop=1;                                          // gentle whole-scene pop — the "firework landed" beat
+  boxBounce[ti]=1; poppuCelebrateT=0.9; meterPop=1;   // Poppu's happy hop + HUD mailbag bounce (recipient hold is in the popup)
   SAVE.charDeliveries[pkg.type.id]=(SAVE.charDeliveries[pkg.type.id]||0)+1;
   // STORY (P1 #3/#4): this friend has now received mail TODAY — drops their town "waiting" flag and
   // adds them to today's Happy-Town roster. Reset daily (see loadSave / defaultSave).
@@ -3553,7 +3559,8 @@ function update(dt){
   for(const f of flashes) f.t+=dt; flashes=flashes.filter(f=>f.t<0.32);   // bloom-flash decay
   if(meterPop>0) meterPop=Math.max(0,meterPop-dt*2.6);   // HUD mailbag bounce decay
   if(beltReactT>0) beltReactT=Math.max(0,beltReactT-dt);  // belt-face squash reaction decay
-  for(const pu of popups) pu.t+=dt; popups=popups.filter(p=>p.t<1.7);
+  if(scenePop>0) scenePop=Math.max(0,scenePop-dt*4.5);    // BUILD 59: amplified-payoff scene-pop decay (~0.22s)
+  for(const pu of popups) pu.t+=dt; popups=popups.filter(p=>p.t<2.05);   // hold the happy beat longer (was 1.7)
   for(const ft of floatTexts) ft.t+=dt; floatTexts=floatTexts.filter(f=>f.t<1.4);
 }
 
@@ -4042,10 +4049,18 @@ function drawPackage(p){
     ctx.scale(1.15+(1-1.15)*ge, 0.90+(1-0.90)*ge);
   }
   const cueP=isCue?(0.5+0.5*Math.sin(time*4)):0;
-  let s=PKG_S*p.scale*(isCue?(1+cueP*0.055):1);
-  if(isCue){ ctx.save(); const gr=s*(0.62+cueP*0.10), gg=ctx.createRadialGradient(0,0,s*0.2,0,0,gr);
-    gg.addColorStop(0,'rgba(255,244,196,'+(0.55+cueP*0.30)+')'); gg.addColorStop(0.6,'rgba(255,224,140,'+(0.20+cueP*0.14)+')'); gg.addColorStop(1,'rgba(255,220,120,0)');
-    ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(0,-4,gr,0,7); ctx.fill(); ctx.restore(); }
+  // HERO PACKAGE (BUILD 59 / Product): the front active parcel is the ONE unmistakable focal object on the
+  // belt — a touch LARGER (~1.10x) with a soft pulsing glow + a few gentle orbiting sparkle-twinkles. Subtle
+  // enough not to break the layout, strong enough to read as "grab me next" (and to pop in store screenshots).
+  let s=PKG_S*p.scale*(isCue?(1.10+cueP*0.05):1);
+  if(isCue){ ctx.save(); const gr=s*(0.66+cueP*0.10), gg=ctx.createRadialGradient(0,0,s*0.2,0,0,gr);
+    gg.addColorStop(0,'rgba(255,244,196,'+(0.58+cueP*0.30)+')'); gg.addColorStop(0.6,'rgba(255,224,140,'+(0.22+cueP*0.14)+')'); gg.addColorStop(1,'rgba(255,220,120,0)');
+    ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(0,-4,gr,0,7); ctx.fill();
+    // gentle orbiting sparkle-twinkles (soft, no harsh flash) — the "hero" shimmer
+    ctx.globalAlpha=0.5+cueP*0.4; ctx.fillStyle='#FFF9E0';
+    for(let k=0;k<3;k++){ const a=time*1.1+k*(Math.PI*2/3), rr2=s*0.60, tx=Math.cos(a)*rr2, ty=Math.sin(a)*rr2*0.7-4, ts=s*0.045*(0.7+cueP*0.7);
+      ctx.beginPath(); ctx.arc(tx,ty,ts,0,7); ctx.fill(); }
+    ctx.restore(); }
   else if(isSoftCue){ // other-lane parcel: a gentle steady glow (no pulse, no paw) — "you're up next"
     ctx.save(); const gr=s*0.60, gg=ctx.createRadialGradient(0,0,s*0.2,0,0,gr);
     gg.addColorStop(0,'rgba(255,244,196,0.30)'); gg.addColorStop(0.6,'rgba(255,224,140,0.11)'); gg.addColorStop(1,'rgba(255,220,120,0)');
@@ -4137,17 +4152,18 @@ function drawHeartBubble(x,y,col){
 function drawPopups(){
   for(const pu of popups){
     const key=fullBodyKey(pu.type);
-    // SPRINGIER payoff: the friend launches UP out of the mailbox on an easeOutBack overshoot (0→~1.13→1)
-    // with a quick happy settle-wiggle, so every correct drop reads as a big "pop!" (the tap-again beat).
-    const inT=Math.min(1,pu.t/0.42), bounce=inT<1?easeOutBack(inT):1;   // 0→~1.13→1.0 scale spring
-    const settle=(pu.t>0.42&&pu.t<0.82)?Math.sin((pu.t-0.42)/0.40*Math.PI)*0.035:0;   // tiny bob after landing
-    const wiggle=(pu.t>0.30&&pu.t<0.85)?Math.sin((pu.t-0.30)*34)*0.05*(1-(pu.t-0.30)/0.55):0; // happy shimmy
-    const exit=pu.t>1.3?Math.min(1,(pu.t-1.3)/0.4):0, alpha=1-exit;
+    // AMPLIFIED payoff (BUILD 59 — the "firework"): the friend launches UP out of the mailbox BIGGER and on a
+    // bouncier easeOutBack overshoot (0→~1.2→1), then HOLDS the happy beat longer (~0.9s) before easing back —
+    // so every correct drop reads as a big, joyful "pop!" that makes a toddler want to tap the next parcel.
+    const inT=Math.min(1,pu.t/0.46), bounce=inT<1?easeOutBackK(inT,2.6):1;   // 0→~1.2→1.0 springier scale
+    const settle=(pu.t>0.46&&pu.t<0.92)?Math.sin((pu.t-0.46)/0.46*Math.PI)*0.045:0;   // fuller bob after landing
+    const wiggle=(pu.t>0.30&&pu.t<0.95)?Math.sin((pu.t-0.30)*32)*0.06*(1-(pu.t-0.30)/0.65):0; // happy shimmy
+    const exit=pu.t>1.65?Math.min(1,(pu.t-1.65)/0.4):0, alpha=1-exit;   // hold longer, then ease back down
     if(has(key)){
-      const H_G=356, im=IMG[key].img, w=H_G*(im.naturalWidth/im.naturalHeight||0.75);
+      const H_G=400, im=IMG[key].img, w=H_G*(im.naturalWidth/im.naturalHeight||0.75);   // bigger recipient (was 356)
       let feetY=pu.boxCy-pu.boxH*0.1;
       if(feetY-H_G<28) feetY=28+H_G;               // keep head on-screen for top-row boxes
-      const launch=inT<1?(1-easeOutBack(inT))*pu.boxH*0.9:0;   // starts low (inside the box), springs up
+      const launch=inT<1?(1-easeOutBackK(inT,2.6))*pu.boxH*0.95:0;   // starts low (inside the box), springs up
       feetY+=launch;
       feetY+=exit*(pu.boxH*1.3);                    // slide back down on exit
       ctx.save(); ctx.globalAlpha=alpha; ctx.translate(pu.x,feetY); ctx.rotate(wiggle); ctx.scale(bounce+settle,bounce+settle);
@@ -4156,7 +4172,7 @@ function drawPopups(){
       // speech bubble POPS in on easeOutBack (0→~1.1→1 over ~0.2s), anchored at its tail, ~0.1s AFTER the
       // friend has cleared the box lip — so it snaps to life rather than dissolving in.
       const bStart=0.30;
-      if(pu.t>bStart && pu.t<1.45){
+      if(pu.t>bStart && pu.t<1.78){
         const bp=Math.min(1,(pu.t-bStart)/0.20);
         const bsc=pu.t<bStart+0.20?Math.max(0.02,easeOutBack(bp)):1;
         const sa=pu.t<bStart+0.18?(pu.t-bStart)/0.18:alpha;
@@ -4170,7 +4186,7 @@ function drawPopups(){
       ctx.save(); shadow(18,'rgba(0,0,0,0.16)',0,6); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,s*1.02,0,7); ctx.fill(); noShadow();
       ctx.lineWidth=s*0.12; ctx.strokeStyle=pu.type.deep; ctx.beginPath(); ctx.arc(0,0,s*1.02,0,7); ctx.stroke(); ctx.restore();
       drawFaceCircle(pu.type,0,0,s*0.96);
-      if(pu.t>0.30 && pu.t<1.45) drawHeartBubble(0,-s*1.05,pu.type.deep);   // wordless thank-you emote
+      if(pu.t>0.30 && pu.t<1.78) drawHeartBubble(0,-s*1.05,pu.type.deep);   // wordless thank-you emote
       ctx.restore();
     }
   }
@@ -4478,7 +4494,16 @@ function drawStart(){
     ctx.save(); shadow(28,'rgba(90,60,30,0.20)',0,10);
     ctx.drawImage(im, lx-lw/2, ly-lh/2, lw, lh); noShadow(); ctx.restore();
     sheenSweep('logo',im, lx-lw/2, ly-lh/2, lw, lh, (time%4.2)/1.1, 0.5);
-    drawText('ROOM', lx, ly+lh*0.5+14, 34, '#F4A93E', '#fff', 'center', '900', 6);
+    // "ROOM" as an INTENTIONAL warm banner-tab tucked into the base of the logo (Story/Product fix): a small
+    // gold pill with a white keyline + shadow, its top overlapping the logo bottom so it reads as one attached
+    // lockup ("POPPU'S MAIL ▸ ROOM"), never a leftover floating word an adult glances at twice.
+    { const rw=lw*0.30, rh=46, ry=ly+lh*0.5+2;
+      ctx.save(); shadow(12,'rgba(90,60,30,0.22)',0,5);
+      const bg=ctx.createLinearGradient(0,ry-rh/2,0,ry+rh/2); bg.addColorStop(0,'#FFDD8E'); bg.addColorStop(1,'#EFA632');
+      ctx.fillStyle=bg; rr(lx-rw/2,ry-rh/2,rw,rh,rh/2); ctx.fill(); noShadow();
+      ctx.lineWidth=4; ctx.strokeStyle='#fffdf6'; rr(lx-rw/2,ry-rh/2,rw,rh,rh/2); ctx.stroke();
+      ctx.restore();
+      drawText('ROOM', lx, ry, 30, '#5a3d24', null, 'center', '900', 0); }
   } else {
     const g=ctx.createLinearGradient(0,ty-52,0,ty+52); g.addColorStop(0,'#FFE79A'); g.addColorStop(1,'#F4A93E');
     drawText("Poppu's Mail Room",tx,ty,84,g,'#5a3d24','center','800',20);
@@ -6405,7 +6430,13 @@ function frame(now){
   else if(state==='START') drawStart();
   else if(state==='LEVELMAP') drawLevelMap();
   else if(state==='SHOP') drawShop();
-  else if(state==='PLAYING') drawPlaying();
+  else if(state==='PLAYING'){
+    // BUILD 59: the amplified-payoff "firework" gives the whole play scene a tiny, smooth pop-zoom (sin-eased
+    // in-out, ~1.2% peak) centred on screen — a gentle celebratory beat, never a jarring shake/strobe.
+    const sp=scenePop>0?Math.sin(scenePop*Math.PI)*0.012:0;
+    if(sp>0){ ctx.save(); ctx.translate(W/2,H/2); ctx.scale(1+sp,1+sp); ctx.translate(-W/2,-H/2); drawPlaying(); ctx.restore(); }
+    else drawPlaying();
+  }
   else if(state==='LEVELDONE') drawLevelDone();
   else if(state==='STICKER') drawSticker();
   else if(state==='TOWN') drawTown();
