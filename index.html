@@ -1431,6 +1431,7 @@ let spawnedThisLevel=0;
 let deliveredThisLevel=0;
 let meterPop=0;             // HUD mailbag "stamp landed" bounce (decays each frame; kicked on every delivery)
 let cuePkg=null;           // the current draggable "grab-me" package the hand/glow sits on (recomputed each frame)
+let softCuePkg=null;       // twoBelts: the OTHER lane's front parcel — soft glow only, never a paw (one finger at a time)
 let mistakesThisLevel=0;
 let levelStartT=0;
 let levelDone=false;
@@ -3556,10 +3557,22 @@ function drawBoxTag(b,hint,shapeOnly){
    overlay is on (it draws its own guiding hand), so there's never a double-hand or a cue with nothing
    to grab. Persistent on EVERY level until the parcel is touched. */
 function updateCuePkg(){
-  if(dragging || tutorial){ cuePkg=null; return; }
+  // ONE PAW AT A TIME (Player Advocate): suppress the belt grab-cue paw whenever a station task (seal/
+  // stamp/shake) is showing — that task draws its OWN hand, so keeping the belt paw meant TWO pointing
+  // fingers ("which one first?"). While a task is up, the child focuses on the station; the belt paw
+  // returns the instant the task clears.
+  if(dragging || tutorial || activeTask){ cuePkg=null; softCuePkg=null; return; }
   let best=null;
   for(const p of packages){ if(p.state==='belt' && !p.decoy){ if(!best || p.x>best.x) best=p; } }
   cuePkg=best;
+  // twoBelts: the front parcel of the OTHER lane still glows SOFTLY (reads "waiting, tap me next") but
+  // gets NO paw — only cuePkg carries the single pointing finger.
+  softCuePkg=null;
+  if(best && curLevel().mech.twoBelts){
+    let other=null;
+    for(const p of packages){ if(p.state==='belt' && !p.decoy && p.lane!==best.lane){ if(!other || p.x>other.x) other=p; } }
+    softCuePkg=other;
+  }
 }
 function drawGrabCue(){
   const p=cuePkg; if(!p || p.state!=='belt') return;
@@ -3571,11 +3584,16 @@ function drawPackage(p){
   // GRAB-CUE: the current draggable package always invites the toddler to pick it up — a soft warm glow,
   // a gentle idle "breathe" scale, and (below) a pointing paw. Never a plain static package, every level.
   const isCue=(p===cuePkg && p.state==='belt' && !p.decoy);
+  const isSoftCue=(p===softCuePkg && p.state==='belt' && !p.decoy);
   ctx.save(); ctx.translate(p.x,p.y);
   const cueP=isCue?(0.5+0.5*Math.sin(time*4)):0;
   let s=PKG_S*p.scale*(isCue?(1+cueP*0.055):1);
   if(isCue){ ctx.save(); const gr=s*(0.62+cueP*0.10), gg=ctx.createRadialGradient(0,0,s*0.2,0,0,gr);
     gg.addColorStop(0,'rgba(255,244,196,'+(0.55+cueP*0.30)+')'); gg.addColorStop(0.6,'rgba(255,224,140,'+(0.20+cueP*0.14)+')'); gg.addColorStop(1,'rgba(255,220,120,0)');
+    ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(0,-4,gr,0,7); ctx.fill(); ctx.restore(); }
+  else if(isSoftCue){ // other-lane parcel: a gentle steady glow (no pulse, no paw) — "you're up next"
+    ctx.save(); const gr=s*0.60, gg=ctx.createRadialGradient(0,0,s*0.2,0,0,gr);
+    gg.addColorStop(0,'rgba(255,244,196,0.30)'); gg.addColorStop(0.6,'rgba(255,224,140,0.11)'); gg.addColorStop(1,'rgba(255,220,120,0)');
     ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(0,-4,gr,0,7); ctx.fill(); ctx.restore(); }
   if(p.state==='dragging'){ ctx.save(); ctx.globalAlpha=0.2; ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(0,PKG_S*0.55,PKG_S*0.5,PKG_S*0.16,0,0,7); ctx.fill(); ctx.restore(); }
   if(p.golden){
