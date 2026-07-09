@@ -244,6 +244,9 @@ function loadSave(){
     if(typeof s.wrapQueue!=='number' || s.wrapQueue<0) s.wrapQueue=0;
     if(typeof s.wrappedCount!=='number' || s.wrappedCount<0) s.wrappedCount=0;
     if(typeof s.driveVisits!=='number' || s.driveVisits<0) s.driveVisits=0;
+    if(!Array.isArray(s.stickers)) s.stickers=[];
+    if(!s.owned || typeof s.owned!=='object' || Array.isArray(s.owned)) s.owned={};
+    if(!s.charDeliveries || typeof s.charDeliveries!=='object' || Array.isArray(s.charDeliveries)) s.charDeliveries={};
     if(!Array.isArray(s.levelStars) || s.levelStars.length!==LEVELS.length)
       s.levelStars = new Array(LEVELS.length).fill(0);
     if(s.day !== todayStr()){
@@ -606,7 +609,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260710-65';
+const BUILD='20260710-66';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
