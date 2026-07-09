@@ -568,7 +568,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-37';
+const BUILD='20260709-38';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -4423,7 +4423,7 @@ function drawTownBuilding(b){
     // BECKON, don't doze (founder: no sleeping-Z, no floating heart pins). A gentle "tap tap" paw at
     // the door invites the touch; the unlock-progress meter is re-seated as a small sign ON the wall.
     const pawSize=Math.min(112, Math.max(64, b.w*0.42));
-    drawBeckonPaw(b.cx+b.w*0.05, groundY-b.h*0.13, pawSize, b.bobPhase);
+    if(b.id===_townBeckonId) drawBeckonPaw(b.cx+b.w*0.05, groundY-b.h*0.13, pawSize, b.bobPhase);
     if(FRIEND_UNLOCK[b.id]) drawHouseStarSign(b, groundY);
     // one-shot filling-star "getting closer!" pop on tap — icon-first "almost there" feedback (no text)
     const pulseT=(lockedPulse&&lockedPulse.id===b.id)?lockedPulse.t:null;
@@ -4486,6 +4486,7 @@ function drawPoppuTownPointGesture(pp){
   }
   ctx.restore();
 }
+let _townBeckonId=null;   // QC: only ONE house shows the "tap me" paw (the next locked one) — the rest just glow+bob, so the town reads guided/calm, not a field of pointing hands
 function drawTown(){
   let zoomed=false, overlayA=0;
   if(townTransition){
@@ -4496,6 +4497,7 @@ function drawTown(){
   }
   if(has('town_map')) ctx.drawImage(IMG.town_map.img,0,0,W,H); else ph_townBackground();
   drawAmbient();
+  _townBeckonId = TOWN_ORDER.find(id=>id!=='post' && !buildingUnlocked(id)) || null;
   for(const id of TOWN_ORDER) drawTownBuilding(TOWN_BUILDINGS[id]);
   const pp=poppuTownPos();
   const {travel:pointTravel,dirSign:pointDir}=poppuPointTravel();
