@@ -1503,6 +1503,7 @@ let taskNo=0;
 let spawnedThisLevel=0;
 let deliveredThisLevel=0;
 let meterPop=0;             // HUD mailbag "stamp landed" bounce (decays each frame; kicked on every delivery)
+let beltReactT=0;           // belt-face "happy squash" reaction (item 5) — kicked on every delivery, decays
 let cuePkg=null;           // the current draggable "grab-me" package the hand/glow sits on (recomputed each frame)
 let softCuePkg=null;       // twoBelts: the OTHER lane's front parcel — soft glow only, never a paw (one finger at a time)
 let mistakesThisLevel=0;
@@ -1666,7 +1667,11 @@ function deliver(pkg, box){
   Audio_.plop(); Audio_.greet(ti);
   Audio_.payoff();                                   // rising sparkle chime + cute voice-squeak — the "one thing for a 10"
   try{ navigator.vibrate?.(18); }catch(e){}          // subtle HAPTIC on the spring (guarded for unsupported devices)
-  spawnTimer=Math.min(spawnTimer,0.4);               // chase the happy feeling — next parcel arrives ~0.4-0.5s sooner
+  // item 5: keep the kawaii belt from ever sitting empty with nothing to do. If this delivery clears the
+  // belt, slide the next parcel in almost immediately (no dead beat); otherwise keep the brisk 0.4s chase.
+  const beltLeft=packages.filter(p=>p!==pkg && (p.state==='belt'||p.state==='returning'||p.state==='dragging')).length;
+  spawnTimer=Math.min(spawnTimer, beltLeft>0?0.4:0.12);
+  beltReactT=0.42;                                   // belt-face happy squash reaction (cheap juice)
   // dopamine heartbeat — EVERY correct drop gets an unmissable WORDLESS payoff (Creative #9 / Product #5):
   // the friend springs up, floats a little cloud of hearts, and a soft bloom flash pops — a coloured sparkle
   // burst + a FULLER confetti pop under it. No "Thank you!" words — the emote + per-friend chime carry it.
@@ -3547,6 +3552,7 @@ function update(dt){
   particles=particles.filter(p=>p.life>0);
   for(const f of flashes) f.t+=dt; flashes=flashes.filter(f=>f.t<0.32);   // bloom-flash decay
   if(meterPop>0) meterPop=Math.max(0,meterPop-dt*2.6);   // HUD mailbag bounce decay
+  if(beltReactT>0) beltReactT=Math.max(0,beltReactT-dt);  // belt-face squash reaction decay
   for(const pu of popups) pu.t+=dt; popups=popups.filter(p=>p.t<1.7);
   for(const ft of floatTexts) ft.t+=dt; floatTexts=floatTexts.filter(f=>f.t<1.4);
 }
@@ -4083,9 +4089,15 @@ function drawPackage(p){
 function drawConveyorAt(cyc){
   const cw=CONVEYOR.w, ch=cw*CONVEYOR.ar;
   contactShadow(CONVEYOR.cx, cyc+ch*0.46, cw*0.44, ch*0.12, 0.16);   // item 4: grounds the belt legs on the floor
+  // item 5: the kawaii belt-face gives a tiny happy SQUASH on each delivery (cheap juice) — the whole
+  // belt sprite presses down + widens briefly, pivoting at its legs, so the baked-in face reacts too.
+  const ph=beltReactT>0?beltReactT/0.42:0, react=ph*ph, pivotY=cyc+ch*0.42;
+  const bsx=1+react*0.04, bsy=1-react*0.08;
+  ctx.save(); ctx.translate(CONVEYOR.cx,pivotY); ctx.scale(bsx,bsy); ctx.translate(-CONVEYOR.cx,-pivotY);
   if(has('conveyor')) ctx.drawImage(IMG.conveyor.img,CONVEYOR.cx-cw/2,cyc-ch/2,cw,ch);
   else ph_conveyor(CONVEYOR.cx,cyc,BELT.x2-BELT.x1+40,60);
   conveyorSkinOverlay(CONVEYOR.cx,cyc,cw,ch,equipped('conveyor'));
+  ctx.restore();
   drawConveyorScroll(cyc);
 }
 function drawConveyorScroll(cyc){
