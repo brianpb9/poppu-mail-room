@@ -144,11 +144,11 @@ const UPGRADES = [
 ];
 
 /* ---------------------------------------------------------- COSMETIC SHOP */
+/* HAT category RETIRED (production gate BUILD 61): the character hat-cosmetics (chef/cowboy/pirate/crown)
+   repeatedly broke reference-sheet canon (off-model friends, e.g. a chef toque on Orby the space alien) and
+   introduced a 2nd art style via the AI-baked dress-* swaps. Every character now ALWAYS renders its canonical
+   on-model sprite. The baked dress-*.png files are left on disk but unreferenced. */
 const COSMETICS = [
-  { id:'hat_chef',   cat:'hat',      name:'Chef',    cost:150 },
-  { id:'hat_cowboy', cat:'hat',      name:'Cowboy',  cost:180 },
-  { id:'hat_pirate', cat:'hat',      name:'Pirate',  cost:220 },
-  { id:'hat_crown',  cat:'hat',      name:'Crown',   cost:500 },
   { id:'mb_pastel',  cat:'mailbox',  name:'Pastel',  cost:50 },
   { id:'mb_rainbow', cat:'mailbox',  name:'Rainbow', cost:120 },
   { id:'mb_galaxy',  cat:'mailbox',  name:'Galaxy',  cost:160 },
@@ -160,8 +160,8 @@ const COSMETICS = [
   { id:'dec_poster', cat:'decor',    name:'Poster',  cost:60 },
   { id:'dec_rug',    cat:'decor',    name:'Rug',     cost:80 },
 ];
-const COS_CATS = ['hat','mailbox','conveyor','decor'];
-const COS_CAT_NAME = { hat:'Poppu Hats', mailbox:'Mailbox Skins', conveyor:'Conveyor', decor:'Decorations' };
+const COS_CATS = ['mailbox','conveyor','decor'];   // 'hat' retired (BUILD 61) — see COSMETICS note above
+const COS_CAT_NAME = { mailbox:'Mailbox Skins', conveyor:'Conveyor', decor:'Decorations' };
 
 /* --------------------------------------------------------------- SAVE DATA */
 const SAVE_KEY = 'poppuMailRoom.v3';
@@ -212,6 +212,7 @@ function defaultSave(){
        mailDay / deliveredTypesToday: which friends have already received mail TODAY — drives the town's
        "waiting for mail" flags (they drop as you deliver) and the Happy-Town end-of-day beat. Reset daily. */
     coldOpenSeen: false,
+    friendCoachDone: false,   // BUILD 61: wordless first-visit "pet + gift" guidance strongly shows until the child cares for a friend once
     mailDay: todayStr(), deliveredTypesToday: {},
   };
 }
@@ -603,7 +604,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-60';
+const BUILD='20260710-61';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -674,25 +675,9 @@ ASSET_SRC['wrap_sticker_sheet']='assets/wrap-sticker-sheet.png';
    skin ON a mini mailbox/conveyor swatch, decor in a room corner), not a floating icon. Falls back
    to the existing procedural in-context placeholder (drawCosmeticCard) until real art lands. */
 COSMETICS.forEach(c=>{ ASSET_SRC['cos-'+c.id.replace(/_/g,'-')]='assets/cos-'+c.id.replace(/_/g,'-')+'.png'; });
-/* Baked friend-dress sprites — the friend's own on-model base sprite with a hat integrated naturally
-   onto their head (crown nestled in front of the horn, cowboy brim tilted, etc). Replaces the old
-   floating hat-overlay that read as a random hat balancing on them. Keyed dress-<friendkey>-<hatid>.
-   Only friends whose full 4-hat set is baked are listed here so the loader never 404s a missing one;
-   drawFriendBody falls back to base sprite + overlay hat for any friend not yet baked. */
-/* 'star' (Rory) has no dress-up Friend scene today (not in FRIEND_UNLOCK), but the baked set exists on
-   disk and drawFriendBody is keyed on the friend type id, so listing it here makes it work automatically
-   the moment a Rory Friend scene is added — no further art or wiring needed. */
-const DRESSED_FRIENDS=['heart','gear','moon','drop','cloud','star'];
-['hat_chef','hat_cowboy','hat_pirate','hat_crown'].forEach(h=>DRESSED_FRIENDS.forEach(fk=>{ ASSET_SRC['dress-'+fk+'-'+h]='assets/dress-'+fk+'-'+h+'.png'; }));
-/* Baked Poppu-dress sprites — Poppu's OWN base pose sprite with a cosmetic hat integrated onto his fox
-   head (replacing his baked-in brown explorer hat), mirroring the friend dress-up system above so the
-   mascot's equipped hats read as premium/integrated instead of a floating overlay. Keyed
-   dress-poppu-<pose>-<hatid> (pose = wave/postal/celebrate). Only poses whose full 4-hat set is baked
-   on disk are listed here so the loader never 404s a missing one; drawPoppuPosed falls back to the base
-   sprite + drawPoppuWornHat overlay for any pose/hat not yet baked (and for hat_gold, which maps to the
-   crown bake). */
-const POPPU_DRESSED_POSES=['wave','postal','celebrate'];
-['hat_chef','hat_cowboy','hat_pirate','hat_crown'].forEach(h=>POPPU_DRESSED_POSES.forEach(pk=>{ ASSET_SRC['dress-poppu-'+pk+'-'+h]='assets/dress-poppu-'+pk+'-'+h+'.png'; }));
+/* Baked friend-dress + Poppu-dress sprites RETIRED (production gate BUILD 61): the hat dress-up category
+   broke reference-sheet canon (off-model friends) and introduced a 2nd art style on Poppu, so those baked
+   dress-*.png files are no longer preloaded or drawn. The files remain on disk, just fully unreferenced. */
 /* Friend-house illustrated interiors (Phase 1) — a cozy painted room per friend, keyed by house name */
 ['peeky','orby','zaza','wavey','puffy'].forEach(n=>{ ASSET_SRC['friendbg_'+n]='assets/bg-house-'+n+'.webp'; });
 /* Production raster pack (Phase 2) — 20 UI/glyph icons (ic_<name> -> assets/ic-<dashed>.png) and
@@ -1151,12 +1136,10 @@ function drawPoppuWornHat(spriteKey,cx,cy,size){
    existing hat_gold->cos-hat-crown mapping). Returns true if a real sprite (baked or base) was drawn, false
    if the caller must draw its ph_poppu placeholder. */
 function drawPoppuPosed(poseKey,x,y,size,idle){
-  const id=equipped('hat');   // P1 #5: default = base postal-hat sprite; cosmetic hat is opt-in only
-  const bakeKey=id?('dress-poppu-'+poseKey.replace('poppu_','')+'-'+(id==='hat_gold'?'hat_crown':id)):null;
-  if(bakeKey&&has(bakeKey)) return drawPoppuSprite(bakeKey,x,y,size,idle);
-  const ok=drawPoppuSprite(poseKey,x,y,size,idle);
-  drawPoppuWornHat(poseKey,x,y,size);
-  return ok;
+  // IDENTITY LOCK (production gate BUILD 61): Poppu is ONE consistent style — his canonical hand-drawn base
+  // sprite (postal hat + mailbag) on EVERY screen. The cosmetic-hat dress-up category was RETIRED because the
+  // AI-baked dress-poppu-* swaps were a slightly different art style (two-styles bug). Never swap or overlay.
+  return drawPoppuSprite(poseKey,x,y,size,idle);
 }
 function drawPoppuHat(x,y,s,id){
   if(!id) return;   // P1 #5: only ever draws an EXPLICIT cosmetic hat (shop/friend previews) — never a default crown
@@ -1472,7 +1455,7 @@ let boxBounce=[0,0,0,0,0,0];
 let poppuCelebrateT=0;
 let ambient=[];
 let shopTab='upgrade';
-let shopCat='hat';
+let shopCat='mailbox';   // hat category retired (BUILD 61) — default to first surviving category
 /* which hub a menu screen (SHOP/LEVELMAP/STICKER) was opened from, so its Back button returns there
    (START corner icon -> back to START;  TOWN toolbar -> back to TOWN) instead of always dumping to START. */
 let menuReturn='START';
@@ -1783,9 +1766,10 @@ function finishLevel(){
     const _yd=new Date(); _yd.setDate(_yd.getDate()-1);
     const _ydStr=_yd.getFullYear()+'-'+(_yd.getMonth()+1)+'-'+_yd.getDate();
     SAVE.streak = (SAVE.lastPlayDay===_ydStr) ? (SAVE.streak||0)+1 : 1;
-    // 7-day streak reward: GIFT the crown cosmetic (owned, selectable in the wardrobe) — it does NOT
-    // auto-equip, so Poppu keeps his postal-hat identity until the child chooses to dress him up (P1 #5).
-    if(SAVE.streak>=7 && !SAVE.goldenHat){ SAVE.goldenHat=true; SAVE.owned['hat_crown']=true; }
+    // 7-day streak reward (BUILD 61): the hat category was retired, so the old "golden hat" gift is now a
+    // one-time Star Stamps bonus — never re-introduces a cosmetic hat on Poppu (identity stays locked to the
+    // postal hat). goldenHat flag reused purely as a one-time claim guard.
+    if(SAVE.streak>=7 && !SAVE.goldenHat){ SAVE.goldenHat=true; addStamps(100); }
     SAVE.lastPlayDay=_today;
   }
   if(stars>(SAVE.levelStars[currentLevel-1]||0)) SAVE.levelStars[currentLevel-1]=stars;
@@ -2891,8 +2875,9 @@ function enterFriend(id){
      wave at low hearts, a happier bounce once you've visited a few times, and an excited jump/hug
      right at "best friends" (5 hearts) — reusing the shared bob/squash rig in drawFriendBody so no
      new art is needed, just a bigger/warmer beat + a friendlier chime the more you've bonded. */
-  friendScene={ id, type:T[info.type], petT:0, breathing:true, feedAnim:null, hatDropT:null, hatLandT:null, hatLanded:true,
+  friendScene={ id, type:T[info.type], petT:0, breathing:true, feedAnim:null,
     greetT:0, greetHearts:hearts,
+    showCoach: !SAVE.friendCoachDone, interacted:false, coachT:0,   // BUILD 61: wordless first-visit care guidance
     giftPending: hearts>=5 && !SAVE.friendGiftGiven[info.type] };   // one-time "best friends" milestone gift, fires below in update()
   friendDragItem=null;
   state='FRIEND'; floatTexts=[]; popups=[]; particles=[];
@@ -2930,8 +2915,14 @@ function bumpFriendship(typeId){
 }
 /* item arc-flies from the tray (or wherever it was released) into the friend's mouth, a body "chomp"
    squash plays, then a per-friend reaction takes over — see friendFeedReaction() + drawFriendFeedAnim(). */
+function markFriendCared(){
+  const F=friendScene; if(!F) return;
+  F.interacted=true; F.showCoach=false;
+  if(!SAVE.friendCoachDone){ SAVE.friendCoachDone=true; persist(); }   // first-visit coach only needs to strongly guide once
+}
 function feedFriend(icon, fromPos){
   const F=friendScene; if(!F) return;
+  markFriendCared();
   if(F.breathing) F.breathing=false;   // entry breathing cancels on first interaction (A8)
   const flair=FRIEND_FLAIR[F.type.id];
   F.feedAnim={ t:0, icon, from:fromPos||{x:FRIEND_POS.x,y:FRIEND_POS.y+320}, reacted:false };
@@ -2940,17 +2931,16 @@ function feedFriend(icon, fromPos){
 }
 function petFriend(){
   const F=friendScene; if(!F) return;
+  markFriendCared();
   if(F.breathing) F.breathing=false;
   F.petT=0.0001; Audio_.pet(F.type.index);
   burst(FRIEND_POS.x,FRIEND_POS.y-80,FRIEND_FLAIR[F.type.id].col,10,4);
   if(friendPetCooldown<=0){ friendPetCooldown=1.4; bumpFriendship(F.type.id); }   // cooldown gates ONLY the heart bump — squish always plays
 }
 function dressFriend(hatId){
-  const F=friendScene; if(!F) return;
-  if(F.breathing) F.breathing=false;
-  SAVE.friendHats[F.id]=hatId; persist(); Audio_.dress();
-  F.hatDropT=1; F.hatLanded=false; F.hatLandT=null;   // 1..0 elapsed-style timer, ~0.45s fall (see update())
-  burst(FRIEND_POS.x,FRIEND_POS.y-190,'#B79BEA',12,5);
+  // RETIRED (BUILD 61): friend hat dress-up removed to keep every friend on-model. Kept as a safe no-op
+  // so the legacy QA hook (window.__t.friendDress) never throws.
+  return;
 }
 function drawFriendHeartMeter(){
   const F=friendScene; if(!F) return;
@@ -3013,13 +3003,10 @@ function drawFriendBody(){
   const squishX=squishY!==0?1/squishY:1;   // volume-preserving — never looks like it lost mass
   const breathe=F.breathing?1.02+0.02*Math.sin(time*2*Math.PI/1.2):1;   // A8 entry breathing (cancels on first touch)
   const bob=Math.sin(time*1.6*flair.speed)*10+extraBob, key=fullBodyKey(t);
-  // Premium dress-up: if this friend has a hat equipped AND a baked (friend+hat) sprite exists, draw
-  // that single integrated image and SKIP the base sprite + floating overlay hat entirely. The baked
-  // image is exported at the base sprite's dims so it lands identically here. Falls back otherwise.
-  const equippedHat=SAVE.friendHats[F.id];
-  const dressKey=equippedHat?('dress-'+t.id+'-'+equippedHat):null;
-  const useDress=!!(dressKey&&has(dressKey));
-  const bodyKey=useDress?dressKey:key;
+  // ON-MODEL LOCK (production gate BUILD 61): friends ALWAYS render their canonical <name>-full.png base
+  // sprite — the hat dress-up (chef/cowboy/pirate/crown) was RETIRED because it broke each friend's
+  // reference-sheet canon. No dressed swap, no overlay hat, ever.
+  const bodyKey=key;
   ctx.save(); ctx.translate(FRIEND_POS.x,FRIEND_POS.y+bob);
   ctx.rotate(giggle); ctx.scale(squishX*breathe,squishY*breathe);
   if(has(bodyKey)){ const im=IMG[bodyKey].img, hgt=460, w=hgt*(im.naturalWidth/im.naturalHeight||0.8);
@@ -3042,16 +3029,7 @@ function drawFriendBody(){
     ctx.fillStyle='#FF6B9C'; ctx.beginPath(); ctx.arc(-52,26,15,0,7); ctx.arc(52,26,15,0,7); ctx.fill(); ctx.restore();
   }
   ctx.restore();
-  const hatId=SAVE.friendHats[F.id];
-  if(hatId && !useDress){   // baked dress sprites carry the hat already — only the fallback needs the overlay
-    const dp=F.hatDropT!=null?(1-F.hatDropT)/2.2:null;
-    const fall=dp!=null ? -120*(1-easeOutBack(Math.min(1,dp/0.66))) : 0;   // drops in from above, lands with overshoot
-    const landSquash=F.hatLandT!=null ? 1-0.12*F.hatLandT : 1;             // quick squash the instant it lands
-    const hy=FRIEND_POS.y+bob-HAT_Y[t.id]*squishY+fall;                    // *squishY so the hat rides the head down
-    ctx.save(); ctx.translate(FRIEND_POS.x,hy); ctx.scale(HAT_SCALE[t.id]||1,(HAT_SCALE[t.id]||1)*landSquash);
-    drawPoppuHat(0,0,170,hatId);
-    ctx.restore();
-  }
+  // (hat overlay retired BUILD 61 — friends are always on-model, no worn hat)
 }
 /* the fed item's own arc-flight into the friend's mouth (0-0.32s), then friend-specific overlay
    flourishes during the reaction beat: Orby's staged twinkles, Zaza's drifting heart-puffs, Wavey's
@@ -3102,6 +3080,28 @@ function drawFriendDraggedItem(){
   if(d.kind==='item') glyphIcon(d.icon,0,0,90,'#FFD15C','#E3A93E'); else drawPoppuHat(0,10,150,d.id);
   ctx.restore();
 }
+/* WORDLESS FIRST-VISIT CARE COACH (BUILD 61) — a looping pointing paw that shows a 3-yo exactly what the
+   friend scene is FOR: phase A taps the friend (a friendship heart pops off their head → "pet me"), phase B
+   points at the gift tray (a pulsing ring on a treat → "give a gift"). Loops until the child pets or feeds
+   once, then is gated off forever by SAVE.friendCoachDone (strongly guides only the very first visit). */
+function drawFriendCoach(){
+  const F=friendScene; if(!F || !F.showCoach || F.interacted) return;
+  const cyc=(F.coachT||0)%3.4, phaseA=cyc<1.7;
+  const poke=Math.abs(Math.sin(cyc*Math.PI*2.4))*16;   // tap "poke" bob
+  if(phaseA){
+    // rising friendship heart off the friend's head — "care for me"
+    const rp=(cyc%0.85)/0.85;
+    ctx.save(); ctx.globalAlpha=Math.max(0,1-rp);
+    glyphIcon('heart',FRIEND_POS.x,FRIEND_POS.y-200-rp*80,46+rp*16,'#FF9DB6','#F06A8E'); ctx.restore();
+    drawHand(FRIEND_POS.x+24, FRIEND_POS.y-30+poke);   // paw tapping the friend
+  } else {
+    // point at the gift tray (center treat) — "give a gift"
+    const tray=friendItemTray(), mid=tray[Math.floor(tray.length/2)], rp=(cyc-1.7)/1.7;
+    ctx.save(); ctx.globalAlpha=0.55*(1-rp); ctx.strokeStyle='#FFD15C'; ctx.lineWidth=7;
+    ctx.beginPath(); ctx.arc(mid.x,mid.y,mid.r+10+rp*30,0,7); ctx.stroke(); ctx.restore();
+    drawHand(mid.x+30, mid.y-mid.r-14+poke);
+  }
+}
 function drawFriend(){
   const F=friendScene; if(!F){ enterTown(); return; }
   const t=F.type;
@@ -3114,8 +3114,9 @@ function drawFriend(){
     ctx.save(); ctx.globalAlpha=0.16; ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H); ctx.restore();
   }
   drawFriendHeartMeter(); drawFriendBody(); drawFriendFeedAnim(); drawFriendWantBubble();
-  drawFriendItemTray(); drawFriendHatTray(); drawFriendDraggedItem();
+  drawFriendItemTray(); drawFriendDraggedItem();   // hat tray retired (BUILD 61)
   drawNatureGiftPile(t.id, 1555, 745, 0.98);   // (A) this friend's lifetime gathered-gift collection: woven baskets on the right-side floor that gain a whole new basket every 15 gifts — visibly bigger every session, wordless (hero scale)
+  drawFriendCoach();   // wordless first-visit "pet + gift" guidance (BUILD 61)
   drawParticles(); drawFloatTexts();
   backButton(); stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
 }
@@ -3273,7 +3274,7 @@ function onDown(cx,cy){
   if(state==='FRIEND'){
     if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ firePress('back'); leaveFriend(); return; }
     for(const it of friendItemTray()){ if(dist(p.x,p.y,it.x,it.y)<it.r){ friendDragItem={kind:'item',icon:it.icon,x:p.x,y:p.y}; return; } }
-    for(const h of friendHatTray()){ if(dist(p.x,p.y,h.x,h.y)<h.r){ friendDragItem={kind:'hat',id:h.id,x:p.x,y:p.y}; return; } }
+    // (hat tray pickup retired BUILD 61)
     if(dist(p.x,p.y,FRIEND_POS.x,FRIEND_POS.y)<230){ petFriend(); return; }
     return;
   }
@@ -3336,7 +3337,7 @@ function onUp(cx,cy){
     if(friendDragItem){
       const p=toStage(cx,cy);
       if(dist(p.x,p.y,FRIEND_POS.x,FRIEND_POS.y)<260){
-        if(friendDragItem.kind==='item') feedFriend(friendDragItem.icon,{x:friendDragItem.x,y:friendDragItem.y}); else dressFriend(friendDragItem.id);
+        if(friendDragItem.kind==='item') feedFriend(friendDragItem.icon,{x:friendDragItem.x,y:friendDragItem.y});   // (hat drop retired BUILD 61)
       }
       friendDragItem=null;
     }
@@ -3477,15 +3478,7 @@ function update(dt){
       }
       if(F.feedAnim.t>1.6) F.feedAnim=null;
     }
-    if(F.hatDropT!=null){
-      F.hatDropT=Math.max(0,F.hatDropT-dt*2.2);
-      if(F.hatDropT<=0){
-        if(!F.hatLanded){ F.hatLanded=true; F.hatLandT=1;
-          burst(FRIEND_POS.x,FRIEND_POS.y-(HAT_Y[F.type.id]||200),'#fff3c4',10,4); }
-        F.hatDropT=null;
-      }
-    }
-    if(F.hatLandT!=null){ F.hatLandT=Math.max(0,F.hatLandT-dt*4.5); if(F.hatLandT<=0) F.hatLandT=null; }
+    if(F.showCoach && !F.interacted) F.coachT=(F.coachT||0)+dt;   // BUILD 61: drives the looping care coach-mark
   }
 
   if(state==='TOWN'){
@@ -4753,7 +4746,7 @@ function drawShop(){
   for(const t of shopTabRects()){ const on=shopTab===t.id;
     const iconFn = t.id==='upgrade'
       ? (cx,cy)=>glyphIcon('gear',cx,cy,52,'#F4A93E','#E3A93E')
-      : (cx,cy)=>{ if(!sprite('cos-hat-crown',cx,cy,64,64)) drawPoppuHat(cx,cy,74,'hat_crown'); };
+      : (cx,cy)=>{ if(!sprite('cos-mb-rainbow',cx,cy,64,64)) mailboxSkinRing({x:cx,y:cy,w:70,type:TYPES[3]},'mb_rainbow'); };   // Style tab -> a mailbox-skin thumbnail (hat crown retired, BUILD 61)
     pill(t,on?'#FFF3D6':'#fffdf6',on?'#F4A93E':'#e3d3b4',on?7:4, iconFn,'#6a4a2a'); }
   if(shopTab==='upgrade'){
     drawShopShelf(upgradeCards());               // real wooden shop shelf the tag-cards rest on
