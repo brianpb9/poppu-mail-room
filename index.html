@@ -1636,6 +1636,23 @@ function burst(x,y,color,n,spd){ for(let i=0;i<n;i++){ const a=Math.random()*7, 
 function confetti(x,y,n){ const cols=['#FF9DB6','#8ECFEC','#FFD15C','#B79BEA','#98D7B4','#FF6B6B']; n=n||70;
   for(let i=0;i<n;i++){ particles.push({x:x+(Math.random()-0.5)*380,y:y-Math.random()*80,vx:(Math.random()-0.5)*8,vy:-6-Math.random()*8,
     life:1.8,color:cols[i%cols.length],size:8+Math.random()*8,rot:Math.random()*7,vr:(Math.random()-0.5)*0.5,shape:'rect',grav:0.28}); } }
+/* wordless payoff (Creative #9 / Product #5): a little cloud of the friend's HEARTS drifts up out of the
+   mailbox on every correct delivery — the emote that replaces the "Thank you!" WORDS for non-readers. */
+function heartBurst(x,y,n){ const cols=['#FF9DB6','#FF6B8E','#FFC2D3','#FFD15C']; n=n||7;
+  for(let i=0;i<n;i++){ particles.push({x:x+(Math.random()-0.5)*130,y:y-Math.random()*40,
+    vx:(Math.random()-0.5)*3.4,vy:-3.6-Math.random()*3.4,life:1.7,color:cols[i%cols.length],
+    size:13+Math.random()*11,rot:(Math.random()-0.5)*0.5,vr:(Math.random()-0.5)*0.18,shape:'heart',grav:0.05}); } }
+/* soft additive BLOOM FLASH — a quick warm radial pop at (x,y) for that satisfying "pow" on delivery.
+   Pooled into flashes[] (decays fast), drawn additively over the particles so it never muddies the art. */
+let flashes=[];
+function bloomFlash(x,y,r,col){ flashes.push({x,y,r,col:col||'#FFF3C4',t:0}); }
+function drawFlashes(){
+  for(const f of flashes){ const a=Math.max(0,1-f.t/0.32), rr2=f.r*(0.6+f.t/0.32*0.8);
+    ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=a*0.7;
+    const g=ctx.createRadialGradient(f.x,f.y,0,f.x,f.y,rr2);
+    g.addColorStop(0,f.col); g.addColorStop(0.45,'rgba(255,236,170,0.45)'); g.addColorStop(1,'rgba(255,243,196,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(f.x,f.y,rr2,0,7); ctx.fill(); ctx.restore(); }
+}
 
 const CATCH={ star:'Yay!', gear:'Thanks!', moon:'Wow!', heart:'Love it!', drop:'Splash!', cloud:'Yippee!' };
 /* simple English pluralizer for the (few) parent-facing count labels in the game — e.g. "1 sticker" vs "3 stickers" */
@@ -1650,10 +1667,13 @@ function deliver(pkg, box){
   Audio_.payoff();                                   // rising sparkle chime + cute voice-squeak — the "one thing for a 10"
   try{ navigator.vibrate?.(18); }catch(e){}          // subtle HAPTIC on the spring (guarded for unsupported devices)
   spawnTimer=Math.min(spawnTimer,0.4);               // chase the happy feeling — next parcel arrives ~0.4-0.5s sooner
-  // dopamine heartbeat — EVERY correct drop gets an unmissable payoff: a coloured sparkle burst + a
-  // gentle confetti pop (pooled particles) on top of the character springing up out of the mailbox.
-  burst(bp.x,bp.y-40,pkg.type.deep,28,10);
-  confetti(bp.x,bp.y-56,pkg.golden?70:32);
+  // dopamine heartbeat — EVERY correct drop gets an unmissable WORDLESS payoff (Creative #9 / Product #5):
+  // the friend springs up, floats a little cloud of hearts, and a soft bloom flash pops — a coloured sparkle
+  // burst + a FULLER confetti pop under it. No "Thank you!" words — the emote + per-friend chime carry it.
+  burst(bp.x,bp.y-40,pkg.type.deep,32,11);
+  confetti(bp.x,bp.y-56,pkg.golden?100:56);
+  heartBurst(bp.x,bp.y-60,pkg.golden?12:8);           // floating friend-hearts (the emote that replaces words)
+  bloomFlash(bp.x,bp.y-36,box.w*0.95,'#FFF3C4');      // soft warm "pow" flash
   boxBounce[ti]=1; poppuCelebrateT=0.9; meterPop=1;   // kick the HUD mailbag "stamp landed" bounce
   SAVE.charDeliveries[pkg.type.id]=(SAVE.charDeliveries[pkg.type.id]||0)+1;
   // STORY (P1 #3/#4): this friend has now received mail TODAY — drops their town "waiting" flag and
@@ -1662,7 +1682,7 @@ function deliver(pkg, box){
   SAVE.deliveredTypesToday[pkg.type.id]=true;
   checkTownUnlocks();
   popups.push({ type:pkg.type, x:bp.x, boxCy:bp.y, boxH:box.h, t:0 });
-  floatTexts.push({ x:bp.x-box.w*0.34, y:bp.y-box.h*0.72, text:CATCH[pkg.type.id]||'thank you!', t:0, color:pkg.type.deep });
+  // (no "Yay!/Thank you!" word float-text — non-readers get the emote + hearts + chime instead)
 
   // ---- Star Stamps economy ----
   const speedy=(time-(pkg.born||time))<4.0;
@@ -3525,6 +3545,7 @@ function update(dt){
   }
   for(const pt of particles){ pt.x+=pt.vx; pt.y+=pt.vy; pt.vy+=(pt.grav||0.4); pt.vx*=0.99; pt.rot+=pt.vr; pt.life-=dt*(pt.shape==='rect'?0.6:1.4); }
   particles=particles.filter(p=>p.life>0);
+  for(const f of flashes) f.t+=dt; flashes=flashes.filter(f=>f.t<0.32);   // bloom-flash decay
   if(meterPop>0) meterPop=Math.max(0,meterPop-dt*2.6);   // HUD mailbag bounce decay
   for(const pu of popups) pu.t+=dt; popups=popups.filter(p=>p.t<1.7);
   for(const ft of floatTexts) ft.t+=dt; floatTexts=floatTexts.filter(f=>f.t<1.4);
@@ -3635,6 +3656,7 @@ function drawParticles(){
   for(const p of particles){ ctx.save(); ctx.globalAlpha=Math.max(0,Math.min(1,p.life)); ctx.translate(p.x,p.y); ctx.rotate(p.rot); ctx.fillStyle=p.color;
     if(p.shape==='rect') ctx.fillRect(-p.size/2,-p.size/3,p.size,p.size*0.66);
     else if(p.shape==='star') drawIcon('star',0,0,p.size*1.6,p.color,p.color);
+    else if(p.shape==='heart') drawIcon('heart',0,0,p.size*1.7,p.color,p.color);   // wordless payoff: floating friend-hearts
     else { ctx.beginPath(); ctx.arc(0,0,p.size*0.5,0,7); ctx.fill(); }
     ctx.restore(); }
 }
@@ -4069,6 +4091,17 @@ function drawSpeech(x,y,txt,col){
   ctx.lineWidth=5; ctx.strokeStyle=col; rr(bx,by,w,h,h/2); ctx.stroke(); ctx.restore();
   drawText(txt,x,by+h/2,36,col,null);
 }
+/* WORDLESS thank-you (Creative #9 / Product #5): a round speech bubble with a gently-beating HEART glyph
+   instead of "Thank you!" — the resolution emote a 2-5yo reads instantly, zero reading required. */
+function drawHeartBubble(x,y,col){
+  const r=46, by=y-r*0.4;
+  ctx.save(); shadow(14,'rgba(0,0,0,0.16)',0,6); ctx.fillStyle='#fffdf6';
+  ctx.beginPath(); ctx.arc(x,by,r,0,7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x-15,by+r*0.78); ctx.lineTo(x-2,by+r+20); ctx.lineTo(x+17,by+r*0.78); ctx.closePath(); ctx.fill(); noShadow();
+  ctx.lineWidth=5; ctx.strokeStyle=col; ctx.beginPath(); ctx.arc(x,by,r,0,7); ctx.stroke(); ctx.restore();
+  const beat=1+Math.sin(time*7)*0.09;
+  drawIcon('heart',x,by,r*1.18*beat,'#FF7BA0','#E85C86');
+}
 function drawPopups(){
   for(const pu of popups){
     const key=fullBodyKey(pu.type);
@@ -4098,13 +4131,15 @@ function drawPopups(){
         const anchorY=Math.max(feetY-H_G-6,96);
         ctx.save(); ctx.globalAlpha=Math.max(0,Math.min(1,sa));
         ctx.translate(pu.x,anchorY); ctx.scale(bsc,bsc); ctx.translate(-pu.x,-anchorY);   // scale about the tail
-        drawSpeech(pu.x, anchorY, 'Thank you!', pu.type.deep); ctx.restore(); }
+        drawHeartBubble(pu.x, anchorY, pu.type.deep); ctx.restore(); }
     } else {
       const s=112*bounce*(1-exit*0.2), yy=pu.boxCy-pu.boxH*0.55-100*Math.min(1,pu.t*2.5)+exit*pu.boxH*0.9;
       ctx.save(); ctx.globalAlpha=alpha; ctx.translate(pu.x,yy);
       ctx.save(); shadow(18,'rgba(0,0,0,0.16)',0,6); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(0,0,s*1.02,0,7); ctx.fill(); noShadow();
       ctx.lineWidth=s*0.12; ctx.strokeStyle=pu.type.deep; ctx.beginPath(); ctx.arc(0,0,s*1.02,0,7); ctx.stroke(); ctx.restore();
-      drawFaceCircle(pu.type,0,0,s*0.96); ctx.restore();
+      drawFaceCircle(pu.type,0,0,s*0.96);
+      if(pu.t>0.30 && pu.t<1.45) drawHeartBubble(0,-s*1.05,pu.type.deep);   // wordless thank-you emote
+      ctx.restore();
     }
   }
 }
@@ -4264,7 +4299,7 @@ function drawPlaying(){
   if(dragging) drawPackage(dragging);
   drawGrabCue();
   drawStationTask();
-  drawParticles(); drawPopups();
+  drawFlashes(); drawParticles(); drawPopups();
   drawRoomVignette();   // item 4: painted warm vignette over the interior (HUD drawn on top, crisp)
   drawPlayHUD(); drawFloatTexts();
   drawTutorial();
