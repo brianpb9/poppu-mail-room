@@ -568,7 +568,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-36';
+const BUILD='20260709-37';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1223,12 +1223,12 @@ function buildingHitRect(b){ const pad=18; return { x:b.cx-b.w/2-pad, y:b.ground
    Deliberately NOT bobbed, and stronger than the old flat oval, so each house reads as planted. */
 const TOWN_BUILDING_SHADOW = {
   post:  { cx:420,  cy:838, rw:236, rh:46, a:0.42 },   // FLOAT FIX: post-office.png has 46px transparent bottom-pad, so its visual base sits ~54px above groundY; the shadow was landing 54px BELOW the base (house floating over a detached shadow). Move the shadow UP to hug the actual base (~y834).
-  heart: { cx:735,  cy:672, rw:70,  rh:16, a:0.34 },
-  wrap:  { cx:980,  cy:748, rw:186, rh:40, a:0.40 },
-  peeky: { cx:1560, cy:628, rw:150, rh:32, a:0.40 },
-  drop:  { cx:1366, cy:862, rw:112, rh:25, a:0.36 },
-  cloud: { cx:1573, cy:902, rw:116, rh:26, a:0.36 },
-  moon:  { cx:1780, cy:886, rw:102, rh:25, a:0.36 },
+  heart: { cx:735,  cy:674, rw:90,  rh:20, a:0.32 },   // BUILD 37: wider+softer so the small house nestles, not hovers
+  wrap:  { cx:980,  cy:748, rw:190, rh:42, a:0.38 },
+  peeky: { cx:1560, cy:630, rw:158, rh:34, a:0.38 },
+  drop:  { cx:1366, cy:864, rw:140, rh:30, a:0.34 },   // BUILD 37: widened hill-cluster contact shadows — grounds the "sticker hovering" small houses
+  cloud: { cx:1573, cy:904, rw:144, rh:31, a:0.34 },
+  moon:  { cx:1780, cy:888, rw:130, rh:30, a:0.34 },
 };
 /* BUILD 20260708-8: the peeky knoll (a hard green ellipse + brown dirt oval) itself read as a stuck-on
    floating "pad"/lily-disc under the house — the exact artifact the founder rejects. The town-map already
@@ -3475,7 +3475,9 @@ function drawMailboxes(){
     const sx=1+pop*0.4, sy=1-pop*0.4;
     // FIX 3: replaced the big translucent colored disc (which made each box read as floating on a puck)
     // with a soft grounding contact shadow under the box, so it sits ON the floor.
-    ctx.save(); ctx.globalAlpha=0.18; ctx.fillStyle='#3a2a18'; ctx.beginPath(); ctx.ellipse(b.x,b.y+b.h*0.44,b.w*0.40,b.h*0.10,0,0,7); ctx.fill(); ctx.restore();
+    // BUILD 37: wider, softer TWO-STOP contact shadow (was one tight dark ellipse that read as a box on a
+    // hovering puck) — a broad ambient falloff + a light core grounds each mailbox onto the floor.
+    bakedContactShadow(b.x, b.y+b.h*0.45, b.w*0.42, b.h*0.12, 0.20);
     if(!skinReady) mailboxSkinRing(b, mbSkin);   // procedural ring is fallback-only once the real skin art has landed
     ctx.save(); ctx.translate(b.x,b.y+(glow>0.6?-6:0)); ctx.scale(sx,sy);
     if(glow>0) shadow(46*glow,type.deep);
@@ -4248,12 +4250,84 @@ function tintedLockedSprite(b){
     const octx=off.getContext('2d');
     if(ready) octx.drawImage(IMG[b.key].img,0,0,w,h);
     octx.globalCompositeOperation='source-atop';
-    octx.fillStyle='rgba(70,66,64,0.30)'; octx.fillRect(0,0,w,h);        // desaturating darken
-    octx.fillStyle='rgba(168,197,232,0.16)'; octx.fillRect(0,0,w,h);     // ~15% moonlight-blue shift
+    // BUILD 37: locked houses must READ AS INVITING, not asleep. The old cold moonlight-blue "dozing"
+    // veil made them look closed/rejecting (board flag). Replaced with a whisper-thin WARM cream wash —
+    // just enough that unlocked houses pop a touch brighter, never a dim/blue "come back later" cast.
+    octx.fillStyle='rgba(255,244,214,0.14)'; octx.fillRect(0,0,w,h);
     octx.globalCompositeOperation='source-over';
     c={ canvas:off, w, h, ready }; _buildingTintCache[b.id]=c;
   }
   return c.canvas;
+}
+/* warm honey silhouette of the house, cached — blitted slightly enlarged + shadow-blurred BEHIND the
+   real sprite to paint a soft, GENTLE "tap me" rim glow. This is the core tappable affordance (P0
+   founder ask: every house must obviously read as touchable). Same alpha-masked bake as the tint. */
+const _houseGlowCache={};
+function houseGlowSprite(b){
+  if(!has(b.key)) return null;
+  const w=Math.ceil(b.w), h=Math.ceil(b.h);
+  let c=_houseGlowCache[b.id];
+  if(!c || c.w!==w || c.h!==h){
+    const off=document.createElement('canvas'); off.width=w; off.height=h;
+    const o=off.getContext('2d');
+    o.drawImage(IMG[b.key].img,0,0,w,h);
+    o.globalCompositeOperation='source-atop';
+    o.fillStyle='#FFE7B0'; o.fillRect(0,0,w,h);
+    o.globalCompositeOperation='source-over';
+    c={ canvas:off, w, h }; _houseGlowCache[b.id]=c;
+  }
+  return c.canvas;
+}
+/* soft pulsing warm rim glow behind a house — draws the honey silhouette enlarged+blurred, low alpha,
+   on a slow 2.4s breath. Gentle by design (no flashing, preschool-safe). `boost` brightens locked
+   houses a touch more so they actively beckon rather than sit quiet. */
+function drawHouseGlow(b, groundY, boost){
+  const g=houseGlowSprite(b); if(!g) return;
+  const gp=0.5+0.5*Math.sin(time*2*Math.PI/2.4 + b.bobPhase);   // 0..1 smooth breath
+  const ga=(boost?0.30:0.20)+0.22*gp, gs=1.045+0.02*gp;
+  const gw=b.w*gs, gh=b.h*gs, gx=b.cx-gw/2, gy=(groundY-b.h/2)-gh/2;
+  ctx.save();
+  ctx.globalAlpha=Math.min(0.6,ga);
+  ctx.shadowColor='rgba(255,206,120,0.95)'; ctx.shadowBlur=16+12*gp;
+  ctx.drawImage(g, gx, gy, gw, gh);
+  ctx.restore();
+}
+/* gentle "tap tap" pointing paw that BECKONS at a locked house's door (replaces the old sleeping-Z that
+   read as closed). Reuses the premium ic_hand paw; dips toward the door then lifts on a soft ~1.4s loop. */
+function drawBeckonPaw(cx,cy,size,phase){
+  const t=(time*0.72+phase)%1;
+  const dip=0.5+0.5*Math.sin(t*Math.PI*2);           // 0..1..0 smooth
+  const y=cy-dip*size*0.14, sc=1+dip*0.05;
+  ctx.save(); ctx.translate(cx,y); ctx.scale(sc,sc);
+  if(has('ic_hand')){
+    shadow(9,'rgba(0,0,0,0.20)',0,5);
+    ctx.drawImage(IMG.ic_hand.img, -size*0.30, -size*0.10, size, size);
+    noShadow();
+  } else {
+    ctx.fillStyle='#FFE7B0'; ctx.strokeStyle='#C9791E'; ctx.lineWidth=size*0.06; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(0,-size*0.22); ctx.lineTo(size*0.16,0); ctx.lineTo(-size*0.16,0); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  ctx.restore();
+}
+function roundRectPath(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+/* the unlock-progress meter, RE-SEATED as a small cream sign mounted ON the house wall by the door
+   (was 3 stars floating in mid-air below a floating heart bubble — founder "no floating pins"). */
+function drawHouseStarSign(b, groundY){
+  const stars=houseMeterStars(b.id);
+  const sw=Math.min(b.w*0.66, 148), sh=sw*0.34, cx=b.cx, cy=groundY-b.h*0.28, r=sh*0.42;
+  ctx.save();
+  shadow(8,'rgba(0,0,0,0.18)',0,4);
+  ctx.fillStyle='#FFFBF0'; roundRectPath(cx-sw/2,cy-sh/2,sw,sh,r); ctx.fill();
+  noShadow();
+  ctx.strokeStyle='#E3C79A'; ctx.lineWidth=sh*0.09; roundRectPath(cx-sw/2,cy-sh/2,sw,sh,r); ctx.stroke();
+  const st=sh*0.60, gap=sw*0.24, x0=cx-gap;
+  for(let i=0;i<3;i++){ const filled=i<stars;
+    glyphIcon('star', x0+i*gap, cy, st, filled?'#FFD15C':'#F3EAD6', filled?'#E3A93E':'#D8C39B'); }
+  ctx.restore();
 }
 function clipBuildingSilhouette(cx,groundY,w,h){
   // exact body+roof shape drawn by ph_building() — union via one non-zero-winding path, both wound CW
@@ -4305,7 +4379,11 @@ function drawSleepingZzz(b,groundY){
   }
 }
 function drawTownBuilding(b){
-  const bob=Math.sin(time*2*Math.PI/b.bobPeriod+b.bobPhase)*b.bobAmp;
+  // BUILD 37: every house now does a gentle continuous idle bob (~3px, slow) so it reads ALIVE and
+  // TAPPABLE (founder ask). The contact shadow stays on the FIXED ground line below, so the tiny bob
+  // reads as a soft breath, never as floating.
+  const amp=b.bobAmp||3;
+  const bob=Math.sin(time*2*Math.PI/b.bobPeriod+b.bobPhase)*amp;
   const groundY=b.groundY+bob, unlocked=buildingUnlocked(b.id);
   // R4 #4: plant a grassy clearing knoll under any house that would otherwise float (peeky) — drawn
   // first so the contact shadow + house sit ON it.
@@ -4313,23 +4391,24 @@ function drawTownBuilding(b){
   // contact shadow at the building's FIXED ground line — never the bobbed one, so it never "swims"
   const S=TOWN_BUILDING_SHADOW[b.id];
   if(S) bakedContactShadow(S.cx,S.cy,S.rw,S.rh,S.a);
+  // soft warm "tap me" rim glow behind the house (locked ones glow a touch more, to beckon)
+  drawHouseGlow(b, groundY, !unlocked);
   const sq=(buildingSqueeze&&buildingSqueeze.id===b.id)?squeezeScale(buildingSqueeze.t):1;
-  // locked buildings get a slow 3s "breathing" scale (1.0→1.015→1.0) — sleeping, not static/broken
-  const breathe=unlocked?1:(1.0075+0.0075*Math.sin(time*2*Math.PI/3));
+  // locked buildings get a slightly livelier breathing scale (1.0→1.02→1.0) — inviting, awake, "come tap me"
+  const breathe=unlocked?1:(1.01+0.01*Math.sin(time*2*Math.PI/2.6));
   const totalScale=sq*breathe;
   ctx.save(); ctx.translate(b.cx,groundY); ctx.scale(totalScale,totalScale); ctx.translate(-b.cx,-groundY);
   if(unlocked){
     if(has(b.key)) ctx.drawImage(IMG[b.key].img, b.cx-b.w/2, groundY-b.h, b.w, b.h);
     else ph_building(b.id, b.cx, groundY, b.w, b.h);
   } else if(has(b.key)){
-    // sprite + "sleeping" tint, pre-composited and masked to the art's own alpha — reads as the
-    // building dozing, not a gray box stamped over it.
+    // sprite + whisper-thin warm wash, masked to the art's own alpha — the house stays bright and
+    // AWAKE (just a hair softer than an unlocked one), never a dim/asleep "closed" read.
     ctx.drawImage(tintedLockedSprite(b), b.cx-b.w/2, groundY-b.h, b.w, b.h);
   } else {
     ph_building(b.id, b.cx, groundY, b.w, b.h);
     ctx.save(); clipBuildingSilhouette(b.cx, groundY, b.w, b.h);
-    ctx.fillStyle='rgba(70,66,64,0.30)'; ctx.fillRect(b.cx-b.w/2, groundY-b.h, b.w, b.h);
-    ctx.fillStyle='rgba(168,197,232,0.16)'; ctx.fillRect(b.cx-b.w/2, groundY-b.h, b.w, b.h);
+    ctx.fillStyle='rgba(255,244,214,0.14)'; ctx.fillRect(b.cx-b.w/2, groundY-b.h, b.w, b.h);
     ctx.restore();
   }
   // wordless "happy visit" pop for an unlocked-but-teased building tap (e.g. Wrap Shop) — a bouncing
@@ -4341,29 +4420,18 @@ function drawTownBuilding(b){
     ctx.restore();
   }
   if(!unlocked){
-    drawSleepingZzz(b, groundY);
-    // heart "not-yet" badge — lowered onto the door, not floating near the roofline
-    const badgeR=b.id==='wrap'?54:46, badgeX=b.cx+b.w*0.18, badgeY=groundY-b.h*0.5;
+    // BECKON, don't doze (founder: no sleeping-Z, no floating heart pins). A gentle "tap tap" paw at
+    // the door invites the touch; the unlock-progress meter is re-seated as a small sign ON the wall.
+    const pawSize=Math.min(112, Math.max(64, b.w*0.42));
+    drawBeckonPaw(b.cx+b.w*0.05, groundY-b.h*0.13, pawSize, b.bobPhase);
+    if(FRIEND_UNLOCK[b.id]) drawHouseStarSign(b, groundY);
+    // one-shot filling-star "getting closer!" pop on tap — icon-first "almost there" feedback (no text)
     const pulseT=(lockedPulse&&lockedPulse.id===b.id)?lockedPulse.t:null;
-    const bump=pulseT!=null?1+Math.max(0,0.30-pulseT*0.55):1;   // quick tap-bounce on the heart badge
-    ctx.save(); ctx.translate(badgeX,badgeY); ctx.scale(bump,bump); ctx.translate(-badgeX,-badgeY);
-    shadow(12,'rgba(0,0,0,0.16)',0,4);
-    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(badgeX,badgeY,badgeR,0,7); ctx.fill(); noShadow();
-    glyphIcon('heart',badgeX,badgeY,badgeR*0.9,'#FFC2D3','#F06A8E');
-    ctx.strokeStyle='#F06A8E'; ctx.lineWidth=badgeR*0.12; ctx.lineCap='round';
-    ctx.beginPath(); ctx.arc(badgeX,badgeY-badgeR*0.55,badgeR*0.5,Math.PI*1.05,Math.PI*1.95); ctx.stroke();
-    ctx.restore();
-    // one-shot filling-star "getting closer" pop on tap — icon-first, carries the message without text
     if(pulseT!=null && pulseT<0.9){
       const p=Math.min(1,pulseT/0.4), e=easeOutBack(p), fade=pulseT<0.55?1:Math.max(0,1-(pulseT-0.55)/0.35);
       ctx.save(); ctx.globalAlpha=fade;
-      glyphIcon('star', badgeX, badgeY+badgeR*1.7, badgeR*0.72*Math.max(0,e), '#FFD54A','#E3A93E');
+      glyphIcon('star', b.cx, groundY-b.h*0.52, 62*Math.max(0,e), '#FFD54A','#E3A93E');
       ctx.restore();
-    }
-    if(FRIEND_UNLOCK[b.id]){   // picture-meter toward unlock — generalized to every locked friend house
-      const stars=houseMeterStars(b.id), size=36, gap=14, total=3*size+2*gap, x0=b.cx-total/2+size/2, sy=badgeY+70;
-      for(let i=0;i<3;i++){ const filled=i<stars;
-        glyphIcon('star', x0+i*(size+gap), sy, size, filled?'#FFD15C':'#fffdf6', filled?'#E3A93E':'#E3C9A0'); }
     }
   }
   ctx.restore();
