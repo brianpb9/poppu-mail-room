@@ -593,7 +593,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-45';
+const BUILD='20260709-46';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -3845,8 +3845,11 @@ function drawPlayHUD(){
       ctx.strokeStyle='#B9791F'; ctx.lineWidth=Math.max(1.5,pipR*0.14); rr(-pipR,-pipR,pipR*2,pipR*2,pipR*0.5); ctx.stroke();
       drawIcon('star',0,0,pipR*1.15,'#FFF7E4','#B9791F');   // a cream "delivered" stamp-star in each lit slot
     } else {
-      ctx.fillStyle='#ece0c8'; rr(-pipR,-pipR,pipR*2,pipR*2,pipR*0.5); ctx.fill();
-      ctx.strokeStyle='#d8c9a8'; ctx.lineWidth=Math.max(1.5,pipR*0.12); rr(-pipR,-pipR,pipR*2,pipR*2,pipR*0.5); ctx.stroke();
+      // UI/UX #6: deeper border + a faint GHOST stamp-star inside, so empty slots read as "packages waiting",
+      // not near-invisible blank boxes on the cream pill.
+      ctx.fillStyle='#e6d7ba'; rr(-pipR,-pipR,pipR*2,pipR*2,pipR*0.5); ctx.fill();
+      ctx.strokeStyle='#c2ac82'; ctx.lineWidth=Math.max(1.6,pipR*0.15); rr(-pipR,-pipR,pipR*2,pipR*2,pipR*0.5); ctx.stroke();
+      ctx.globalAlpha=0.42; if(!tintIcon('star',0,0,pipR*1.2,'#c7b389')) drawIcon('star',0,0,pipR*1.0,'#d8c6a0','#c2ac82'); ctx.globalAlpha=1;
     }
     ctx.restore();
   }
@@ -4489,7 +4492,8 @@ function drawHouseGlow(b, groundY, boost){
   const gw=b.w*gs, gh=b.h*gs, gx=b.cx-gw/2, gy=(groundY-b.h/2)-gh/2;
   ctx.save();
   ctx.globalAlpha=Math.min(0.6,ga);
-  ctx.shadowColor='rgba(255,206,120,0.95)'; ctx.shadowBlur=16+12*gp;
+  // perf (Tech Artist #1): the glow sprite is ALREADY a soft baked radial — shadowBlur on drawImage was
+  // the costliest op running on all 7 houses every TOWN frame. Dropped; the pre-softened sprite carries it.
   ctx.drawImage(g, gx, gy, gw, gh);
   ctx.restore();
 }
