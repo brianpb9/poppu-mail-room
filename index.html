@@ -603,7 +603,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-55';
+const BUILD='20260709-56';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1127,7 +1127,11 @@ const POPPU_HAT_ANCHOR={
    The tall hats (chef/cowboy/pirate) fit the default. */
 const HAT_FIT={ hat_crown:{ddy:0.055, dsc:1.28}, hat_gold:{ddy:0.055, dsc:1.28} };
 function drawPoppuWornHat(spriteKey,cx,cy,size){
-  const id=equipped('hat')||(SAVE.goldenHat?'hat_gold':null); if(!id) return;
+  // IDENTITY LOCK (P1 #5): Poppu's constant look is the brown POSTAL hat (baked into every base sprite) +
+  // green mailbag + compass. A cosmetic hat is an OPT-IN overlay only — the default (nothing equipped) is
+  // always the postal hat. The gold crown is a cosmetic you can equip, never Poppu's baseline (goldenHat
+  // now just gifts crown OWNERSHIP, it no longer force-wears it — see finishLevel).
+  const id=equipped('hat'); if(!id) return;
   const A=POPPU_HAT_ANCHOR[spriteKey]||POPPU_HAT_ANCHOR.poppu_wave;
   const F=HAT_FIT[id]||{ddy:0,dsc:1};
   drawPoppuHat(cx+A.dx*size, cy+(A.dy+F.ddy)*size, A.sc*F.dsc*size, id);
@@ -1139,7 +1143,7 @@ function drawPoppuWornHat(spriteKey,cx,cy,size){
    existing hat_gold->cos-hat-crown mapping). Returns true if a real sprite (baked or base) was drawn, false
    if the caller must draw its ph_poppu placeholder. */
 function drawPoppuPosed(poseKey,x,y,size,idle){
-  const id=equipped('hat')||(SAVE.goldenHat?'hat_gold':null);
+  const id=equipped('hat');   // P1 #5: default = base postal-hat sprite; cosmetic hat is opt-in only
   const bakeKey=id?('dress-poppu-'+poseKey.replace('poppu_','')+'-'+(id==='hat_gold'?'hat_crown':id)):null;
   if(bakeKey&&has(bakeKey)) return drawPoppuSprite(bakeKey,x,y,size,idle);
   const ok=drawPoppuSprite(poseKey,x,y,size,idle);
@@ -1147,7 +1151,7 @@ function drawPoppuPosed(poseKey,x,y,size,idle){
   return ok;
 }
 function drawPoppuHat(x,y,s,id){
-  if(!id){ if(SAVE.goldenHat) id='hat_gold'; else return; }
+  if(!id) return;   // P1 #5: only ever draws an EXPLICIT cosmetic hat (shop/friend previews) — never a default crown
   if(id!=='hat_gold' && drawPoppuHatRaster('cos-'+id.replace(/_/g,'-'),x,y,s)) return;
   if(id==='hat_gold' && drawPoppuHatRaster('cos-hat-crown',x,y,s)) return;
   ctx.save(); ctx.translate(x,y); ctx.lineJoin='round'; ctx.strokeStyle='#5a3d24'; ctx.lineWidth=s*0.03;
@@ -1729,7 +1733,9 @@ function finishLevel(){
     const _yd=new Date(); _yd.setDate(_yd.getDate()-1);
     const _ydStr=_yd.getFullYear()+'-'+(_yd.getMonth()+1)+'-'+_yd.getDate();
     SAVE.streak = (SAVE.lastPlayDay===_ydStr) ? (SAVE.streak||0)+1 : 1;
-    if(SAVE.streak>=7 && !SAVE.goldenHat) SAVE.goldenHat=true;
+    // 7-day streak reward: GIFT the crown cosmetic (owned, selectable in the wardrobe) — it does NOT
+    // auto-equip, so Poppu keeps his postal-hat identity until the child chooses to dress him up (P1 #5).
+    if(SAVE.streak>=7 && !SAVE.goldenHat){ SAVE.goldenHat=true; SAVE.owned['hat_crown']=true; }
     SAVE.lastPlayDay=_today;
   }
   if(stars>(SAVE.levelStars[currentLevel-1]||0)) SAVE.levelStars[currentLevel-1]=stars;
