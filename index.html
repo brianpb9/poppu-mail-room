@@ -593,7 +593,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-42';
+const BUILD='20260709-43';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -3809,7 +3809,9 @@ function drawPlayHUD(){
   ctx.strokeStyle='#F4A93E'; ctx.beginPath(); ctx.arc(li_cx,li_cy,li_r,-Math.PI/2,-Math.PI/2+li_prog*2*Math.PI); ctx.stroke();
   if(L.hint==='color'){ const cg=ctx.createLinearGradient(li_cx,li_cy-li_r*0.6,li_cx,li_cy+li_r*0.6);
     cg.addColorStop(0,repType.light); cg.addColorStop(1,repType.deep); ctx.fillStyle=cg;
-    ctx.beginPath(); ctx.arc(li_cx,li_cy,li_r*0.62,0,7); ctx.fill(); }
+    ctx.beginPath(); ctx.arc(li_cx,li_cy,li_r*0.62,0,7); ctx.fill();
+    // Product-fix: a small type emblem on the swatch so the left badge reads as "sort THIS", never a bare "record dot"
+    glyphIcon(repType.icon,li_cx,li_cy,li_r*0.82,'#fff',repType.deep); }
   else if(L.hint==='shape'){ glyphIcon(repType.icon,li_cx,li_cy,li_r*1.1,repType.mid,repType.deep); }
   else { drawFaceCircle(repType,li_cx,li_cy,li_r*0.72); }
   ctx.restore();
