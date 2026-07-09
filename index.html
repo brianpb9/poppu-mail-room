@@ -603,7 +603,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-57';
+const BUILD='20260709-58';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -3093,6 +3093,12 @@ const PLAYBTN={x:W/2,y:620,r:158};
 const START_MENU_BTN={x:W-118,y:112,r:62};
 /* small, unobtrusive "watch the Morning Mail cold-open again" replay chip — bottom-left of START (P1 #2) */
 const COLD_REPLAY_BTN={x:120,y:H-120,r:56};
+/* PARENT-TRUST (Parent Advocate #1): a small, standard "For Grown-ups" corner button that surfaces the
+   For-Parents dashboard without the undocumented 3s long-press. Bottom-right corner of START + TOWN — the
+   universal, adult-only convention (gear/settings glyph). A matching quick-MUTE speaker sits just left of
+   it on START so sound is always one tap away for a grown-up. The 3s long-press on Poppu still works too. */
+const GROWNUP_BTN={x:W-114,y:H-116,r:54};
+const START_MUTE_BTN={x:W-114-130,y:H-116,r:50};
 /* TOWN hub top-left toolbar — the secondary destinations that used to crowd the START screen, relocated
    here ("after Play"): Levels map, Shop, Garden/Stickers, Scene switch. Wordless round icon buttons. */
 const TOWN_NAV=()=>{ const r=60,y=108,x0=200,gap=152;
@@ -3101,9 +3107,9 @@ const STAMP_CHIP={x:W-40,y:56};
 const HOMEBTN={x:120,y:108,r:66};   // 132px — oversized MATCHED nav disc; clears the 120px toddler-tap floor (UI/UX→9)
 const BACKBTN={x:150,y:H-120,r:70};
 const VOLBTN={x:280,y:108,r:66};    // 132px — EQUAL to HOMEBTN so the pair reads as one matched nav set, not two drifting discs (UI/UX→9)
-const PARENT_PANEL={x:W/2-470,y:150,w:940,h:790};
-const PARENT_CLOSE={x:W/2+470-64,y:150+64,r:42};
-const PARENT_VOL=()=>({x:W/2-260,y:PARENT_PANEL.y+PARENT_PANEL.h-210,w:520,h:96});
+const PARENT_PANEL={x:W/2-480,y:96,w:960,h:912};
+const PARENT_CLOSE={x:W/2+480-64,y:96+64,r:42};
+const PARENT_VOL=()=>({x:W/2-260,y:690,w:520,h:80});
 
 function cycleVolume(){ SAVE.volume=(SAVE.volume+2)%3; Audio_.setVolume(SAVE.volume); persist(); Audio_.pop(); }
 function startLongPress(px,py){ cancelLongPress(); pressPx=px; pressPy=py; const armedState=state;
@@ -3162,6 +3168,10 @@ function onDown(cx,cy){
     if(dist(p.x,p.y,START_MENU_BTN.x,START_MENU_BTN.y)<START_MENU_BTN.r){ menuReturn='START'; state='SHOP'; shopTab='cosmetic'; Audio_.pop(); return; }
     // replay the wordless Morning Mail cold-open
     if(dist(p.x,p.y,COLD_REPLAY_BTN.x,COLD_REPLAY_BTN.y)<COLD_REPLAY_BTN.r){ Audio_.pop(); startColdOpen(true); return; }
+    // PARENT-TRUST: "For Grown-ups" corner opens the For-Parents dashboard (no hidden long-press required)
+    if(dist(p.x,p.y,GROWNUP_BTN.x,GROWNUP_BTN.y)<GROWNUP_BTN.r){ firePress('grown'); parentOpen=true; Audio_.pop(); return; }
+    // quick mute toggle beside it
+    if(dist(p.x,p.y,START_MUTE_BTN.x,START_MUTE_BTN.y)<START_MUTE_BTN.r){ firePress('startmute'); cycleVolume(); return; }
     return;
   }
   if(state==='LEVELMAP'){
@@ -3191,6 +3201,8 @@ function onDown(cx,cy){
     if(happyTown){ Audio_.pop(); endHappyTown(); return; }   // P1 #4: tap dismisses the end-of-day celebration
 
     if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ firePress('back'); leaveTown(); return; }
+    // PARENT-TRUST: "For Grown-ups" corner opens the For-Parents dashboard
+    if(dist(p.x,p.y,GROWNUP_BTN.x,GROWNUP_BTN.y)<GROWNUP_BTN.r){ firePress('grown'); parentOpen=true; Audio_.pop(); return; }
     // top-left hub toolbar — the secondary destinations relocated off the START screen
     for(const b of TOWN_NAV()) if(dist(p.x,p.y,b.x,b.y)<b.r){
       firePress('nav_'+b.id);
@@ -3784,8 +3796,11 @@ function drawParentDashboard(){
   const P=PARENT_PANEL;
   shadow(30,'rgba(0,0,0,0.35)',0,14); ctx.fillStyle='#fffdf6'; rr(P.x,P.y,P.w,P.h,44); ctx.fill(); noShadow();
   ctx.lineWidth=8; ctx.strokeStyle='#B79BEA'; rr(P.x,P.y,P.w,P.h,44); ctx.stroke();
-  drawText('For Parents',W/2,P.y+66,58,'#7a5a34',null,'center','800');
-  drawText('Long-press Poppu any time to reach this page',W/2,P.y+120,26,'#a88a5c',null,'center','700');
+  drawText('For Parents',W/2,P.y+58,54,'#7a5a34',null,'center','800');
+  drawText('Open any time from the gear button — or hold Poppu for 3 seconds',W/2,P.y+104,24,'#a88a5c',null,'center','700');
+  // (a) EDUCATIONAL VALUE reassurance — what the play is quietly teaching (Parent Advocate #1)
+  drawText("Poppu's Mail Room helps little ones practice matching",W/2,P.y+150,26,'#6a8a58',null,'center','700');
+  drawText('colors, shapes & taking turns — and being kind.',W/2,P.y+182,26,'#6a8a58',null,'center','700');
   const fav=favoriteChar();
   const rows=[
     ['Play sessions', (SAVE.sessions||0)+''],
@@ -3795,17 +3810,21 @@ function drawParentDashboard(){
     ['Day streak', (SAVE.streak||0)+' day'+((SAVE.streak||0)===1?'':'s')],
     ['Favorite friend', fav?fav.name:'—'],
   ];
-  const rx=P.x+70, rw=P.w-140, rh=60, gap=12; let ry=P.y+180;
+  const rx=P.x+70, rw=P.w-140, rh=50, gap=8; let ry=P.y+222;
   for(const row of rows){
-    ctx.save(); ctx.fillStyle='#F7F1E4'; rr(rx,ry,rw,rh,18); ctx.fill(); ctx.restore();
-    drawText(row[0],rx+30,ry+rh/2,32,'#6a4a2a',null,'left','700');
-    drawText(row[1],rx+rw-30,ry+rh/2,34,'#8E6FD6',null,'right','800');
+    ctx.save(); ctx.fillStyle='#F7F1E4'; rr(rx,ry,rw,rh,16); ctx.fill(); ctx.restore();
+    drawText(row[0],rx+30,ry+rh/2,30,'#6a4a2a',null,'left','700');
+    drawText(row[1],rx+rw-30,ry+rh/2,32,'#8E6FD6',null,'right','800');
     ry+=rh+gap;
   }
   const v=PARENT_VOL(), vlabel=['Sound: Off','Sound: Quiet','Sound: Normal'][SAVE.volume]||'Sound';
   ctx.save(); ctx.fillStyle='#EDE2FF'; rr(v.x,v.y,v.w,v.h,v.h/2); ctx.fill(); ctx.lineWidth=4; ctx.strokeStyle='#B79BEA'; rr(v.x,v.y,v.w,v.h,v.h/2); ctx.stroke(); ctx.restore();
-  drawText(vlabel+'   (tap to change)',v.x+v.w/2,v.y+v.h/2,32,'#6a4a2a',null,'center','800');
-  drawText('All data stays on this device. No information is collected or shared.',W/2,P.y+P.h-56,26,'#8a7a5a',null,'center','700');
+  drawText(vlabel+'   (tap to change)',v.x+v.w/2,v.y+v.h/2,30,'#6a4a2a',null,'center','800');
+  // (b) TRUST reassurance — honest economy + on-device privacy (earns the 5-star review)
+  const ty=P.y+P.h-118;
+  drawText('Stars are only earned by playing — never bought.',W/2,ty,24,'#8a7a5a',null,'center','700');
+  drawText('The one optional purchase sits behind a grown-ups gate.',W/2,ty+34,24,'#8a7a5a',null,'center','700');
+  drawText('All data stays on this device — nothing is collected or shared.',W/2,ty+68,24,'#8a7a5a',null,'center','700');
   const c=PARENT_CLOSE;
   ctx.save(); shadow(10,'rgba(0,0,0,0.2)',0,4); ctx.fillStyle='#FF9DB6'; ctx.beginPath(); ctx.arc(c.x,c.y,c.r,0,7); ctx.fill(); noShadow();
   ctx.strokeStyle='#fff'; ctx.lineWidth=8; ctx.lineCap='round';
@@ -4423,6 +4442,36 @@ function drawStart(){
     ctx.lineWidth=6; ctx.strokeStyle='#98D7B4'; ctx.stroke(); ctx.restore();
     if(!uiIcon('envelope',b.x,b.y-2,b.r*1.05)) glyphIcon('seal',b.x,b.y-2,b.r*1.0,'#F4CE7A','#E3A93E');
     ctx.save(); ctx.globalAlpha=0.95; glyphIcon('replay',b.x+b.r*0.52,b.y+b.r*0.52,b.r*0.66,'#fff','#2A9455'); ctx.restore(); }
+  drawGrownupCorner();
+  drawStartMuteButton();
+}
+/* the "For Grown-ups" settings gear — a small, muted, adult-convention disc (bottom corner). Deliberately
+   low-key so a toddler ignores it; a parent reads it instantly as "settings / for me". Opens the dashboard. */
+function drawGrownupCorner(){
+  const b=GROWNUP_BTN; pressPush('grown',b.x,b.y);
+  ctx.save(); ctx.globalAlpha=0.9; shadow(10,'rgba(0,0,0,0.12)',0,4);
+  ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); noShadow();
+  ctx.lineWidth=5; ctx.strokeStyle='#C9B79A'; ctx.stroke();
+  if(!uiIcon('settings',b.x,b.y,b.r*1.12)) drawIcon('gear',b.x,b.y,b.r*1.0,'#B79BEA','#7a5a34');
+  ctx.restore(); ctx.restore();
+}
+/* quick MUTE speaker beside the grown-ups corner on START — sound is always one tap away (no menu needed) */
+function drawStartMuteButton(){
+  const b=START_MUTE_BTN, lvl=SAVE.volume; pressPush('startmute',b.x,b.y);
+  ctx.save(); ctx.globalAlpha=0.9; shadow(10,'rgba(0,0,0,0.12)',0,4);
+  ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); noShadow();
+  ctx.lineWidth=5; ctx.strokeStyle=lvl>0?'#8ECFEC':'#E0A6A6'; ctx.stroke();
+  if(!uiIcon(lvl>0?'volume_on':'volume_off',b.x,b.y,b.r*1.12)){
+    ctx.translate(b.x,b.y); ctx.lineJoin='round'; const col=lvl>0?'#4FA9D6':'#C98A8A';
+    ctx.fillStyle=col; ctx.beginPath();
+    ctx.moveTo(-20,-9); ctx.lineTo(-8,-9); ctx.lineTo(4,-19); ctx.lineTo(4,19); ctx.lineTo(-8,9); ctx.lineTo(-20,9); ctx.closePath(); ctx.fill();
+    if(lvl===0){ ctx.strokeStyle='#E06A6A'; ctx.lineWidth=5; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(14,-12); ctx.lineTo(30,12); ctx.moveTo(30,-12); ctx.lineTo(14,12); ctx.stroke(); }
+    else { ctx.strokeStyle=col; ctx.lineWidth=4; ctx.lineCap='round';
+      ctx.beginPath(); ctx.arc(7,0,12,-0.7,0.7); ctx.stroke();
+      if(lvl>=2){ ctx.beginPath(); ctx.arc(7,0,22,-0.7,0.7); ctx.stroke(); } }
+  }
+  ctx.restore(); ctx.restore();
 }
 function drawDailyBar(){
   // R4 #6: premium "Today's Mailbag" meter — a cozy cream pill, a raster heart badge in a soft pink
@@ -5599,6 +5648,7 @@ function drawTown(){
   drawHappyTownOverlay();   // P1 #4: end-of-day group celebration (over the scene, under the nav chrome)
   drawTownNav();
   backButton();
+  drawGrownupCorner();   // PARENT-TRUST: same "For Grown-ups" corner button on TOWN
   stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
 }
 /* TOWN hub top-left toolbar: the secondary destinations relocated off the (now calm) START screen.
