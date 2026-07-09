@@ -568,7 +568,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-38';
+const BUILD='20260709-39';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1411,6 +1411,8 @@ let activeTask=null;        // {kind, type, golden, ...}
 let taskNo=0;
 let spawnedThisLevel=0;
 let deliveredThisLevel=0;
+let meterPop=0;             // HUD mailbag "stamp landed" bounce (decays each frame; kicked on every delivery)
+let cuePkg=null;           // the current draggable "grab-me" package the hand/glow sits on (recomputed each frame)
 let mistakesThisLevel=0;
 let levelStartT=0;
 let levelDone=false;
@@ -1523,8 +1525,8 @@ function resolveShake(){
 /* ------------------------------------------------------------ PARTICLES */
 function burst(x,y,color,n,spd){ for(let i=0;i<n;i++){ const a=Math.random()*7, s=spd*(0.4+Math.random());
   particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-3,life:1,color,size:6+Math.random()*10,rot:Math.random()*7,vr:(Math.random()-0.5)*0.4,shape:Math.random()<0.5?'star':'circ'}); } }
-function confetti(x,y){ const cols=['#FF9DB6','#8ECFEC','#FFD15C','#B79BEA','#98D7B4','#FF6B6B'];
-  for(let i=0;i<70;i++){ particles.push({x:x+(Math.random()-0.5)*380,y:y-Math.random()*80,vx:(Math.random()-0.5)*8,vy:-6-Math.random()*8,
+function confetti(x,y,n){ const cols=['#FF9DB6','#8ECFEC','#FFD15C','#B79BEA','#98D7B4','#FF6B6B']; n=n||70;
+  for(let i=0;i<n;i++){ particles.push({x:x+(Math.random()-0.5)*380,y:y-Math.random()*80,vx:(Math.random()-0.5)*8,vy:-6-Math.random()*8,
     life:1.8,color:cols[i%cols.length],size:8+Math.random()*8,rot:Math.random()*7,vr:(Math.random()-0.5)*0.5,shape:'rect',grav:0.28}); } }
 
 const CATCH={ star:'Yay!', gear:'Thanks!', moon:'Wow!', heart:'Love it!', drop:'Splash!', cloud:'Yippee!' };
@@ -1537,8 +1539,11 @@ function deliver(pkg, box){
   const bp={x:box.x,y:box.y}, ti=box.typeIdx;
   pkg.state='delivering'; pkg.tState=0; pkg.dtx=bp.x; pkg.dty=bp.y;
   Audio_.plop(); Audio_.greet(ti);
-  burst(bp.x,bp.y-40,pkg.type.deep,24,9);
-  boxBounce[ti]=1; poppuCelebrateT=0.9;
+  // dopamine heartbeat — EVERY correct drop gets an unmissable payoff: a coloured sparkle burst + a
+  // gentle confetti pop (pooled particles) on top of the character springing up out of the mailbox.
+  burst(bp.x,bp.y-40,pkg.type.deep,28,10);
+  confetti(bp.x,bp.y-56,pkg.golden?70:32);
+  boxBounce[ti]=1; poppuCelebrateT=0.9; meterPop=1;   // kick the HUD mailbag "stamp landed" bounce
   SAVE.charDeliveries[pkg.type.id]=(SAVE.charDeliveries[pkg.type.id]||0)+1;
   checkTownUnlocks();
   popups.push({ type:pkg.type, x:bp.x, boxCy:bp.y, boxH:box.h, t:0 });
@@ -1564,7 +1569,7 @@ function deliver(pkg, box){
     floatTexts.push({x:bp.x,y:bp.y-box.h*1.35,text:'★ sticker!',t:0,color:'#E3A93E'}); }
   // ---- Golden package: 3x stickers (independent bonus, on top of the every-5 sticker above) + confetti ----
   if(pkg.golden){
-    Audio_.golden(); confetti(bp.x,bp.y-40);
+    Audio_.golden();   // confetti already fired (full 70) in the payoff burst above
     const GOLD_STICKERS=3;
     for(let k=0;k<GOLD_STICKERS;k++) SAVE.stickers.push(pkg.type.id);
     floatTexts.push({x:bp.x,y:bp.y-box.h*1.75,text:'★×'+GOLD_STICKERS+' stickers!',t:0,color:'#E3A93E',big:true});
@@ -3284,6 +3289,7 @@ function update(dt){
   }
   for(const pt of particles){ pt.x+=pt.vx; pt.y+=pt.vy; pt.vy+=(pt.grav||0.4); pt.vx*=0.99; pt.rot+=pt.vr; pt.life-=dt*(pt.shape==='rect'?0.6:1.4); }
   particles=particles.filter(p=>p.life>0);
+  if(meterPop>0) meterPop=Math.max(0,meterPop-dt*2.6);   // HUD mailbag bounce decay
   for(const pu of popups) pu.t+=dt; popups=popups.filter(p=>p.t<1.7);
   for(const ft of floatTexts) ft.t+=dt; floatTexts=floatTexts.filter(f=>f.t<1.4);
 }
@@ -3524,8 +3530,32 @@ function drawBoxTag(b,hint,shapeOnly){
   else drawFaceCircle(type,tx,ty,r*0.9);
   ctx.restore();
 }
+/* GRAB-CUE: pick the ONE package the toddler should grab next — the front-most (nearest the mailboxes)
+   real, undelivered parcel on the belt. Suppressed while the child is dragging or the level-1 tutorial
+   overlay is on (it draws its own guiding hand), so there's never a double-hand or a cue with nothing
+   to grab. Persistent on EVERY level until the parcel is touched. */
+function updateCuePkg(){
+  if(dragging || tutorial){ cuePkg=null; return; }
+  let best=null;
+  for(const p of packages){ if(p.state==='belt' && !p.decoy){ if(!best || p.x>best.x) best=p; } }
+  cuePkg=best;
+}
+function drawGrabCue(){
+  const p=cuePkg; if(!p || p.state!=='belt') return;
+  // a pointing paw hovering at the lower-right of the parcel, doing a gentle "come-tap-me" bob
+  const bob=Math.sin(time*3)*10, s=PKG_S*p.scale;
+  drawHand(p.x+s*0.30, p.y+s*0.34+bob);
+}
 function drawPackage(p){
-  ctx.save(); ctx.translate(p.x,p.y); const s=PKG_S*p.scale;
+  // GRAB-CUE: the current draggable package always invites the toddler to pick it up — a soft warm glow,
+  // a gentle idle "breathe" scale, and (below) a pointing paw. Never a plain static package, every level.
+  const isCue=(p===cuePkg && p.state==='belt' && !p.decoy);
+  ctx.save(); ctx.translate(p.x,p.y);
+  const cueP=isCue?(0.5+0.5*Math.sin(time*4)):0;
+  let s=PKG_S*p.scale*(isCue?(1+cueP*0.055):1);
+  if(isCue){ ctx.save(); const gr=s*(0.62+cueP*0.10), gg=ctx.createRadialGradient(0,0,s*0.2,0,0,gr);
+    gg.addColorStop(0,'rgba(255,244,196,'+(0.55+cueP*0.30)+')'); gg.addColorStop(0.6,'rgba(255,224,140,'+(0.20+cueP*0.14)+')'); gg.addColorStop(1,'rgba(255,220,120,0)');
+    ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(0,-4,gr,0,7); ctx.fill(); ctx.restore(); }
   if(p.state==='dragging'){ ctx.save(); ctx.globalAlpha=0.2; ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(0,PKG_S*0.55,PKG_S*0.5,PKG_S*0.16,0,0,7); ctx.fill(); ctx.restore(); }
   if(p.golden){
     // BOSS JUICE: a soft pulsing golden halo behind the parcel + a slowly-turning sparkle ring, so the
@@ -3595,14 +3625,20 @@ function drawSpeech(x,y,txt,col){
 function drawPopups(){
   for(const pu of popups){
     const key=fullBodyKey(pu.type);
-    const inT=Math.min(1,pu.t/0.35), bounce=inT<1?easeOutBack(inT):1;   // 0→~1.1→1.0
+    // SPRINGIER payoff: the friend launches UP out of the mailbox on an easeOutBack overshoot (0→~1.13→1)
+    // with a quick happy settle-wiggle, so every correct drop reads as a big "pop!" (the tap-again beat).
+    const inT=Math.min(1,pu.t/0.42), bounce=inT<1?easeOutBack(inT):1;   // 0→~1.13→1.0 scale spring
+    const settle=(pu.t>0.42&&pu.t<0.82)?Math.sin((pu.t-0.42)/0.40*Math.PI)*0.035:0;   // tiny bob after landing
+    const wiggle=(pu.t>0.30&&pu.t<0.85)?Math.sin((pu.t-0.30)*34)*0.05*(1-(pu.t-0.30)/0.55):0; // happy shimmy
     const exit=pu.t>1.3?Math.min(1,(pu.t-1.3)/0.4):0, alpha=1-exit;
     if(has(key)){
-      const H_G=340, im=IMG[key].img, w=H_G*(im.naturalWidth/im.naturalHeight||0.75);
+      const H_G=356, im=IMG[key].img, w=H_G*(im.naturalWidth/im.naturalHeight||0.75);
       let feetY=pu.boxCy-pu.boxH*0.1;
       if(feetY-H_G<28) feetY=28+H_G;               // keep head on-screen for top-row boxes
+      const launch=inT<1?(1-easeOutBack(inT))*pu.boxH*0.9:0;   // starts low (inside the box), springs up
+      feetY+=launch;
       feetY+=exit*(pu.boxH*1.3);                    // slide back down on exit
-      ctx.save(); ctx.globalAlpha=alpha; ctx.translate(pu.x,feetY); ctx.scale(bounce,bounce);
+      ctx.save(); ctx.globalAlpha=alpha; ctx.translate(pu.x,feetY); ctx.rotate(wiggle); ctx.scale(bounce+settle,bounce+settle);
       ctx.save(); ctx.globalAlpha=alpha*0.16; ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(0,0,w*0.3,H_G*0.04,0,0,7); ctx.fill(); ctx.restore();
       ctx.drawImage(im,-w/2,-H_G,w,H_G); ctx.restore();
       if(pu.t>0.15 && pu.t<1.45){ const sa=pu.t<0.35?(pu.t-0.15)/0.2:alpha;
@@ -3680,10 +3716,32 @@ function drawPlayHUD(){
   const L=curLevel();
   const gx=W/2-260, gy=40, gw=520, gh=64;
   ctx.save(); shadow(18,'rgba(0,0,0,0.15)',0,6); ctx.fillStyle='rgba(255,252,244,0.94)'; rr(gx,gy,gw,gh,gh/2); ctx.fill(); noShadow();
-  const prog=Math.min(1,deliveredThisLevel/L.pkgs), px=gx+120, pw=gw-260;
-  ctx.fillStyle='#ece0c8'; rr(px,gy+18,pw,gh-36,14); ctx.fill();
-  const g=ctx.createLinearGradient(px,0,px+pw,0); g.addColorStop(0,'#98D7B4'); g.addColorStop(1,'#5FB985');
-  ctx.fillStyle=g; rr(px,gy+18,Math.max(14,pw*prog),gh-36,14); ctx.fill();
+  const prog=Math.min(1,deliveredThisLevel/L.pkgs), done=prog>=0.999, px=gx+120, pw=gw-250;
+  const th=gh-36, ty=gy+18;
+  ctx.fillStyle='#ece0c8'; rr(px,ty,pw,th,14); ctx.fill();
+  const fw=Math.max(14,pw*prog);
+  ctx.save(); rr(px,ty,fw,th,14); ctx.clip();
+  const g=ctx.createLinearGradient(px,0,px+pw,0);
+  if(done){ g.addColorStop(0,'#FFDE86'); g.addColorStop(1,'#F4B14A'); } else { g.addColorStop(0,'#98D7B4'); g.addColorStop(1,'#5FB985'); }
+  ctx.fillStyle=g; ctx.fillRect(px,ty,fw,th);
+  ctx.globalAlpha=0.42; ctx.fillStyle='#fff'; rr(px+4,ty+3,fw-8,th*0.34,th*0.2); ctx.fill();   // gloss
+  ctx.restore();
+  // leading "progress bead" knob at the fill tip — a satisfying, wordless "you're here" marker
+  if(prog>0.02 && prog<0.999){ const kx=px+fw, ky=ty+th/2; ctx.save(); shadow(5,'rgba(0,0,0,0.15)',0,2);
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(kx,ky,th*0.5,0,7); ctx.fill(); noShadow();
+    ctx.fillStyle='#5FB985'; ctx.beginPath(); ctx.arc(kx,ky,th*0.28,0,7); ctx.fill(); ctx.restore(); }
+  // WORDLESS goal readout (replaces the "X / Y" numeral a non-reader can't parse): a MAIL BAG that
+  // visibly FILLS from empty (muted cream) to full (gold) as the level's packages get delivered, and
+  // bounces on every drop (meterPop). Reuses the premium ic_shop_bag raster — no flat vector.
+  { const bagS=gh*1.06, bagX=gx+gw-56, bagY=gy+gh/2, pop=1+Math.sin(Math.min(1,meterPop)*Math.PI)*0.20;
+    ctx.save(); ctx.translate(bagX,bagY); ctx.scale(pop,pop); ctx.translate(-bagX,-bagY);
+    tintIcon('shop_bag',bagX,bagY,bagS,'#E3D6BB');   // empty ghost (keeps the bag's own shading)
+    if(prog>0.001){ ctx.save(); ctx.beginPath();     // clip to the filled bottom fraction → "fills up"
+      ctx.rect(bagX-bagS/2, bagY+bagS/2 - bagS*prog, bagS, bagS*prog); ctx.clip();
+      if(done) tintIcon('shop_bag',bagX,bagY,bagS,'#F4B14A');
+      else if(!uiIcon('shop_bag',bagX,bagY,bagS)) glyphIcon('shop_bag',bagX,bagY,bagS,'#FFD15C','#7a4a20');
+      ctx.restore(); }
+    ctx.restore(); }
   // WORDLESS level indicator (no "Lv N" text/numerals): a radial ring (fill = progress through all
   // 10 levels) wrapped around an icon representing this level's current match hint (color/shape/friend)
   const li_cx=gx+64, li_cy=gy+gh/2, li_r=26, li_prog=Math.min(1,L.n/LEVELS.length), repType=levelTypes()[0]||TYPES[0];
@@ -3696,7 +3754,6 @@ function drawPlayHUD(){
   else if(L.hint==='shape'){ glyphIcon(repType.icon,li_cx,li_cy,li_r*1.1,repType.mid,repType.deep); }
   else { drawFaceCircle(repType,li_cx,li_cy,li_r*0.72); }
   ctx.restore();
-  drawText(deliveredThisLevel+' / '+L.pkgs,gx+gw-70,gy+gh/2,32,'#6a4a2a',null);
   ctx.restore();
   stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
   homeButton();
@@ -3712,9 +3769,11 @@ function drawPlaying(){
   const pj=poppuCelebrateT>0?-Math.abs(Math.sin(time*12))*18:0;
   const ppx=250, ppy=812+pj;
   if(!drawPoppuPosed(poppuKey,ppx,ppy,380,poppuCelebrateT<=0)) ph_poppu(poppuCelebrateT>0?'celebrate':'wave',ppx,ppy-10,250);
+  updateCuePkg();
   packages.filter(p=>p.state!=='dragging'&&p.state!=='delivering').forEach(drawPackage);
   packages.filter(p=>p.state==='delivering').forEach(drawPackage);
   if(dragging) drawPackage(dragging);
+  drawGrabCue();
   drawStationTask();
   drawParticles(); drawPopups();
   drawPlayHUD(); drawFloatTexts();
