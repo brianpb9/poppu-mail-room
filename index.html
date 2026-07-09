@@ -603,7 +603,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-53';
+const BUILD='20260709-54';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1645,6 +1645,10 @@ function deliver(pkg, box){
   confetti(bp.x,bp.y-56,pkg.golden?70:32);
   boxBounce[ti]=1; poppuCelebrateT=0.9; meterPop=1;   // kick the HUD mailbag "stamp landed" bounce
   SAVE.charDeliveries[pkg.type.id]=(SAVE.charDeliveries[pkg.type.id]||0)+1;
+  // STORY (P1 #3/#4): this friend has now received mail TODAY — drops their town "waiting" flag and
+  // adds them to today's Happy-Town roster. Reset daily (see loadSave / defaultSave).
+  if(SAVE.mailDay!==todayStr()){ SAVE.mailDay=todayStr(); SAVE.deliveredTypesToday={}; }
+  SAVE.deliveredTypesToday[pkg.type.id]=true;
   checkTownUnlocks();
   popups.push({ type:pkg.type, x:bp.x, boxCy:bp.y, boxH:box.h, t:0 });
   floatTexts.push({ x:bp.x-box.w*0.34, y:bp.y-box.h*0.72, text:CATCH[pkg.type.id]||'thank you!', t:0, color:pkg.type.deep });
@@ -4785,6 +4789,60 @@ function drawSleepingZzz(b,groundY){
     ctx.restore();
   }
 }
+/* STORY (P1 #3) — "the town is waiting for you". Each unlocked friend house flies a little mail flag:
+   RAISED with a soft envelope thought-bubble = "this friend is still waiting for mail today"; once you've
+   delivered their parcels the flag DROOPS and a happy heart rises = "they got their mail". The town visibly
+   gets happier across the day as flags drop. Friend identity itself is carried by the same face-<type> art
+   the mailboxes use (window peek in drawLivingHouse), so house = friend = mailbox. */
+function friendWaitingToday(id){
+  const info=FRIEND_UNLOCK[id]; if(!info) return false;
+  if(!buildingUnlocked(id)) return false;
+  return !(SAVE.deliveredTypesToday && SAVE.deliveredTypesToday[info.type]);
+}
+function drawHouseMailFlag(b, groundY){
+  const info=FRIEND_UNLOCK[b.id]; if(!info) return;
+  const waiting=friendWaitingToday(b.id);
+  // flag pole planted just past the door (right side of the house)
+  const px=b.cx + b.w*0.42, baseY=groundY - b.h*0.05, poleH=Math.max(60,b.h*0.40), topY=baseY-poleH;
+  ctx.save();
+  ctx.strokeStyle='#8a6a44'; ctx.lineWidth=Math.max(4,b.w*0.018); ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(px,baseY); ctx.lineTo(px,topY); ctx.stroke();
+  // little knob on top
+  ctx.fillStyle='#8a6a44'; ctx.beginPath(); ctx.arc(px,topY,ctx.lineWidth*0.9,0,7); ctx.fill();
+  ctx.restore();
+  const fw=b.w*0.30, fh=b.w*0.20;
+  if(waiting){
+    // RAISED warm pennant, gently waving
+    const wave=Math.sin(time*3+b.bobPhase)*fh*0.14;
+    ctx.save(); shadow(6,'rgba(0,0,0,0.13)',0,3);
+    ctx.fillStyle='#FF9DB6'; ctx.strokeStyle='#F06A8E'; ctx.lineWidth=Math.max(2,b.w*0.008); ctx.lineJoin='round';
+    ctx.beginPath(); ctx.moveTo(px,topY+2); ctx.lineTo(px+fw,topY+fh*0.42+wave); ctx.lineTo(px,topY+fh*0.82); ctx.closePath();
+    ctx.fill(); noShadow(); ctx.stroke(); ctx.restore();
+    // soft "waiting for a letter" thought-bubble above the roof — an envelope glyph, gently bobbing
+    const bx=b.cx, r=b.w*0.17, by=groundY-b.h*1.02-r*0.4+Math.sin(time*1.8+b.bobPhase)*5;
+    ctx.save(); shadow(9,'rgba(0,0,0,0.12)',0,4); ctx.fillStyle='#fffdf6';
+    ctx.beginPath(); ctx.arc(bx,by,r,0,7); ctx.fill(); noShadow();
+    ctx.lineWidth=r*0.14; ctx.strokeStyle='#e3d3b4'; ctx.beginPath(); ctx.arc(bx,by,r,0,7); ctx.stroke();
+    ctx.beginPath(); ctx.arc(bx-r*0.7,by+r*0.9,r*0.26,0,7); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(bx-r*1.02,by+r*1.32,r*0.14,0,7); ctx.fill(); ctx.stroke();
+    if(!uiIcon('envelope',bx,by,r*1.15)) glyphIcon('seal',bx,by,r*1.05,'#F4CE7A','#E3A93E');
+    // a tiny pink heart tucked on the envelope = "waiting for a letter from a friend"
+    if(has('ic_heart')) ctx.drawImage(IMG.ic_heart.img,bx+r*0.35,by-r*0.55,r*0.55,r*0.55);
+    else glyphIcon('heart',bx+r*0.55,by-r*0.3,r*0.5,'#FF9DB6','#F06A8E');
+    ctx.restore();
+  } else {
+    // DELIVERED: flag drooped down the pole + a couple of happy hearts rising off the roof
+    ctx.save(); ctx.globalAlpha=0.92; ctx.fillStyle='#98D7B4'; ctx.strokeStyle='#5FB985';
+    ctx.lineWidth=Math.max(2,b.w*0.008); ctx.lineJoin='round';
+    ctx.beginPath(); ctx.moveTo(px,topY+fh*0.18); ctx.lineTo(px+fw*0.5,topY+fh*0.5); ctx.lineTo(px+fw*0.16,topY+fh*0.95); ctx.closePath();
+    ctx.fill(); ctx.stroke(); ctx.restore();
+    const rTop=groundY-b.h*0.98;
+    for(let i=0;i<2;i++){ const sp=((time*0.42+i*0.5+b.bobPhase)%1), a=Math.sin(sp*Math.PI)*0.55; if(a<=0.02) continue;
+      ctx.save(); ctx.globalAlpha=a; const hx=b.cx+b.w*0.14+Math.sin(sp*5+i)*10, hy=rTop-sp*70, hs=14+sp*8;
+      if(has('ic_heart')) ctx.drawImage(IMG.ic_heart.img,hx-hs/2,hy-hs/2,hs,hs); else glyphIcon('heart',hx,hy,hs,'#FF9DB6','#F06A8E');
+      ctx.restore(); }
+  }
+}
 function drawTownBuilding(b){
   // BUILD 37: every house now does a gentle continuous idle bob (~3px, slow) so it reads ALIVE and
   // TAPPABLE (founder ask). The contact shadow stays on the FIXED ground line below, so the tiny bob
@@ -4858,6 +4916,9 @@ function drawTownBuilding(b){
   ctx.restore();
   // once a house is unlocked/"alive" it reads INHABITED — lit window, cozy motes, friend peeking & waving
   if(unlocked) drawLivingHouse(b, groundY);
+  // P1 #3: a mail flag per friend house — raised + envelope bubble while waiting for today's mail, drooped
+  // with rising hearts once delivered (the town grows happier through the day)
+  if(unlocked && FRIEND_UNLOCK[b.id]) drawHouseMailFlag(b, groundY);
   if(SAVE.newBadge[b.id]){
     // corner-of-the-roof placement (tucked onto the roofline itself, not floating in the sky above it)
     // so the badge never covers the house's own identity art; genuinely small (~80px) so it reads as a
