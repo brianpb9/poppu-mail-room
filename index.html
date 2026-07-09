@@ -213,6 +213,7 @@ function defaultSave(){
        "waiting for mail" flags (they drop as you deliver) and the Happy-Town end-of-day beat. Reset daily. */
     coldOpenSeen: false,
     friendCoachDone: false,   // BUILD 61: wordless first-visit "pet + gift" guidance strongly shows until the child cares for a friend once
+    wrapCoachDone: false,     // BUILD 63: wordless first-visit "ribbon → matching sticker → drag to ship" order coach; strong only the first time
     mailDay: todayStr(), deliveredTypesToday: {},
   };
 }
@@ -237,6 +238,7 @@ function loadSave(){
     if(typeof s.townBloom!=='number' || !isFinite(s.townBloom) || s.townBloom<0) s.townBloom=0;
     if(!s.houseAlive || typeof s.houseAlive!=='object' || Array.isArray(s.houseAlive)) s.houseAlive={};
     if(typeof s.coldOpenSeen!=='boolean') s.coldOpenSeen=false;
+    if(typeof s.wrapCoachDone!=='boolean') s.wrapCoachDone=false;
     if(!s.deliveredTypesToday || typeof s.deliveredTypesToday!=='object' || Array.isArray(s.deliveredTypesToday)) s.deliveredTypesToday={};
     if(typeof s.stamps!=='number' || !isFinite(s.stamps) || s.stamps<0) s.stamps=0;
     if(typeof s.wrapQueue!=='number' || s.wrapQueue<0) s.wrapQueue=0;
@@ -604,7 +606,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260710-62';
+const BUILD='20260710-63';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1486,6 +1488,13 @@ let wrapStampT=null;       // 1..0 — sticker press slam+settle (decay -dt*2.9,
 let wrapShipAnim=null;     // {t,type,ribbon,sticker,from,to,earn,landed} — 3-beat proud-wiggle/plop-arc/land flight
 let wrapSpawnT=null;       // 0..0.30 (elapsed) — fresh replacement box pop-in after a ship lands (easeOutBack)
 let wrapShipBounceT=null;  // 0..0.3 (elapsed) — "not yet" bounce when the ship button is tapped before wrapBox.acted
+/* BUILD 63 — guided ORDER + drag-to-ship + a real session goal (founder fixes) */
+let wrapDragBox=null;      // {x,y,dx,dy} — the wrapped box being dragged toward the ship target (fix #2)
+let wrapGoalTarget=3;      // gifts to wrap this round (escalates 3→4→5 after each completion)
+let wrapGoalProg=0;        // gifts shipped toward the CURRENT round goal (resets on completion, fix #3)
+let wrapCelebT=null;       // 0..~2.4 goal-complete celebration timer (null=idle) — friend + confetti + bonus star
+let wrapNudgeT=null;       // 0..0.4 gentle "not that one / ribbon first" wobble on the box (no-fail nudge)
+let wrapCoachT=0;          // ever-running clock that drives the pointing-hand coach loop
 
 /* ------------------------------------------------------------ FRIEND HOUSE runtime */
 let friendScene=null;      // {id,type,petT,breathing,feedAnim,hatDropT,hatLandT,hatLanded} — see enterFriend
@@ -2470,33 +2479,52 @@ const WRAP_RIBBON_HITH=200;   // A5 — vertical hit-tolerance (used as full hei
 const WRAP_STICKER_Y=858, WRAP_STICKER_GAP=178, WRAP_STICKER_R=72;
 const WRAP_SHIP_BTN={ x:1290, y:560, r:138 };
 const WRAP_QUEUE_POS={ x:1700, y:585 };
-function newWrapBox(){ return { typeIdx:0, ribbon:false, ribbonProg:0, sticker:null, acted:false }; }
+/* BUILD 63 — each fresh gift now carries a random pastel COLOR + a fixed TARGET sticker (star/heart/moon)
+   that the child must MATCH in step 2. Order is fixed and taught: ribbon → matching sticker → ship. */
+function newWrapBox(){
+  return { typeIdx:Math.floor(Math.random()*TYPES.length),
+           target:['star','heart','moon'][Math.floor(Math.random()*3)],
+           ribbon:false, ribbonProg:0, sticker:null, acted:false };
+}
+/* the current guided step: 0 = add ribbon, 1 = add the matching sticker, 2 = ship it. 3 = nothing to do. */
+function wrapStep(){ if(!wrapBox) return 3; if(!wrapBox.ribbon) return 0; if(!wrapBox.sticker) return 1; return 2; }
+function wrapReady(){ return !!(wrapBox && wrapBox.ribbon && wrapBox.sticker); }
+/* gentle no-fail nudge — a soft wobble + friendly "aww", never a penalty. Used when a toddler taps out
+   of order (sticker before ribbon) or taps a sticker that doesn't match the box's target. */
+function wrapNudge(x,y){ wrapNudgeT=0.4; Audio_.aww(); if(x!=null) burst(x,y,'#EAD9B5',5,3); }
 function enterWrap(){
-  state='WRAP'; wrapBox=newWrapBox(); wrapRibbonSwipe=null;
+  state='WRAP'; wrapBox=newWrapBox(); wrapRibbonSwipe=null; wrapDragBox=null;
   wrapBoxPopT=null; wrapCinchT=null; wrapBowT=null; wrapStampT=null; wrapShipAnim=null; wrapSpawnT=null; wrapShipBounceT=null;
+  wrapGoalTarget=3; wrapGoalProg=0; wrapCelebT=null; wrapNudgeT=null;   // fresh session goal every visit (fix #3)
   floatTexts=[]; popups=[]; particles=[];
   Audio_.setTownAmbience(true); Audio_.pop();
 }
 function leaveWrap(){
   if(wrapShipAnim) finalizeWrapShip();   // never lose an in-flight ship if the child backs out mid-animation
-  wrapShipAnim=null; wrapRibbonSwipe=null; Audio_.pop(); enterTown();
+  wrapShipAnim=null; wrapRibbonSwipe=null; wrapDragBox=null; Audio_.pop(); enterTown();
 }
+/* retained for the __t.wrapCycleColor test hook only — box colour is now random per gift, not tap-cycled,
+   so the guided order (ribbon → sticker → ship) stays unambiguous for a 3-yo. */
 function cycleWrapColor(){
   if(!wrapBox) return;
-  wrapBox.typeIdx=(wrapBox.typeIdx+1)%TYPES.length; wrapBox.acted=true; Audio_.wrapBox();
-  wrapBoxPopT=1;   // 1a: squash+pop + color cross-flash (see drawWrapBoxScene)
+  wrapBox.typeIdx=(wrapBox.typeIdx+1)%TYPES.length; Audio_.wrapBox();
+  wrapBoxPopT=1;
   burst(WRAP_BOX_POS.x,WRAP_BOX_POS.y-20,TYPES[wrapBox.typeIdx].light,12,4.5);
 }
 function applyWrapRibbon(){
   if(!wrapBox||wrapBox.ribbon){ Audio_.wrapBox(); return; }
-  wrapBox.ribbon=true; wrapBox.ribbonProg=1; wrapBox.acted=true; Audio_.wrapRibbon();
+  wrapBox.ribbon=true; wrapBox.ribbonProg=1; Audio_.wrapRibbon();
+  wrapBox.acted=wrapReady();
   wrapBowT=1; wrapCinchT=1;   // 1b: waist-pinch + bow snap-on
   burst(WRAP_BOX_POS.x,WRAP_BOX_POS.y,'#fff3c4',10,5); burst(WRAP_BOX_POS.x,WRAP_BOX_POS.y,'#FFE8A8',6,3.5);
 }
 function applyWrapSticker(icon){
-  if(!wrapBox) return;
+  if(!wrapBox||wrapBox.sticker) return;
+  // GUIDED ORDER (no-fail): ribbon must come first, and the sticker must MATCH the box's target.
+  if(!wrapBox.ribbon){ wrapNudge(WRAP_BOX_POS.x,WRAP_BOX_POS.y); return; }
+  if(icon!==wrapBox.target){ wrapNudge(WRAP_BOX_POS.x,WRAP_BOX_POS.y-40); return; }
   const type=TYPES[wrapBox.typeIdx];
-  wrapBox.sticker=icon; wrapBox.acted=true; Audio_.wrapSticker();
+  wrapBox.sticker=icon; wrapBox.acted=wrapReady(); Audio_.wrapSticker();
   wrapStampT=1;   // 1c: press slam+settle + ink shock-ring
   burst(WRAP_BOX_POS.x,WRAP_BOX_POS.y-40,type.deep,12,5); burst(WRAP_BOX_POS.x,WRAP_BOX_POS.y-40,'#fff',6,3);
 }
@@ -2505,20 +2533,39 @@ function applyWrapSticker(icon){
    count) is only committed at the LAND beat via finalizeWrapShip(), so the visible queue count never
    jumps ahead of what's actually landed there. */
 function startWrapShip(){
-  if(!wrapBox||!wrapBox.acted||wrapShipAnim) return;
+  if(!wrapBox||!wrapReady()||wrapShipAnim) return;
+  const from=wrapDragBox?{x:wrapDragBox.x,y:wrapDragBox.y}:{x:WRAP_BOX_POS.x,y:WRAP_BOX_POS.y};
   const type=TYPES[wrapBox.typeIdx];
   wrapShipAnim={ t:0, type, ribbon:wrapBox.ribbon, sticker:wrapBox.sticker,
-    from:{x:WRAP_BOX_POS.x,y:WRAP_BOX_POS.y}, to:{x:WRAP_QUEUE_POS.x,y:WRAP_QUEUE_POS.y},
+    from, to:{x:WRAP_QUEUE_POS.x,y:WRAP_QUEUE_POS.y},
     earn:3+(wrapBox.ribbon?1:0)+(wrapBox.sticker?1:0), landed:false };
-  wrapBox=null;
+  wrapBox=null; wrapDragBox=null;
 }
 function finalizeWrapShip(){
   const A=wrapShipAnim; if(!A||A.landed) return; A.landed=true;
-  addStamps(A.earn); SAVE.wrapQueue=(SAVE.wrapQueue||0)+1; SAVE.wrappedCount=(SAVE.wrappedCount||0)+1; persist();
+  addStamps(A.earn); SAVE.wrapQueue=(SAVE.wrapQueue||0)+1; SAVE.wrappedCount=(SAVE.wrappedCount||0)+1;
+  if(!SAVE.wrapCoachDone) SAVE.wrapCoachDone=true;   // strong first-visit order-coach only needs to teach once
+  persist();
   Audio_.wrapDone(); wrapQueueBounce=1;
   burst(WRAP_QUEUE_POS.x,WRAP_QUEUE_POS.y,'#FFD54A',18,6); burst(WRAP_QUEUE_POS.x,WRAP_QUEUE_POS.y+20,'#EAD9B5',8,4);
   floatTexts.push({ x:WRAP_QUEUE_POS.x, y:WRAP_QUEUE_POS.y-170, text:'+'+A.earn+'⭐', t:0, color:'#E3A93E' });
+  // ---- session goal (fix #3): each ship fills one gift-slot; a full row triggers a real celebration ----
+  wrapGoalProg++;
+  if(wrapGoalProg>=wrapGoalTarget) triggerWrapGoalComplete();
   wrapBox=newWrapBox(); wrapSpawnT=0;
+}
+/* GOAL PAYOFF (fix #3) — when the row of gift-slots fills, the wrapped gifts "fly off to friends":
+   a happy friend pops up + confetti + a bonus star, then the goal gently resets a notch higher so it
+   NEVER just loops in place with nothing. */
+function triggerWrapGoalComplete(){
+  wrapCelebT=0; wrapGoalProg=0;
+  addStamps(10); persist();
+  confetti(W/2-170,H*0.36); confetti(W/2+170,H*0.36);
+  burst(W/2,H*0.40,'#FFD54A',30,9); burst(W/2,H*0.40,'#FF9DB6',14,6);
+  Audio_.celebrate();
+  scenePop=1;   // gentle whole-scene "firework landed" pop
+  floatTexts.push({ x:W/2, y:H*0.26, text:'+10⭐', t:0, color:'#E3A93E' });
+  wrapGoalTarget=Math.min(5,wrapGoalTarget+1);   // "more friends need gifts!" — a touch longer next round
 }
 function wrapStickerTray(){
   const y=WRAP_STICKER_Y, r=WRAP_STICKER_R, gap=WRAP_STICKER_GAP, cx=WRAP_BOX_POS.x;
@@ -2581,23 +2628,82 @@ function drawWrapFlowArrow(x0,x1,y,strong){
    the send arrows stay so "now send it" is always clear. */
 function drawWrapGuidePath(){
   if(!wrapBox) return;
-  const acted=wrapBox.acted, active=acted;
-  // step-chain inside the mat
-  if(!acted){
-    const pts=[{x:WRAP_BOX_POS.x,y:WRAP_BOX_POS.y+150},{x:WRAP_RIBBON_STRIP.x,y:WRAP_RIBBON_STRIP.y},{x:WRAP_BOX_POS.x,y:WRAP_STICKER_Y}];
-    ctx.save(); ctx.globalAlpha=0.55; ctx.strokeStyle='rgba(201,122,78,0.9)'; ctx.lineWidth=6; ctx.lineCap='round';
-    ctx.setLineDash([3,20]); ctx.lineDashOffset=-time*40;
-    ctx.beginPath(); pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y)); ctx.stroke();
-    ctx.setLineDash([]); ctx.restore();
-  }
-  // mat -> SHIP -> queue flow arrows
+  const active=wrapReady();   // "now send it" — arrows brighten once the gift is fully wrapped
+  // mat -> SHIP -> queue flow arrows (the per-step guidance is now drawn by drawWrapCoach)
   drawWrapFlowArrow(WRAP_MAT.x+WRAP_MAT.w/2+8, WRAP_SHIP_BTN.x-WRAP_SHIP_BTN.r-8, WRAP_SHIP_BTN.y, active);
   drawWrapFlowArrow(WRAP_SHIP_BTN.x+WRAP_SHIP_BTN.r+8, WRAP_QUEUE_POS.x-150, WRAP_SHIP_BTN.y, active);
 }
+/* WORDLESS ORDER COACH (fix #1) — a pulsing glow marks ONLY the current step, and (on the very first
+   visit, until wrapCoachDone) a pointing paw shows exactly where to act, advancing 1→2→3 as each step is
+   done: STEP 1 ribbon, STEP 2 the matching sticker, STEP 3 drag the gift to the send target. */
+function drawWrapCoach(){
+  if(!wrapBox || wrapShipAnim || wrapDragBox || wrapCelebT!=null) return;
+  const step=wrapStep(); if(step>2) return;
+  const strong=!SAVE.wrapCoachDone, t=wrapCoachT, poke=Math.abs(Math.sin(t*3))*14;
+  let gx,gy,gr;
+  if(step===0){ const r=WRAP_RIBBON_STRIP; gx=r.x; gy=r.y; gr=r.h*0.62; }
+  else if(step===1){ const m=wrapStickerTray().find(s=>s.icon===wrapBox.target)||wrapStickerTray()[0]; gx=m.x; gy=m.y; gr=m.r+14; }
+  else { gx=WRAP_SHIP_BTN.x; gy=WRAP_SHIP_BTN.y; gr=WRAP_SHIP_BTN.r+8; }
+  // pulsing glow on the active step
+  ctx.save(); ctx.globalAlpha=Math.max(0,(strong?0.55:0.30)+0.22*Math.sin(t*3));
+  ctx.strokeStyle=step===2?'#FFE08A':'#FFC24D'; ctx.lineWidth=strong?11:7;
+  ctx.beginPath(); ctx.arc(gx,gy,gr+(strong?6:2)+Math.sin(t*3)*4,0,7); ctx.stroke(); ctx.restore();
+  // pointing paw — strong first-visit teaching only, so it never nags a returning child
+  if(strong){
+    if(step===2){   // travel the paw box→ship to teach the DRAG
+      const bx=WRAP_BOX_POS.x, by=WRAP_BOX_POS.y, tp=(t%1.7)/1.7, e=tp*tp*(3-2*tp);
+      drawHand(bx+(gx-bx)*e+12, by+(gy-by)*e+8);
+    } else drawHand(gx+16, gy+24+poke);
+  }
+}
+/* SESSION GOAL + COMPLETION PAYOFF (fix #3) — a wordless row of gift-slots that fill as gifts ship, with a
+   friend waiting at the end. Fill the row → the friend cheers, confetti pops, +10⭐ — then it resets one
+   gift longer ("more friends need gifts!") so it is a real goal, never an empty loop. */
+function drawWrapGoal(){
+  const target=wrapGoalTarget, prog=wrapGoalProg, celeb=(wrapCelebT!=null);
+  const gap=74, y=118, total=(target-1)*gap, x0=W/2-total/2-70;
+  const friend=TYPES[(SAVE.wrappedCount||0)%TYPES.length];
+  // soft tray panel behind the slots + friend
+  ctx.save(); shadow(14,'rgba(0,0,0,0.12)',0,5); ctx.fillStyle='rgba(255,252,244,0.82)';
+  rr(x0-52,y-46,total+ (target>0?0:0) +170,92,46); ctx.fill(); noShadow();
+  ctx.lineWidth=4; ctx.strokeStyle='#EAD3AE'; rr(x0-52,y-46,total+170,92,46); ctx.stroke(); ctx.restore();
+  for(let i=0;i<target;i++){
+    const x=x0+i*gap, filled=i<prog;
+    ctx.save();
+    ctx.lineWidth=4; ctx.strokeStyle=filled?'#E3A93E':'#E3C6A0';
+    ctx.fillStyle=filled?'rgba(255,213,74,0.22)':'rgba(255,252,244,0.55)';
+    ctx.beginPath(); ctx.arc(x,y,27,0,7); ctx.fill(); ctx.stroke();
+    if(filled){ const type=TYPES[i%TYPES.length], key='pkg_'+type.id;
+      if(has(key)) ctx.drawImage(IMG[key].img,x-26,y-26,52,52); else ph_package(type,x,y,52,false);
+    } else { ctx.globalAlpha=0.5; glyphIcon('heart',x,y,24,'#FFC2D3','#F06A8E'); }
+    ctx.restore();
+  }
+  // the waiting friend who receives the gifts — cheers (hop) during the completion beat
+  const fx=x0+total+gap*0.85, fy=y, hop=celeb?Math.abs(Math.sin(wrapCelebT*7))*14:Math.sin(time*2)*3;
+  ctx.save(); ctx.translate(fx,fy-hop);
+  if(celeb){ ctx.save(); ctx.globalAlpha=0.5+0.3*Math.sin(time*7); ctx.strokeStyle='#FFD54A'; ctx.lineWidth=6;
+    ctx.beginPath(); ctx.arc(0,0,44,0,7); ctx.stroke(); ctx.restore(); }
+  drawFaceCircle(friend,0,0,34);
+  ctx.restore();
+  // completion celebration: a big happy gift bursting up toward the friend + a "hearts fly" beat
+  if(celeb){
+    const cp=Math.min(1,wrapCelebT/0.6);
+    ctx.save(); ctx.globalAlpha=Math.max(0,1-Math.max(0,(wrapCelebT-1.6)/0.8));
+    for(let k=0;k<5;k++){ const a=(-Math.PI/2)+(k-2)*0.5, d=60+cp*120;
+      glyphIcon('heart',fx+Math.cos(a)*d, fy+Math.sin(a)*d-cp*30, 26+8*Math.sin(time*6+k),'#FF9DB6','#F06A8E'); }
+    ctx.restore();
+  }
+}
 function drawWrapBoxScene(){
   if(!wrapBox) return;
-  const type=TYPES[wrapBox.typeIdx], bob=Math.sin(time*1.8)*6, s=260;
-  ctx.save(); ctx.translate(WRAP_BOX_POS.x,WRAP_BOX_POS.y+bob);
+  const type=TYPES[wrapBox.typeIdx], s=260;
+  const dragging=!!wrapDragBox;
+  const bx = dragging? wrapDragBox.x : WRAP_BOX_POS.x;
+  const bob = dragging? 0 : Math.sin(time*1.8)*6;
+  const by = (dragging? wrapDragBox.y : WRAP_BOX_POS.y) + bob;
+  ctx.save(); ctx.translate(bx,by);
+  if(dragging){ groundShadow(0,s*0.7,s*0.5,s*0.14,0.18,0.5); ctx.scale(1.12,1.12); }   // lift + grow on grab (fix #2)
+  if(wrapNudgeT!=null){ ctx.rotate(Math.sin(wrapNudgeT*38)*0.09*(wrapNudgeT/0.4)); }   // gentle no-fail wobble
   if(wrapSpawnT!=null){ const e=easeOutBack(Math.min(1,wrapSpawnT/0.30)); ctx.scale(Math.max(0.02,e),Math.max(0.02,e)); }   // fresh-box pop-in
   if(wrapBoxPopT!=null){   // 1a: volume-preserving squash-in/stretch-rebound + ±3° wag
     const p=1-wrapBoxPopT, wig=Math.sin(p*Math.PI*2)*wrapBoxPopT;
@@ -2648,18 +2754,17 @@ function drawWrapBoxScene(){
     else { const gp=WRAP_STICKER_PAL[wrapBox.sticker]||['#FFD15C','#E3A93E']; glyphIcon(wrapBox.sticker,0,0,isz*0.82,gp[0],gp[1]); }
     ctx.restore();
   } else {
-    // inviting sticker PREVIEW affordance (board polish) — a FILLED soft sticker disc with a clearly
-    // visible slowly-cycling star→heart→moon preview + a gentle bob + a friendly "tap" halo, so a child
-    // reads "put a sticker HERE!" (not an empty/broken dashed hole). Links the tray buttons to the box.
-    const cyc=['star','heart','moon'][Math.floor(time/1.3)%3], gp=WRAP_STICKER_PAL[cyc];
-    const pulse=0.5+0.5*Math.sin(time*3), gb=Math.sin(time*2.4)*3;
+    // TARGET CUE (fix #1): this gift wants ONE specific sticker — its fixed target — shown as a dashed
+    // "place it here" spot with a faint preview of the exact sticker to find, so a non-reader knows which
+    // of the three tray stickers matches. Softer before the ribbon's on (not its turn), brighter after.
+    const tgt=wrapBox.target, gp=WRAP_STICKER_PAL[tgt]||['#FFD15C','#E3A93E'];
+    const its=wrapBox.ribbon, pulse=0.5+0.5*Math.sin(time*3), gb=Math.sin(time*2.4)*3;
     ctx.save(); ctx.translate(s*0.28,-s*0.30+gb);
-    ctx.globalAlpha=0.22*pulse; ctx.fillStyle=gp[0];   // friendly tap-halo (grows/fades), not a cutout
-    ctx.beginPath(); ctx.arc(0,0,58+pulse*7,0,7); ctx.fill();
-    ctx.globalAlpha=0.9; shadow(8,'rgba(0,0,0,0.12)',0,3); ctx.fillStyle='#fffdf6';   // filled sticker disc
+    ctx.globalAlpha=its?0.9:0.5; shadow(8,'rgba(0,0,0,0.12)',0,3); ctx.fillStyle='#fffdf6';
     ctx.beginPath(); ctx.arc(0,0,50,0,7); ctx.fill(); noShadow();
-    ctx.globalAlpha=0.85; ctx.lineWidth=5; ctx.strokeStyle=gp[1]; ctx.beginPath(); ctx.arc(0,0,50,0,7); ctx.stroke();
-    ctx.globalAlpha=0.88; glyphIcon(cyc,0,0,56,gp[0],gp[1]); ctx.restore();
+    ctx.setLineDash([6,10]); ctx.lineDashOffset=-time*30; ctx.lineWidth=5; ctx.strokeStyle=gp[1];
+    ctx.globalAlpha=its?0.9:0.5; ctx.beginPath(); ctx.arc(0,0,50+(its?pulse*4:0),0,7); ctx.stroke(); ctx.setLineDash([]);
+    ctx.globalAlpha=its?0.85:0.42; glyphIcon(tgt,0,0,54,gp[0],gp[1]); ctx.restore();
   }
   ctx.restore();
   if(!wrapBox.acted){
@@ -2699,18 +2804,25 @@ function drawWrapRibbonStrip(){
 const WRAP_STICKER_PAL={ star:['#FFD15C','#E3A93E'], heart:['#FF9DB6','#F06A8E'], moon:['#C4A7F0','#7a5bbf'] };
 function drawWrapStickerTray(){
   if(!wrapBox) return;
-  const none=!wrapBox.sticker, pulse=0.7+0.3*Math.sin(time*3);
+  const step=wrapStep();          // 0=ribbon turn, 1=sticker turn, 2=ship turn
+  const stickerTurn=(step===1);   // only NOW should the child pick a sticker
+  const pulse=0.7+0.3*Math.sin(time*3);
   for(const st of wrapStickerTray()){
-    const pal=WRAP_STICKER_PAL[st.icon]||['#FFD15C','#E3A93E'], on=(wrapBox.sticker===st.icon);
-    ctx.save(); shadow(12,'rgba(0,0,0,0.14)',0,5); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(st.x,st.y,st.r,0,7); ctx.fill(); noShadow();
-    ctx.lineWidth=6; ctx.strokeStyle=on?'#FFD54A':pal[1]; ctx.globalAlpha=on?1:0.75; ctx.stroke(); ctx.globalAlpha=1;
-    if(none){ ctx.globalAlpha=0.55+0.25*Math.sin(time*3); }   // gently breathe untapped choices so they invite a tap
-    glyphIcon(st.icon,st.x,st.y,st.r*1.1,pal[0],pal[1]); ctx.restore();
+    const pal=WRAP_STICKER_PAL[st.icon]||['#FFD15C','#E3A93E'];
+    const on=(wrapBox.sticker===st.icon), isMatch=(st.icon===wrapBox.target);
+    // GUIDED FOCUS (fix #1): during the sticker step, ONLY the matching sticker is lit + bouncing; the
+    // wrong two dim right down so a 3-yo is drawn to the correct one (still no-fail — a wrong tap nudges).
+    let a=1, lift=0, ring=false;
+    if(on){ a=1; }
+    else if(stickerTurn){ if(isMatch){ a=1; lift=Math.sin(time*3)*4; ring=true; } else { a=0.28; } }
+    else { a=0.4; }   // not the sticker step yet — whole tray sits quiet
+    ctx.save(); ctx.globalAlpha=a;
+    if(ring){ ctx.save(); ctx.globalAlpha=0.5+0.3*Math.sin(time*3); ctx.strokeStyle='#FFD54A'; ctx.lineWidth=9;
+      ctx.beginPath(); ctx.arc(st.x,st.y+lift,st.r+12+Math.sin(time*3)*3,0,7); ctx.stroke(); ctx.restore(); }
+    shadow(12,'rgba(0,0,0,0.14)',0,5); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(st.x,st.y+lift,st.r,0,7); ctx.fill(); noShadow();
+    ctx.lineWidth=6; ctx.strokeStyle=(on||ring)?'#FFD54A':pal[1]; ctx.beginPath(); ctx.arc(st.x,st.y+lift,st.r,0,7); ctx.stroke();
+    glyphIcon(st.icon,st.x,st.y+lift,st.r*1.1,pal[0],pal[1]); ctx.restore();
   }
-  if(none){ ctx.save(); ctx.globalAlpha=pulse;
-    const cx=WRAP_BOX_POS.x, cy=WRAP_STICKER_Y-WRAP_STICKER_R-30+Math.sin(time*3)*4;
-    ctx.translate(cx,cy); ctx.rotate(Math.PI/2);   // point the cue DOWN at the sticker choices
-    glyphIcon('arrow',0,0,44,'#F4A93E','#E3A93E'); ctx.restore(); }
 }
 /* the flying package during the 1d ship animation — Beat A (proud wiggle in place) then Beat B (plop
    arc into the queue); Beat C (land) is handled by finalizeWrapShip() + drawWrapQueue's landing squash. */
@@ -2763,12 +2875,14 @@ function drawSendGlyph(active){
   ctx.restore();
 }
 function drawWrapShipButton(){
-  const active=!!(wrapBox&&wrapBox.acted), b=WRAP_SHIP_BTN, pulse=active?1+Math.sin(time*3)*0.06:1;
+  const active=!!(wrapBox&&wrapReady())||!!wrapDragBox, b=WRAP_SHIP_BTN;
+  const inviting=!!wrapDragBox;   // gift in hand → pulse harder to invite the drop (fix #2)
+  const pulse=active?1+Math.sin(time*3)*(inviting?0.11:0.06):1;
   const bounce=wrapShipBounceT!=null?1+Math.max(0,0.30-wrapShipBounceT*1.0):1;   // A6: "not yet" tap feedback
   ctx.save(); ctx.translate(b.x,b.y); ctx.scale(pulse*bounce*pressScale('ship'),pulse*bounce*pressScale('ship'));
-  // ready-glow ring when there's something to send
-  if(active){ ctx.save(); ctx.globalAlpha=0.4+0.2*Math.sin(time*3); ctx.strokeStyle='#FFE08A'; ctx.lineWidth=16;
-    ctx.beginPath(); ctx.arc(0,0,b.r+14,0,7); ctx.stroke(); ctx.restore(); }
+  // ready-glow ring when there's something to send (bigger + brighter while a gift is being dragged in)
+  if(active){ ctx.save(); ctx.globalAlpha=(inviting?0.55:0.4)+0.22*Math.sin(time*(inviting?5:3)); ctx.strokeStyle='#FFE08A'; ctx.lineWidth=inviting?22:16;
+    ctx.beginPath(); ctx.arc(0,0,b.r+(inviting?22:14)+(inviting?Math.sin(time*5)*5:0),0,7); ctx.stroke(); ctx.restore(); }
   shadow(active?28:12, active?'rgba(255,190,90,0.6)':'rgba(0,0,0,0.14)',0,active?12:5);
   const g=ctx.createLinearGradient(0,-b.r,0,b.r);
   g.addColorStop(0,active?'#FFDE7A':'#efe6d2'); g.addColorStop(1,active?'#F2B23E':'#e2d6bd');
@@ -2809,7 +2923,8 @@ function drawWrapQueue(){
 function drawWrap(){
   if(has('wrap_bg')) ctx.drawImage(IMG.wrap_bg.img,0,0,W,H); else ph_wrapBg();
   drawWrapMat(); drawWrapGuidePath(); drawWrapQueue();
-  drawWrapBoxScene(); drawWrapRibbonStrip(); drawWrapStickerTray(); drawWrapShipAnim(); drawWrapShipButton();
+  drawWrapRibbonStrip(); drawWrapStickerTray(); drawWrapBoxScene(); drawWrapShipAnim(); drawWrapShipButton();
+  drawWrapCoach(); drawWrapGoal();
   drawParticles(); drawFloatTexts();
   backButton(); stampChip(STAMP_CHIP.x,STAMP_CHIP.y,'right');
 }
@@ -3264,11 +3379,16 @@ function onDown(cx,cy){
   if(state==='WRAP'){
     if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ firePress('back'); leaveWrap(); return; }
     if(!wrapBox) return;   // ship-flight in progress (wrapBox is null between startWrapShip and finalizeWrapShip) — graceful no-op
-    if(wrapBox.acted && dist(p.x,p.y,WRAP_SHIP_BTN.x,WRAP_SHIP_BTN.y)<WRAP_SHIP_BTN.r){ firePress('ship'); startWrapShip(); return; }
-    { const r=WRAP_RIBBON_STRIP;
+    const ready=wrapReady();
+    // fix #2: once wrapped, grab the whole gift and DRAG it onto the ship target (tap the ship button still works)
+    if(ready && dist(p.x,p.y,WRAP_BOX_POS.x,WRAP_BOX_POS.y)<190){ wrapDragBox={x:p.x,y:p.y,dx:p.x-WRAP_BOX_POS.x,dy:p.y-WRAP_BOX_POS.y}; Audio_.pop(); return; }
+    if(ready && dist(p.x,p.y,WRAP_SHIP_BTN.x,WRAP_SHIP_BTN.y)<WRAP_SHIP_BTN.r){ firePress('ship'); startWrapShip(); return; }
+    if(!ready && dist(p.x,p.y,WRAP_SHIP_BTN.x,WRAP_SHIP_BTN.y)<WRAP_SHIP_BTN.r){ wrapShipBounceT=0; Audio_.aww(); return; }   // "not yet" nudge
+    // STEP 1 — ribbon (tap OR swipe the ribbon lane; a tap alone is enough for little hands)
+    if(!wrapBox.ribbon){ const r=WRAP_RIBBON_STRIP;
       if(Math.abs(p.x-r.x)<r.w/2 && Math.abs(p.y-r.y)<r.h/2){ wrapRibbonSwipe={x0:p.x,dx:0}; return; } }
+    // STEP 2 — the matching sticker (wrong/out-of-order taps are gently nudged inside applyWrapSticker)
     for(const st of wrapStickerTray()){ if(dist(p.x,p.y,st.x,st.y)<st.r){ applyWrapSticker(st.icon); return; } }
-    if(dist(p.x,p.y,WRAP_BOX_POS.x,WRAP_BOX_POS.y)<170){ cycleWrapColor(); return; }
     return;
   }
   if(state==='FRIEND'){
@@ -3313,6 +3433,7 @@ function onMove(cx,cy){
   const p=toStage(cx,cy);
   if(state==='DRIVE'){ if(drive && drive.dragActiveX!=null && !drive.arriving) drive.dragActiveX=p.x; return; }
   if(state==='WRAP'){
+    if(wrapDragBox){ wrapDragBox.x=p.x-wrapDragBox.dx; wrapDragBox.y=p.y-wrapDragBox.dy; return; }
     if(wrapRibbonSwipe){ wrapRibbonSwipe.dx=p.x-wrapRibbonSwipe.x0;
       wrapBox.ribbonProg=Math.max(0,Math.min(1,wrapRibbonSwipe.dx/220));
       if(wrapRibbonSwipe.dx>200){ applyWrapRibbon(); wrapRibbonSwipe=null; } }
@@ -3332,7 +3453,18 @@ function onMove(cx,cy){
 }
 function onUp(cx,cy){
   if(state==='DRIVE'){ if(drive) drive.dragActiveX=null; return; }
-  if(state==='WRAP'){ if(wrapRibbonSwipe){ wrapRibbonSwipe=null; if(wrapBox) wrapBox.ribbonProg=wrapBox.ribbon?1:0; } return; }
+  if(state==='WRAP'){
+    if(wrapDragBox){   // fix #2: dropping the gift on (or near) the ship target sends it off
+      const p=toStage(cx,cy);
+      if(dist(p.x,p.y,WRAP_SHIP_BTN.x,WRAP_SHIP_BTN.y)<WRAP_SHIP_BTN.r+70) startWrapShip();
+      wrapDragBox=null; return;
+    }
+    if(wrapRibbonSwipe){   // a tap (no real swipe) still ties the ribbon — forgiving for little hands
+      if(wrapBox && !wrapBox.ribbon) applyWrapRibbon();
+      wrapRibbonSwipe=null; if(wrapBox) wrapBox.ribbonProg=wrapBox.ribbon?1:0;
+    }
+    return;
+  }
   if(state==='FRIEND'){
     if(friendDragItem){
       const p=toStage(cx,cy);
@@ -3455,6 +3587,9 @@ function update(dt){
   if(wrapShipBounceT!=null){ wrapShipBounceT+=dt; if(wrapShipBounceT>=0.3) wrapShipBounceT=null; }
   if(wrapBox && !wrapBox.ribbon && !wrapRibbonSwipe && wrapBox.ribbonProg>0) wrapBox.ribbonProg=Math.max(0,wrapBox.ribbonProg-dt*4);   // A5 spring-back
   if(wrapShipAnim){ wrapShipAnim.t+=dt; if(wrapShipAnim.t>=0.90 && !wrapShipAnim.landed){ finalizeWrapShip(); wrapShipAnim=null; } }
+  if(state==='WRAP') wrapCoachT+=dt;
+  if(wrapNudgeT!=null){ wrapNudgeT=Math.max(0,wrapNudgeT-dt); if(wrapNudgeT<=0) wrapNudgeT=null; }
+  if(wrapCelebT!=null){ wrapCelebT+=dt; if(wrapCelebT>=2.4) wrapCelebT=null; }
 
   if(friendPetCooldown>0) friendPetCooldown=Math.max(0,friendPetCooldown-dt);
   if(friendHeartFlash>0){ friendHeartFlash=Math.max(0,friendHeartFlash-dt*1.5); if(friendHeartFlash<=0) friendHeartNewIdx=null; }
@@ -6592,8 +6727,30 @@ window.__t = {
   get wrapQueue(){ return SAVE.wrapQueue||0; },
   wrapCycleColor(){ if(state!=='WRAP') enterWrap(); cycleWrapColor(); },
   wrapDoRibbon(){ if(state!=='WRAP') enterWrap(); applyWrapRibbon(); },
-  wrapDoSticker(icon){ if(state!=='WRAP') enterWrap(); applyWrapSticker(icon||'star'); },
-  wrapShip(){ if(state!=='WRAP') return false; if(!wrapBox||!wrapBox.acted) return false; startWrapShip(); return true; },
+  /* honours the guided order for tests: ties the ribbon first if needed, then stamps the MATCHING sticker
+     (ignores the passed icon unless it matches, since a wrong sticker is a no-op nudge by design). */
+  wrapDoSticker(icon){ if(state!=='WRAP') enterWrap(); if(!wrapBox) return;
+    if(!wrapBox.ribbon) applyWrapRibbon(); applyWrapSticker(wrapBox.target); },
+  wrapStep(){ return wrapStep(); },
+  wrapReady(){ return wrapReady(); },
+  /* tap a sticker by icon through the REAL input path (onDown/onUp) — used to verify a wrong/out-of-order
+     tap is a no-fail nudge (sticker stays null), never a penalty. */
+  wrapTapSticker(icon){ if(state!=='WRAP') return false; const st=wrapStickerTray().find(s=>s.icon===icon); if(!st) return false;
+    const cl=(sx,sy)=>({x:sx*scale+offX,y:sy*scale+offY}); const c=cl(st.x,st.y); onDown(c.x,c.y); onUp(c.x,c.y); return true; },
+  get wrapGoal(){ return { target:wrapGoalTarget, prog:wrapGoalProg, celeb:wrapCelebT!=null }; },
+  wrapShip(){ if(state!=='WRAP') return false; if(!wrapBox||!wrapReady()) return false; startWrapShip(); return true; },
+  /* drag the wrapped gift onto the ship target end-to-end (grab → move onto button → release). */
+  wrapDragShip(){ if(state!=='WRAP'||!wrapBox||!wrapReady()) return false;
+    const cl=(sx,sy)=>({x:sx*scale+offX,y:sy*scale+offY});
+    const a=cl(WRAP_BOX_POS.x,WRAP_BOX_POS.y); onDown(a.x,a.y);
+    const b=cl(WRAP_SHIP_BTN.x,WRAP_SHIP_BTN.y); onMove(b.x,b.y); onUp(b.x,b.y); return true; },
+  /* grab the wrapped gift and hold it partway toward the ship (frac 0..1) WITHOUT releasing — for
+     capturing a mid-drag frame. Call wrapDragShip (or a manual onUp) after to complete. */
+  wrapGrabTo(frac){ if(state!=='WRAP'||!wrapBox||!wrapReady()) return false;
+    const cl=(sx,sy)=>({x:sx*scale+offX,y:sy*scale+offY});
+    const a=cl(WRAP_BOX_POS.x,WRAP_BOX_POS.y); onDown(a.x,a.y);
+    const mx=WRAP_BOX_POS.x+(WRAP_SHIP_BTN.x-WRAP_BOX_POS.x)*frac, my=WRAP_BOX_POS.y+(WRAP_SHIP_BTN.y-WRAP_BOX_POS.y)*frac-60;
+    const m=cl(mx,my); onMove(m.x,m.y); return true; },
 
   /* ---- Friend House (Phase 1) ---- */
   enterFriend(id){ enterFriend(id||'peeky'); },
