@@ -206,6 +206,13 @@ function defaultSave(){
        deliveries + unlocked friends — NEVER regresses, so returning kids find the town they grew.
        houseAlive: { buildingId:true } — that friend has "moved in" (lit windows + peek/wave). */
     townBloom: 0, houseAlive: {},
+    /* ------ Story frame (P1) ------
+       coldOpenSeen: the wordless "Morning Mail" cold-open auto-plays exactly once, on the very first
+       launch, then lives behind a small replay affordance on the START screen.
+       mailDay / deliveredTypesToday: which friends have already received mail TODAY — drives the town's
+       "waiting for mail" flags (they drop as you deliver) and the Happy-Town end-of-day beat. Reset daily. */
+    coldOpenSeen: false,
+    mailDay: todayStr(), deliveredTypesToday: {},
   };
 }
 let SAVE = loadSave();
@@ -228,6 +235,8 @@ function loadSave(){
     if(!s.friendGiftGiven || typeof s.friendGiftGiven!=='object' || Array.isArray(s.friendGiftGiven)) s.friendGiftGiven={};
     if(typeof s.townBloom!=='number' || !isFinite(s.townBloom) || s.townBloom<0) s.townBloom=0;
     if(!s.houseAlive || typeof s.houseAlive!=='object' || Array.isArray(s.houseAlive)) s.houseAlive={};
+    if(typeof s.coldOpenSeen!=='boolean') s.coldOpenSeen=false;
+    if(!s.deliveredTypesToday || typeof s.deliveredTypesToday!=='object' || Array.isArray(s.deliveredTypesToday)) s.deliveredTypesToday={};
     if(typeof s.stamps!=='number' || !isFinite(s.stamps) || s.stamps<0) s.stamps=0;
     if(typeof s.wrapQueue!=='number' || s.wrapQueue<0) s.wrapQueue=0;
     if(typeof s.wrappedCount!=='number' || s.wrappedCount<0) s.wrappedCount=0;
@@ -239,6 +248,7 @@ function loadSave(){
       const ydStr=yd.getFullYear()+'-'+(yd.getMonth()+1)+'-'+yd.getDate();
       if(s.lastPlayDay !== ydStr && s.lastPlayDay !== todayStr()) s.streak=0;
       s.day=todayStr(); s.deliveredToday=0; s.dailyGoalDone=false;
+      s.deliveredTypesToday={}; s.mailDay=todayStr();   // a new day = every friend is waiting for mail again
     }
     return s;
   }catch(e){ return defaultSave(); }
@@ -593,7 +603,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-52';
+const BUILD='20260709-53';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1422,7 +1432,10 @@ function randType(){ const t=levelTypes(); return t[Math.floor(Math.random()*t.l
 
 /* --------------------------------------------------------------- STATE */
 let time=0;
-let state='LOADING';   // LOADING·START·LEVELMAP·SHOP·PLAYING·LEVELDONE·STICKER·TOWN·DRIVE
+let state='LOADING';   // LOADING·COLDOPEN·START·LEVELMAP·SHOP·PLAYING·LEVELDONE·STICKER·TOWN·DRIVE
+let coldOpen=null;     // {t, letters:[...], sparked} — wordless "Morning Mail" cold-open (P1 #2)
+let happyTown=null;    // {t, friends:[...]} — "Happy Town" end-of-day beat (P1 #4)
+let pendingHappyTown=false;
 let packages=[];
 let particles=[];
 let popups=[];
@@ -3008,6 +3021,8 @@ const PLAYBTN={x:W/2,y:620,r:158};
 /* The ONLY secondary affordance on the START screen — one small wardrobe/shop icon, top-right corner.
    Everything else (levels, garden/stickers, scene choice, shop) lives in the TOWN hub AFTER Play. */
 const START_MENU_BTN={x:W-118,y:112,r:62};
+/* small, unobtrusive "watch the Morning Mail cold-open again" replay chip — bottom-left of START (P1 #2) */
+const COLD_REPLAY_BTN={x:120,y:H-120,r:56};
 /* TOWN hub top-left toolbar — the secondary destinations that used to crowd the START screen, relocated
    here ("after Play"): Levels map, Shop, Garden/Stickers, Scene switch. Wordless round icon buttons. */
 const TOWN_NAV=()=>{ const r=60,y=108,x0=200,gap=152;
@@ -3063,6 +3078,7 @@ function onDown(cx,cy){
   Audio_.resume();
   const p=toStage(cx,cy);
   if(parentOpen){ handleParentTap(p.x,p.y); return; }
+  if(state==='COLDOPEN'){ if(!introActive){ Audio_.pop(); finishColdOpen(); } return; }   // wordless cold-open — tap anywhere to skip
   if(state==='START'){
     if(poppuHit(p.x,p.y)) startLongPress(p.x,p.y);
     if(dist(p.x,p.y,PLAYBTN.x,PLAYBTN.y)<PLAYBTN.r){ firePress('play');
@@ -3074,6 +3090,8 @@ function onDown(cx,cy){
       return; }
     // single top-right wardrobe/shop icon — the ONE secondary affordance on the clean home screen
     if(dist(p.x,p.y,START_MENU_BTN.x,START_MENU_BTN.y)<START_MENU_BTN.r){ menuReturn='START'; state='SHOP'; shopTab='cosmetic'; Audio_.pop(); return; }
+    // replay the wordless Morning Mail cold-open
+    if(dist(p.x,p.y,COLD_REPLAY_BTN.x,COLD_REPLAY_BTN.y)<COLD_REPLAY_BTN.r){ Audio_.pop(); startColdOpen(true); return; }
     return;
   }
   if(state==='LEVELMAP'){
@@ -3360,6 +3378,8 @@ function update(dt){
     }
   }
   if(state==='DRIVE') updateDrive(dt);
+  if(state==='COLDOPEN') updateColdOpen(dt);
+  if(state==='TOWN' && happyTown) updateHappyTown(dt);
   for(const a of ambient){ a.x+=a.vx*dt; a.y+=a.vy*dt; a.ph+=dt;
     if(a.kind==='leaf'){ a.x+=Math.sin(a.ph*1.4)*18*dt; if(a.y>H+20){ a.y=-20; a.x=Math.random()*W; } }
     else { if(a.x<-20)a.x=W+20; if(a.x>W+20)a.x=-20; if(a.y<-20)a.y=H+20; if(a.y>H+20)a.y=-20; } }
@@ -4164,6 +4184,12 @@ function drawStart(){
     ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); noShadow();
     ctx.lineWidth=6; ctx.strokeStyle='#FFD15C'; ctx.stroke(); ctx.restore();
     if(!uiIcon('shop_bag',b.x,b.y,b.r*1.15)) glyphIcon('shop_bag',b.x,b.y,b.r*1.1,'#FFD15C','#7a4a20'); }
+  // Replay the wordless "Morning Mail" cold-open — a tiny cream chip with a little Poppu face + replay arrow
+  { const b=COLD_REPLAY_BTN; ctx.save(); shadow(12,'rgba(0,0,0,0.14)',0,5);
+    ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,7); ctx.fill(); noShadow();
+    ctx.lineWidth=6; ctx.strokeStyle='#98D7B4'; ctx.stroke(); ctx.restore();
+    if(!uiIcon('envelope',b.x,b.y-2,b.r*1.05)) glyphIcon('seal',b.x,b.y-2,b.r*1.0,'#F4CE7A','#E3A93E');
+    ctx.save(); ctx.globalAlpha=0.95; glyphIcon('replay',b.x+b.r*0.52,b.y+b.r*0.52,b.r*0.66,'#fff','#2A9455'); ctx.restore(); }
 }
 function drawDailyBar(){
   // R4 #6: premium "Today's Mailbag" meter — a cozy cream pill, a raster heart badge in a soft pink
@@ -5121,6 +5147,133 @@ function drawLivingHouse(b, groundY){
   ctx.restore();
 }
 
+/* ============================================================ COLD-OPEN (P1 #2)
+   Wordless "Morning Mail" — the identity beat that says who Poppu is, where, and why anyone cares.
+   Auto-plays ONCE on the very first launch, then lives behind a small replay affordance on START.
+   ~7s, skippable by tap. Reuses ONLY existing art (town_map, house sprites, face-<type>, poppu-wave).
+   Timeline (seconds; the timer only advances once the launch video bumpers finish, so it's seen whole):
+     sunrise wash over the town  →  a paper-plane drops a bundle of colored letters at Poppu's feet  →
+     each friend's house lights + they peek & wave, one by one  →  Poppu shoulders the bag & the postal
+     hat sparkles  →  cut to the mail room (START). */
+const COLD_HOUSES=['heart','drop','peeky','cloud','moon'];   // house-lighting order (spatial spread)
+const COLD_DUR=7.2;
+const COLD_POPPU={x:430,y:840,s:360};
+function startColdOpen(replay){
+  coldOpen={ t:0, replay:!!replay, sparked:{}, hatSparked:false };
+  particles=[]; Audio_.resume(); Audio_.setTownAmbience(true);
+  state='COLDOPEN';
+}
+function finishColdOpen(){
+  if(!SAVE.coldOpenSeen){ SAVE.coldOpenSeen=true; persist(); }
+  const wasReplay=coldOpen&&coldOpen.replay;
+  coldOpen=null; particles=[]; Audio_.setTownAmbience(false);
+  state='START';
+}
+function updateColdOpen(dt){
+  if(!coldOpen) return;
+  if(introActive) return;   // hold until the launch video bumpers finish, so the cold-open plays in full
+  coldOpen.t+=dt; const t=coldOpen.t;
+  COLD_HOUSES.forEach((id,i)=>{
+    const on=2.5+i*0.55;
+    if(t>=on && !coldOpen.sparked[id]){ coldOpen.sparked[id]=true;
+      const b=TOWN_BUILDINGS[id]; if(b){ const wp=houseWindowPos(b,b.groundY); burst(wp.x,wp.y,'#FFD98A',10,4.2); }
+      const info=FRIEND_UNLOCK[id]; if(info&&T[info.type]) Audio_.greet(T[info.type].index); }
+  });
+  if(t>=5.7 && !coldOpen.hatSparked){ coldOpen.hatSparked=true;
+    burst(COLD_POPPU.x, COLD_POPPU.y-COLD_POPPU.s*0.28, '#FFF3C4', 16, 5); Audio_.golden(); }
+  if(t>=COLD_DUR) finishColdOpen();
+}
+function drawColdEnvelope(x,y,s,type,rot){
+  ctx.save(); ctx.translate(x,y); ctx.rotate(rot||0);
+  shadow(6,'rgba(0,0,0,0.16)',0,4);
+  ctx.fillStyle='#fffdf6'; ctx.strokeStyle=type.deep; ctx.lineWidth=s*0.06; ctx.lineJoin='round';
+  rr(-s*0.7,-s*0.5,s*1.4,s,s*0.12); ctx.fill(); noShadow(); ctx.stroke();
+  // colored flap
+  ctx.fillStyle=type.mid; ctx.beginPath();
+  ctx.moveTo(-s*0.7,-s*0.5); ctx.lineTo(0,s*0.06); ctx.lineTo(s*0.7,-s*0.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+function drawColdOpen(){
+  const t=coldOpen?coldOpen.t:0;
+  if(has('town_map')) ctx.drawImage(IMG.town_map.img,0,0,W,H); else { ctx.fillStyle='#BFE8C4'; ctx.fillRect(0,0,W,H); }
+  // 1) SUNRISE WASH — warm golden overlay from the sun, strong at first, easing to a soft morning light
+  const warm=Math.max(0.12, 0.60 - t*0.085);
+  ctx.save();
+  const sg=ctx.createRadialGradient(210,150,80, 210,150, 1600);
+  sg.addColorStop(0,'rgba(255,238,175,'+(warm*0.95).toFixed(3)+')');
+  sg.addColorStop(0.5,'rgba(255,216,150,'+(warm*0.5).toFixed(3)+')');
+  sg.addColorStop(1,'rgba(255,205,150,0)');
+  ctx.fillStyle=sg; ctx.fillRect(0,0,W,H); ctx.restore();
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  const sun=0.5+0.5*Math.min(1,t/2.2);
+  const dg=ctx.createRadialGradient(210,150,10,210,150,260);
+  dg.addColorStop(0,'rgba(255,251,224,'+(0.72*sun).toFixed(3)+')'); dg.addColorStop(1,'rgba(255,242,195,0)');
+  ctx.fillStyle=dg; ctx.beginPath(); ctx.arc(210,150,260,0,7); ctx.fill(); ctx.restore();
+  // 2) HOUSES (back-to-front so nearer ones overlap), each drawn from its own art
+  for(const id of TOWN_ORDER){ const b=TOWN_BUILDINGS[id];
+    const S=TOWN_BUILDING_SHADOW[id]; if(S) bakedContactShadow(S.cx,S.cy,S.rw,S.rh,S.a);
+    if(has(b.key)) ctx.drawImage(IMG[b.key].img, b.cx-b.w/2, b.groundY-b.h, b.w, b.h);
+    else ph_building(b.id,b.cx,b.groundY,b.w,b.h);
+  }
+  // 3) each friend's window lights + they peek & wave, one by one
+  COLD_HOUSES.forEach((id,i)=>{
+    const on=2.5+i*0.55, b=TOWN_BUILDINGS[id], info=FRIEND_UNLOCK[id]; if(!b||!info) return;
+    const lp=Math.max(0,Math.min(1,(t-on)/0.5)); if(lp<=0) return;
+    const wp=houseWindowPos(b,b.groundY);
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    const gr=b.w*0.34, gi=lp*(0.75+0.25*Math.sin(time*3+i));
+    const g=ctx.createRadialGradient(wp.x,wp.y,0,wp.x,wp.y,gr);
+    g.addColorStop(0,'rgba(255,214,130,'+(0.55*gi).toFixed(3)+')'); g.addColorStop(1,'rgba(255,190,110,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(wp.x,wp.y,gr,0,7); ctx.fill(); ctx.restore();
+    const fk='face_'+info.type; if(!has(fk)) return;
+    const ww=b.w*((HOUSE_LIFE[id]&&HOUSE_LIFE[id].wr)||0.28)*1.7;
+    const er=easeOutBack(lp), rise=(1-er)*ww*0.7, up=(t-on)>0.5, tilt=up?Math.sin(time*5+i)*0.14:0;
+    ctx.save(); roundRectPath(wp.x-ww*0.6, wp.y-ww*0.62, ww*1.2, ww*1.1, ww*0.28); ctx.clip();
+    ctx.translate(wp.x, wp.y+rise); ctx.rotate(tilt);
+    ctx.drawImage(IMG[fk].img, -ww*0.6, -ww*0.62, ww*1.2, ww*1.2);
+    ctx.restore();
+  });
+  // 4) a paper-plane arcs in and drops a bundle of colored letters at Poppu's feet
+  const pu=Math.max(0,Math.min(1,(t-1.0)/1.4));
+  if(pu>0 && pu<1){
+    const x0=-120,y0=110,x1=COLD_POPPU.x+20,y1=610;
+    const px=x0+(x1-x0)*pu, py=y0+(y1-y0)*pu - Math.sin(pu*Math.PI)*70;   // gentle arc dip
+    ctx.save(); ctx.translate(px,py); ctx.rotate(0.32);
+    shadow(8,'rgba(0,0,0,0.14)',0,5);
+    ctx.fillStyle='#fffdf6'; ctx.strokeStyle='#cdbb96'; ctx.lineWidth=3; ctx.lineJoin='round';
+    ctx.beginPath(); ctx.moveTo(-34,-16); ctx.lineTo(38,0); ctx.lineTo(-34,16); ctx.lineTo(-22,0); ctx.closePath(); ctx.fill(); noShadow(); ctx.stroke();
+    ctx.strokeStyle='#e3d3b4'; ctx.beginPath(); ctx.moveTo(-34,-16); ctx.lineTo(-22,0); ctx.lineTo(-34,16); ctx.stroke();
+    ctx.restore();
+  }
+  // letters: released ~t2.35, fall to a little pile at Poppu's feet
+  for(let i=0;i<6;i++){
+    const rel=2.30+i*0.06, fp=Math.max(0,Math.min(1,(t-rel)/0.55)); if(fp<=0) continue;
+    const sx=COLD_POPPU.x+20, sy=610, tx=COLD_POPPU.x+(i-2.5)*46, ty=1002;
+    const e=1-Math.pow(1-fp,2);
+    const lx=sx+(tx-sx)*e, ly=sy+(ty-sy)*e, rot=(fp<1?Math.sin(t*8+i)*0.5:(i-2.5)*0.12);
+    drawColdEnvelope(lx,ly,30,TYPES[i],rot);
+  }
+  // 5) Poppu in front of the post office — shoulders the bag with a small hop, postal hat sparkles
+  let hop=0;
+  if(t>=5.4){ const hp=Math.min(1,(t-5.4)/0.5); hop=-Math.sin(hp*Math.PI)*26; }
+  if(!drawPoppuSprite('poppu_wave',COLD_POPPU.x,COLD_POPPU.y+hop,COLD_POPPU.s,true))
+    ph_poppu('wave',COLD_POPPU.x,COLD_POPPU.y+hop-60,240);
+  drawParticles();
+  // 6) skip hint + cut-to-mail-room fade
+  drawColdSkipHint();
+  if(t>=COLD_DUR-0.6){ ctx.save(); ctx.globalAlpha=Math.min(1,(t-(COLD_DUR-0.6))/0.6); ctx.fillStyle='#FFF8E8'; ctx.fillRect(0,0,W,H); ctx.restore(); }
+  // hold a "waiting for the video bumper to finish" — keep the town lit but static
+}
+function drawColdSkipHint(){
+  // small, unobtrusive "tap to skip" ▷▷ chip, bottom-right — wordless-friendly (arrows only)
+  const x=W-150,y=H-90;
+  ctx.save(); ctx.globalAlpha=0.55+0.2*Math.sin(time*3);
+  ctx.fillStyle='rgba(90,61,36,0.55)'; rr(x-70,y-34,140,68,34); ctx.fill();
+  ctx.fillStyle='#fff';
+  for(let i=0;i<2;i++){ const ox=x-14+i*26; ctx.beginPath(); ctx.moveTo(ox-10,y-16); ctx.lineTo(ox+12,y); ctx.lineTo(ox-10,y+16); ctx.closePath(); ctx.fill(); }
+  ctx.restore();
+}
+
 function drawTown(){
   let zoomed=false, overlayA=0;
   if(townTransition){
@@ -5838,7 +5991,8 @@ function frame(now){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.fillStyle='#e2d0b2'; ctx.fillRect(0,0,canvas.width,canvas.height);
   ctx.setTransform(scale*DPR,0,0,scale*DPR,offX*DPR,offY*DPR);
-  if(state==='LOADING'){ if(loadDone && performance.now()-loadStart>=1500) state='START'; drawLoading(); }
+  if(state==='LOADING'){ if(loadDone && performance.now()-loadStart>=1500){ if(!SAVE.coldOpenSeen) startColdOpen(false); else state='START'; } drawLoading(); }
+  else if(state==='COLDOPEN') drawColdOpen();
   else if(state==='START') drawStart();
   else if(state==='LEVELMAP') drawLevelMap();
   else if(state==='SHOP') drawShop();
