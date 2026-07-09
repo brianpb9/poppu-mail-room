@@ -187,7 +187,7 @@ function defaultSave(){
        locked, and opens into the Friend scene once unlocked. */
     unlocks: { postOffice:true, wrapShop:false, peekyHouse:false, zazaHouse:false, orbyHouse:false, waveyHouse:false, puffyHouse:false },
     newBadge: {},   // { buildingId:true } — cleared the first time that building is tapped
-    volume: 2, tutorialDone: false, sessions: 0, charDeliveries: {},
+    volume: 2, tutorialDone: false, townIntroDone: false, sessions: 0, charDeliveries: {},
     /* ------ Wrap Shop / Friend houses (Phase 1) ------ */
     wrapQueue: 0,       // finished wrapped packages waiting — consumed (celebrated) at the next level start
     wrappedCount: 0,    // lifetime total wrapped, for parent-dashboard/future stats
@@ -593,7 +593,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-50';
+const BUILD='20260709-51';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1487,6 +1487,22 @@ let levelDone=false;
 let spawnTimer=0;
 let decoyTimer=0;
 let doneScreen=null;        // {stars, stamps} for LEVELDONE
+/* FIRST-RUN ONBOARDING: a brand-new player's Play routes straight into the guided Level-1 tutorial (not
+   the empty TOWN hub). This transient flag makes that first level's RETURN land in TOWN — so the town is
+   first seen WITH meaning (a star earned, a house freshly unlockable) rather than cold-open + a paw at a
+   locked door. See enterTown()/townBeckonTarget()/townOnboarding() for the town-guidance half. */
+let pendingFirstTownReturn=false;
+function isFreshPlayer(){ return !SAVE.tutorialDone && (SAVE.totalDelivered||0)===0; }
+function townOnboarding(){ return !SAVE.townIntroDone; }
+/* the ONE town cue must always land on something that WORKS: for an early player (or the first town
+   visit) it's the always-open Post Office (tap = start a delivery); once the earn loop is understood
+   (totalDelivered>=3) it teases the next locked friend house; and if everything's unlocked it falls
+   back to the Post Office (evergreen "deliver again?"). Never a locked door with no path. */
+function townBeckonTarget(){
+  const td=SAVE.totalDelivered||0;
+  if(!SAVE.townIntroDone || td<3) return 'post';
+  return TOWN_ORDER.find(id=>id!=='post' && !buildingUnlocked(id)) || 'post';
+}
 /* FIX5: LEVELDONE's own celebration + auto-advance — separate from the mid-Drive arrival hug that
    already plays earlier in the flow. doneScreenT drives the ~3.5s non-reader auto-advance timer;
    doneCelebrated guards the one-shot confetti+friend-pop so it fires exactly once per results card. */
@@ -1727,6 +1743,8 @@ function triggerLevelDoneCelebration(){
    into the Post Town hub (never a dead-end title screen — a non-reader never has to find their way
    back in). */
 function advanceFromLevelDone(){
+  // first-run: the guided Level-1 finish drops the child into TOWN (see what you unlocked!), not Level 2.
+  if(pendingFirstTownReturn){ pendingFirstTownReturn=false; Audio_.pop(); enterTown(); return; }
   if(currentLevel>=LEVELS.length){ Audio_.pop(); enterTown(); }
   else startLevel(Math.min(LEVELS.length,currentLevel+1));
 }
@@ -2238,6 +2256,13 @@ function enterTown(){
   // it does a one-shot look-at-me wiggle (never replays on later re-entries while still unclaimed)
   for(const id in TOWN_BUILDINGS){ if(SAVE.newBadge[id] && !newBadgeSeen[id]){ newBadgeSeen[id]=true; newBadgeAnimState[id]={t:0}; } }
   armTownBloomGrowth();   // grow the town to match progress; pop fresh life for anything new this session
+  // FIRST town visit (right after the guided first delivery): Poppu leads the eye toward the always-open
+  // Post Office with her hop-and-point gesture; a dotted breadcrumb + a floating "!" bubble (drawTown)
+  // complete the wordless "tap here to deliver again" — the clearest possible go-here for a non-reader.
+  if(townOnboarding()){
+    const pb=TOWN_BUILDINGS.post;
+    triggerPoppuPoint({ cx:pb.cx, groundY:pb.groundY, h:pb.h });
+  }
   Audio_.setTownAmbience(true); Audio_.pop();
 }
 function leaveTown(){
@@ -2287,12 +2312,24 @@ function handleBuildingTap(id){
   }
   triggerSqueeze(id);
   if(!buildingUnlocked(id)){
+    // FIRST-RUN gating: while the child is still being pointed at the Post Office, a tap on a locked
+    // house is NOT a dead-end boop — it's a SILENT gentle nudge that re-pulses the Post Office paw
+    // ("not there — HERE"). No padlock, no scolding sound.
+    if(townOnboarding() && townBeckonTarget()==='post'){
+      const pb=TOWN_BUILDINGS.post;
+      triggerPoppuPoint({ cx:pb.cx, groundY:pb.groundY, h:pb.h });
+      burst(pb.cx, pb.groundY-pb.h*0.5, '#FFD9A6', 8, 4);
+      return;
+    }
     Audio_.buildingLocked();
     triggerPoppuPoint({ cx:b.cx, groundY:b.groundY, h:b.h });
     lockedPulse={ id, t:0 };   // icon-first "not yet" pop: heart bump + filling-star, no reading required
     burst(b.cx+b.w*0.18, b.groundY-b.h*0.5, '#FFC2D3', 10, 4);
     return;
   }
+  // engaging the Post Office (the guided first action) completes the town onboarding — the "!" bubble,
+  // breadcrumb and post-focused beckon retire; future visits tease the next locked house instead.
+  if(id==='post' && !SAVE.townIntroDone){ SAVE.townIntroDone=true; persist(); }
   if(buildingFunctional(id)){
     Audio_.selectBuilding();
     if(id==='post'){ startTownTransition(id); return; }   // Post Office keeps its zoom-push into a Sort level
@@ -3028,7 +3065,13 @@ function onDown(cx,cy){
   if(parentOpen){ handleParentTap(p.x,p.y); return; }
   if(state==='START'){
     if(poppuHit(p.x,p.y)) startLongPress(p.x,p.y);
-    if(dist(p.x,p.y,PLAYBTN.x,PLAYBTN.y)<PLAYBTN.r){ firePress('play'); enterTown(); return; }
+    if(dist(p.x,p.y,PLAYBTN.x,PLAYBTN.y)<PLAYBTN.r){ firePress('play');
+      // KEYSTONE: a fresh toddler goes STRAIGHT into the guided Level-1 tutorial (immediate win), not the
+      // open TOWN hub. The town is first seen on RETURN from that level (pendingFirstTownReturn), when it
+      // finally has meaning. Return players go to town as normal.
+      if(isFreshPlayer()){ pendingFirstTownReturn=true; startLevel(1); }
+      else enterTown();
+      return; }
     // single top-right wardrobe/shop icon — the ONE secondary affordance on the clean home screen
     if(dist(p.x,p.y,START_MENU_BTN.x,START_MENU_BTN.y)<START_MENU_BTN.r){ menuReturn='START'; state='SHOP'; shopTab='cosmetic'; Audio_.pop(); return; }
     return;
@@ -3524,22 +3567,37 @@ function drawTutorial(){
   let box=_front?_boxes.find(b=>b.type.id===_front.type.id):null; if(!box) box=_boxes[0]||{x:1600,y:262,w:290};
   const A=_front?{x:_front.x,y:_front.y}:{x:905,y:600}, B={x:box.x,y:box.y};
   ctx.save(); ctx.globalAlpha=a;
+  // the glowing target ring around the matching mailbox always reads (it marks WHERE to drop)
   ctx.strokeStyle='#FFE79A'; ctx.lineWidth=8; ctx.setLineDash([18,14]); ctx.lineDashOffset=-time*40;
   ctx.beginPath(); ctx.arc(B.x,B.y,box.w*0.6,0,7); ctx.stroke(); ctx.setLineDash([]);
-  ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=6; ctx.setLineDash([3,20]); ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.stroke(); ctx.setLineDash([]);
-  const tt=(time*0.7)%1.6, t=Math.min(1,tt/1.1), e=t*t*(3-2*t);
-  const hx=A.x+(B.x-A.x)*e, hy=A.y+(B.y-A.y)*e;
-  if(tt>1.1){ const rp=(tt-1.1)/0.5; ctx.save(); ctx.globalAlpha=a*(1-rp);
-    ctx.strokeStyle='#FFE79A'; ctx.lineWidth=6; ctx.beginPath(); ctx.arc(B.x,B.y,20+rp*46,0,7); ctx.stroke(); ctx.restore(); }
-  drawHand(hx,hy);
-  // WORDLESS pictograph (no English caption — zero reading dependency): [package icon] -> [arrow] -> [box icon]
+  // GUARD (Product/Creative): only draw the guiding hand + the package->box path when a REAL package is
+  // actually on the belt — never point the hand at an empty belt between spawns.
+  if(_front){
+    ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=6; ctx.setLineDash([3,20]); ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.stroke(); ctx.setLineDash([]);
+    const tt=(time*0.7)%1.6, t=Math.min(1,tt/1.1), e=t*t*(3-2*t);
+    const hx=A.x+(B.x-A.x)*e, hy=A.y+(B.y-A.y)*e;
+    if(tt>1.1){ const rp=(tt-1.1)/0.5; ctx.save(); ctx.globalAlpha=a*(1-rp);
+      ctx.strokeStyle='#FFE79A'; ctx.lineWidth=6; ctx.beginPath(); ctx.arc(B.x,B.y,20+rp*46,0,7); ctx.stroke(); ctx.restore(); }
+    drawHand(hx,hy);
+  }
+  // WORDLESS pictograph (no English caption — zero reading dependency). The icon pair MUST teach the level's
+  // ACTUAL matching axis: on COLOR-hint levels it's a COLORED parcel -> the matching COLORED mailbox (NOT
+  // star->star, which silently taught the wrong axis + read as two identical icons); on SHAPE/CHAR levels
+  // it's the shape/face icon on both sides.
   const cy=170, cw=560, ch=124, cx=W/2, gap=150;
   shadow(20,'rgba(0,0,0,0.3)',0,8); ctx.fillStyle='#fffdf6'; rr(cx-cw/2,cy-ch/2,cw,ch,ch/2); ctx.fill(); noShadow();
-  const pkgType=(_front?_front.type:box.type);
-  glyphIcon(pkgType.icon, cx-gap, cy, 56, pkgType.mid, pkgType.deep);
-  ctx.save(); ctx.globalAlpha=0.6+0.4*Math.sin(time*4); glyphIcon('arrow', cx, cy, 50, '#F4A93E','#E3A93E'); ctx.restore();
-  glyphIcon(box.type.icon, cx+gap, cy, 56, box.type.mid, box.type.deep);
+  const pkgType=(_front?_front.type:box.type), hint=curLevel().hint;
+  if(hint==='color'){
+    const {mid,deep}=matteChip(pkgType);
+    glyphIcon('box',  cx-gap, cy, 66, mid, deep);   // a COLORED box on the belt...
+    ctx.save(); ctx.globalAlpha=0.6+0.4*Math.sin(time*4); glyphIcon('arrow', cx, cy, 50, '#F4A93E','#E3A93E'); ctx.restore();
+    glyphIcon('home', cx+gap, cy, 66, mid, deep);   // ...goes to the matching COLORED mailbox
+  } else {
+    glyphIcon(pkgType.icon, cx-gap, cy, 56, pkgType.mid, pkgType.deep);
+    ctx.save(); ctx.globalAlpha=0.6+0.4*Math.sin(time*4); glyphIcon('arrow', cx, cy, 50, '#F4A93E','#E3A93E'); ctx.restore();
+    glyphIcon(box.type.icon, cx+gap, cy, 56, box.type.mid, box.type.deep);
+  }
   ctx.restore();
 }
 function drawParentDashboard(){
@@ -4677,7 +4735,9 @@ function drawTownBuilding(b){
   const breathe=(!unlocked && b.id===_townBeckonId)?(1.01+0.01*Math.sin(time*2*Math.PI/2.6)):1;
   const totalScale=sq*breathe;
   ctx.save(); ctx.translate(b.cx,groundY); ctx.scale(totalScale,totalScale); ctx.translate(-b.cx,-groundY);
-  if(recede) ctx.globalAlpha*=0.82;   // ~18% recede so non-actionable locked houses quietly step back
+  // ~18% recede so non-actionable locked houses quietly step back — but on the FIRST-RUN town (child still
+  // being guided to the Post Office) recede them HARDER (~45%) so the one focal spot dominates completely.
+  if(recede) ctx.globalAlpha*=(townOnboarding()?0.55:0.82);
   if(unlocked){
     if(has(b.key)) ctx.drawImage(IMG[b.key].img, b.cx-b.w/2, groundY-b.h, b.w, b.h);
     else ph_building(b.id, b.cx, groundY, b.w, b.h);
@@ -4714,6 +4774,12 @@ function drawTownBuilding(b){
       glyphIcon('star', b.cx, groundY-b.h*0.52, 62*Math.max(0,e), '#FFD54A','#E3A93E');
       ctx.restore();
     }
+  }
+  // the beckon paw also invites the ALWAYS-OPEN Post Office when IT is the guided target (early player /
+  // first town visit / evergreen fallback) — the one town cue always lands on something that WORKS.
+  if(unlocked && b.id===_townBeckonId){
+    const pawSize=Math.min(150, Math.max(88, b.w*0.24));
+    drawBeckonPaw(b.cx+b.w*0.10, groundY-b.h*0.16, pawSize, b.bobPhase);
   }
   ctx.restore();
   // once a house is unlocked/"alive" it reads INHABITED — lit window, cozy motes, friend peeking & waving
@@ -4767,6 +4833,35 @@ function drawPoppuTownPointGesture(pp){
     ctx.beginPath(); ctx.moveTo(-14,-16); ctx.lineTo(10,0); ctx.lineTo(-14,16); ctx.stroke();
     ctx.restore();
   }
+  ctx.restore();
+}
+/* POPPU-LED DOTTED BREADCRUMB (first town visit) — a literal dashed trail from Poppu's feet to the Post
+   Office door. Reuses the tutorial's setLineDash([3,20]) dotted language so "follow the dots to here"
+   reads instantly, zero words. Cream round dots drift toward the door. */
+function drawTownBreadcrumb(pp, b){
+  const ax=pp.x, ay=1010;                        // Poppu's ground line (matches her contact shadow)
+  const bx=b.cx+b.w*0.06, by=b.groundY-b.h*0.15; // the Post Office door
+  ctx.save();
+  ctx.strokeStyle='rgba(255,247,224,0.92)'; ctx.lineWidth=13; ctx.lineCap='round';
+  ctx.setLineDash([3,26]); ctx.lineDashOffset=-time*44;   // round dots step toward the door
+  ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* "!" COACH-MARK over the Post Office roof (first town visit, before the child has re-engaged it): a soft
+   cream bubble with a bobbing raster mail-envelope glyph + a downward tail — the ONE focal "tap me" over
+   the ONE actionable spot, paired with the beckon paw at the door. */
+function drawPostCoachMark(b){
+  const bob=Math.sin(time*2*Math.PI/1.3)*10;
+  const cx=b.cx, cy=(b.groundY-b.h)-40+bob, r=54;
+  ctx.save();
+  shadow(15,'rgba(0,0,0,0.20)',0,7);
+  ctx.fillStyle='#FFFBF0';
+  ctx.beginPath(); ctx.moveTo(cx-16,cy+r*0.72); ctx.lineTo(cx+16,cy+r*0.72); ctx.lineTo(cx,cy+r+18); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.fill();
+  noShadow();
+  ctx.lineWidth=6; ctx.strokeStyle='#F2D9A6'; ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.stroke();
+  glyphIcon('envelope', cx, cy, r*1.2, '#F4A93E', '#E3A93E');   // raster ic_envelope — a warm "mail here!"
   ctx.restore();
 }
 let _townBeckonId=null;   // QC: only ONE house shows the "tap me" paw (the next locked one) — the rest just glow+bob, so the town reads guided/calm, not a field of pointing hands
@@ -4990,9 +5085,13 @@ function drawTown(){
   drawAmbient();
   drawTownBloomLayer();   // baked flower/blossom carpet that grows with cumulative progress
   drawBloomPops();        // fresh life popping in this session (a delivery grew the world)
-  _townBeckonId = TOWN_ORDER.find(id=>id!=='post' && !buildingUnlocked(id)) || null;
+  _townBeckonId = townBeckonTarget();
   for(const id of TOWN_ORDER) drawTownBuilding(TOWN_BUILDINGS[id]);
   const pp=poppuTownPos();
+  // POPPU-LED DOTTED BREADCRUMB (first town visit): a literal dashed trail from Poppu's feet to the Post
+  // Office door — reuses the tutorial's setLineDash([3,20]) language. Drawn under the buildings' Poppu so
+  // she reads as leading the way along it.
+  if(townOnboarding() && _townBeckonId==='post'){ drawTownBreadcrumb(pp, TOWN_BUILDINGS.post); }
   const {travel:pointTravel,dirSign:pointDir}=poppuPointTravel();
   bakedContactShadow(pp.x,1016,132,28,0.36);   // fixed ground line — doesn't rotate/hop with her lean+point
   ctx.save();
@@ -5000,6 +5099,7 @@ function drawTown(){
   if(!drawPoppuSprite('poppu_wave',pp.x,pp.y,380,true)) ph_poppu('wave',pp.x,pp.y-60,250);
   ctx.restore();
   drawPoppuTownPointGesture(pp);
+  if(townOnboarding() && _townBeckonId==='post') drawPostCoachMark(TOWN_BUILDINGS.post);
   drawParticles();
   drawTownButterflies();   // butterflies/fireflies drift above the grown town
   if(zoomed) ctx.restore();
