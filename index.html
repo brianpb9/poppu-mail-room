@@ -593,7 +593,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-47';
+const BUILD='20260709-48';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1393,9 +1393,11 @@ function activeBoxes(){
   const n=curLevel().boxes;
   const ids=[]; for(let i=0;i<n;i++) ids.push(i);
   let cols,rows,bw;
-  if(n<=3){ cols=[1600]; rows=[262,545,828]; bw=290; }
-  else if(n<=4){ cols=[1445,1735]; rows=[372,712]; bw=252; }
-  else { cols=[1445,1735]; rows=[248,560,872]; bw=228; }
+  // UI/UX #4: pull the whole cluster IN from the right edge (~35px) + add vertical breathing so the flags
+  // between stacked boxes never touch and the bottom box fully clears the frame — even at bigBoxes 1.25x.
+  if(n<=3){ cols=[1560]; rows=[262,545,828]; bw=290; }
+  else if(n<=4){ cols=[1410,1700]; rows=[360,720]; bw=252; }
+  else { cols=[1410,1700]; rows=[235,560,885]; bw=228; }
   bw=Math.round(bw*boxScale());
   const ncol=cols.length;
   return ids.map((ti,k)=>{
