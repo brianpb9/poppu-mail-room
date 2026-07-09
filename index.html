@@ -593,7 +593,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-48';
+const BUILD='20260709-49';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -742,6 +742,16 @@ function inRect(px,py,r){ return px>=r.x&&px<=r.x+r.w&&py>=r.y&&py<=r.y+r.h; }
 function easeOutBack(t){ const c1=1.70158,c3=c1+1; return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2); }
 function easeOutElastic(t){ if(t<=0)return 0; if(t>=1)return 1; const c4=(2*Math.PI)/3; return Math.pow(2,-10*t)*Math.sin((t*10-0.75)*c4)+1; }
 function easeInOutCubic(t){ return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
+/* ASYMMETRIC "poke" amount, 0..1 (Animation Director): a DOUBLE poke — two quick taps (fast dip, slow
+   rise) packed into the first third of `period`, then the paw rests still — instead of a continuous
+   metronome bob. Reads as a friendly "tap-tap ... tap-tap" beckon, not a nervous vibrate. Off `time`,
+   so it's stateless. `phase` offsets the cycle. */
+function pokeAmt(period, phase){
+  const t=(((time+(phase||0))%period)+period)%period/period;   // 0..1 over the full period
+  const local = t<0.17 ? t/0.17 : (t<0.34 ? (t-0.17)/0.17 : -1);  // two poke windows, then rest
+  if(local<0) return 0;
+  return local<0.30 ? Math.pow(local/0.30,0.55) : Math.pow(1-(local-0.30)/0.70,1.6);  // fast down, slow rise
+}
 /* FRAMERATE-CORRECT exponential smoothing: identical convergence at 30 or 60fps.
    rate = fraction closed per 1/60s frame (0..1); dt in seconds. Replaces the framerate-dependent
    cur += (target-cur)*min(1,dt*k) approach so motion feels the same on low-end Android and desktop. */
@@ -3642,9 +3652,10 @@ function updateCuePkg(){
 }
 function drawGrabCue(){
   const p=cuePkg; if(!p || p.state!=='belt') return;
-  // a pointing paw hovering at the lower-right of the parcel, doing a gentle "come-tap-me" bob
-  const bob=Math.sin(time*3)*10, s=PKG_S*p.scale;
-  drawHand(p.x+s*0.30, p.y+s*0.34+bob);
+  // a pointing paw at the lower-right of the parcel — an asymmetric DOUBLE poke toward it (fast tap down,
+  // slow lift) every ~2s, with a whisper idle float between pokes so it never reads frozen.
+  const s=PKG_S*p.scale, poke=pokeAmt(2.0,0)*16, idle=Math.sin(time*1.4)*2;
+  drawHand(p.x+s*0.30, p.y+s*0.34+poke+idle);
 }
 function drawPackage(p){
   // GRAB-CUE: the current draggable package always invites the toddler to pick it up — a soft warm glow,
@@ -3752,9 +3763,17 @@ function drawPopups(){
       ctx.save(); ctx.globalAlpha=alpha; ctx.translate(pu.x,feetY); ctx.rotate(wiggle); ctx.scale(bounce+settle,bounce+settle);
       ctx.save(); ctx.globalAlpha=alpha*0.16; ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(0,0,w*0.3,H_G*0.04,0,0,7); ctx.fill(); ctx.restore();
       ctx.drawImage(im,-w/2,-H_G,w,H_G); ctx.restore();
-      if(pu.t>0.15 && pu.t<1.45){ const sa=pu.t<0.35?(pu.t-0.15)/0.2:alpha;
+      // speech bubble POPS in on easeOutBack (0→~1.1→1 over ~0.2s), anchored at its tail, ~0.1s AFTER the
+      // friend has cleared the box lip — so it snaps to life rather than dissolving in.
+      const bStart=0.30;
+      if(pu.t>bStart && pu.t<1.45){
+        const bp=Math.min(1,(pu.t-bStart)/0.20);
+        const bsc=pu.t<bStart+0.20?Math.max(0.02,easeOutBack(bp)):1;
+        const sa=pu.t<bStart+0.18?(pu.t-bStart)/0.18:alpha;
+        const anchorY=Math.max(feetY-H_G-6,96);
         ctx.save(); ctx.globalAlpha=Math.max(0,Math.min(1,sa));
-        drawSpeech(pu.x, Math.max(feetY-H_G-6,96), 'Thank you!', pu.type.deep); ctx.restore(); }
+        ctx.translate(pu.x,anchorY); ctx.scale(bsc,bsc); ctx.translate(-pu.x,-anchorY);   // scale about the tail
+        drawSpeech(pu.x, anchorY, 'Thank you!', pu.type.deep); ctx.restore(); }
     } else {
       const s=112*bounce*(1-exit*0.2), yy=pu.boxCy-pu.boxH*0.55-100*Math.min(1,pu.t*2.5)+exit*pu.boxH*0.9;
       ctx.save(); ctx.globalAlpha=alpha; ctx.translate(pu.x,yy);
@@ -3892,10 +3911,24 @@ function drawPlaying(){
   drawConveyorAt(CONVEYOR.cy);
   if(curLevel().mech.twoBelts) drawConveyorAt(BELT2_CY);   // MULTI-BELT: second lane's conveyor strip
   drawMailboxes();
-  const poppuKey=poppuCelebrateT>0?'poppu_celebrate':'poppu_postal';
-  const pj=poppuCelebrateT>0?-Math.abs(Math.sin(time*12))*18:0;
-  const ppx=250, ppy=812+pj;
-  if(!drawPoppuPosed(poppuKey,ppx,ppy,380,poppuCelebrateT<=0)) ph_poppu(poppuCelebrateT>0?'celebrate':'wave',ppx,ppy-10,250);
+  // CELEBRATE (Animation Director): one clean hop ARC (ease-up→ease-down) with a brief anticipation crouch
+  // and a landing squash — the postal→celebrate sprite swap is hidden behind that opening crouch, so it
+  // never reads as an instant pop-in. Replaces the mechanical abs(sin) metronome bob.
+  let pj=0, psx=1, psy=1, celebrating=poppuCelebrateT>0;
+  const antic=0.09;   // opening crouch that masks the sprite swap
+  if(celebrating){
+    const e=0.9-poppuCelebrateT;                      // elapsed 0→0.9 (poppuCelebrateT counts down from 0.9)
+    if(e<antic){ const a=e/antic; psx=1+0.08*a; psy=1-0.08*a; }        // anticipation crouch (still in postal pose)
+    else { const hp=Math.min(1,(e-antic)/0.52);                        // single hop over ~0.52s
+      pj=-Math.sin(hp*Math.PI)*44;                                     // up then down, one arc
+      if(hp>0.82){ const l=Math.sin(((hp-0.82)/0.18)*Math.PI); psx=1+0.11*l; psy=1-0.11*l; } }  // landing squash
+  }
+  // swap sprite only AFTER the crouch has begun to hide it — postal during the anticipation dip, celebrate after
+  const poppuKey=(celebrating && (0.9-poppuCelebrateT)>=antic)?'poppu_celebrate':'poppu_postal';
+  const ppx=250, ppy=812;
+  ctx.save(); ctx.translate(ppx,ppy); ctx.scale(psx,psy); ctx.translate(-ppx,-ppy);   // squash pivots at the feet
+  if(!drawPoppuPosed(poppuKey,ppx,ppy+pj,380,!celebrating)) ph_poppu(celebrating?'celebrate':'wave',ppx,ppy+pj-10,250);
+  ctx.restore();
   updateCuePkg();
   packages.filter(p=>p.state!=='dragging'&&p.state!=='delivering').forEach(drawPackage);
   packages.filter(p=>p.state==='delivering').forEach(drawPackage);
@@ -4502,9 +4535,11 @@ function drawHouseGlow(b, groundY, boost){
 /* gentle "tap tap" pointing paw that BECKONS at a locked house's door (replaces the old sleeping-Z that
    read as closed). Reuses the premium ic_hand paw; dips toward the door then lifts on a soft ~1.4s loop. */
 function drawBeckonPaw(cx,cy,size,phase){
-  const t=(time*0.72+phase)%1;
-  const dip=0.5+0.5*Math.sin(t*Math.PI*2);           // 0..1..0 smooth
-  const y=cy-dip*size*0.14, sc=1+dip*0.05;
+  // asymmetric DOUBLE "tap-tap" toward the door every ~2s (fast dip down, slow rise), + a whisper idle
+  // float between pokes so the beckon reads as a friendly knock, not a continuous metronome.
+  const dip=pokeAmt(2.0,phase*1.3);
+  const idle=(0.5+0.5*Math.sin((time+phase)*1.4))*0.18;
+  const y=cy+(dip*0.14+idle*0.05)*size, sc=1+dip*0.06;
   ctx.save(); ctx.translate(cx,y); ctx.scale(sc,sc);
   if(has('ic_hand')){
     shadow(9,'rgba(0,0,0,0.20)',0,5);
@@ -4910,7 +4945,9 @@ function drawLivingHouse(b, groundY){
   const ww=b.w*life.wr*1.7;
   ctx.save();
   roundRectPath(wx-ww*0.6, wy-ww*0.62, ww*1.2, ww*1.1, ww*0.28); ctx.clip();   // window frame the friend peeks through
-  const rise=(1-peek)*ww*0.85, tilt=(peek>0.5?Math.sin(time*4.6)*0.11:0);
+  // run the rise through easeOutBack so the friend bobs UP out of the sill and settles, instead of sliding linearly
+  const er=easeOutBack(Math.max(0,Math.min(1,peek)));
+  const rise=(1-er)*ww*0.85, tilt=(peek>0.5?Math.sin(time*4.6)*0.11:0);
   ctx.translate(wx, wy+rise); ctx.rotate(tilt);
   ctx.drawImage(IMG[fk].img, -ww*0.6, -ww*0.62, ww*1.2, ww*1.2);
   ctx.restore();
