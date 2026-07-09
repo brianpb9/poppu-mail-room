@@ -474,6 +474,24 @@ const Audio_ = (()=>{
     seal(){ const t=now(); noise(t,0.22,0.10,1600,0.8); tone(880,t+0.05,0.14,'sine',0.16,1400); },
     rattle(){ const t=now(); for(let i=0;i<3;i++) noise(t+i*0.03,0.05,0.09,600+Math.random()*800,2); },
     greet(idx){ const t=now(); const base=[523,587,659,698,784,880][idx%6]; tone(base,t,0.10,'sine',0.26); tone(base*1.5,t+0.08,0.14,'sine',0.24); tone(base*2,t+0.16,0.18,'triangle',0.18); },
+    /* PAYOFF — the Player Advocate's "one thing for a 10": on EVERY correct delivery, a happy RISING
+       SPARKLE CHIME + a cute rising voice-squeak ("wheee/yay"), layered over the per-character greet so
+       the spring-out finally SOUNDS as good as it looks. Gentle, quick, preschool-safe — no loud spike. */
+    payoff(){ if(!ac) return; const t=now();
+      // rising sparkle chime — 4 bright ascending pings that glide up + a whisper of airy shimmer
+      [880,1174.66,1567.98,2093].forEach((f,i)=>{ tone(f,t+i*0.05,0.16,'sine',0.12-i*0.015,f*1.04); });
+      noise(t+0.02,0.18,0.022,4200,1.4);
+      // cute voice-squeak "wheee" — a formant-ish rising blip: a triangle gliding UP through a sweeping
+      // bandpass (mimics a little voice), soft and playful, capped low so it never reads as harsh/loud
+      const o=ac.createOscillator(), g=ac.createGain(), f=ac.createBiquadFilter();
+      f.type='bandpass'; f.Q.value=3.5;
+      f.frequency.setValueAtTime(700,t); f.frequency.exponentialRampToValueAtTime(1900,t+0.22);
+      o.type='triangle'; o.frequency.setValueAtTime(520,t); o.frequency.exponentialRampToValueAtTime(1040,t+0.20);
+      g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.13,t+0.03);
+      g.gain.exponentialRampToValueAtTime(0.08,t+0.16); g.gain.exponentialRampToValueAtTime(0.0001,t+0.30);
+      o.connect(f); f.connect(g); g.connect(master); o.start(t); o.stop(t+0.34);
+      // a little "yay" tail — soft sine octave pop resolving the squeak
+      tone(1046.5,t+0.17,0.12,'sine',0.10,1318.5); },
     golden(){ const t=now(); [659,784,988,1319].forEach((f,i)=>{ tone(f,t+i*0.07,0.5,'sine',0.28); tone(f*2,t+i*0.07,0.3,'triangle',0.12); }); },
     levelWin(){ const t=now(); [523.25,659.25,783.99,1046.5,1318.5,1568].forEach((f,i)=>{ tone(f,t+i*0.11,0.5,'sine',0.28); tone(f*2,t+i*0.11,0.28,'triangle',0.10); }); noise(t+0.1,0.5,0.05,2600); },
     buy(){ const t=now(); tone(784,t,0.10,'sine',0.24); tone(1046,t+0.08,0.14,'sine',0.22); noise(t,0.05,0.05,1800); },
@@ -568,7 +586,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-40';
+const BUILD='20260709-41';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1539,6 +1557,9 @@ function deliver(pkg, box){
   const bp={x:box.x,y:box.y}, ti=box.typeIdx;
   pkg.state='delivering'; pkg.tState=0; pkg.dtx=bp.x; pkg.dty=bp.y;
   Audio_.plop(); Audio_.greet(ti);
+  Audio_.payoff();                                   // rising sparkle chime + cute voice-squeak — the "one thing for a 10"
+  try{ navigator.vibrate?.(18); }catch(e){}          // subtle HAPTIC on the spring (guarded for unsupported devices)
+  spawnTimer=Math.min(spawnTimer,0.4);               // chase the happy feeling — next parcel arrives ~0.4-0.5s sooner
   // dopamine heartbeat — EVERY correct drop gets an unmissable payoff: a coloured sparkle burst + a
   // gentle confetti pop (pooled particles) on top of the character springing up out of the mailbox.
   burst(bp.x,bp.y-40,pkg.type.deep,28,10);
