@@ -603,7 +603,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-59';
+const BUILD='20260709-60';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1287,11 +1287,19 @@ const STATION={ x:905, y:392 };            // special-mechanic station (center)
      • RIGHT hillside            (x~1400-1740,base y~560-620) → peeky (genuine hill ground contact)
    groundY = the y where the building's BASE meets that clearing. Hit rects are now DERIVED from the
    render box (buildingHitRect) so a tap target can never drift off the art or overlap-eat a neighbour. */
+/* ASPECT-CORRECT RENDER BOXES (BUILD 60): each house is drawn into a box whose w:h MATCHES its sprite's
+   true pixel aspect, so nothing is squished/stretched. Sprite dims → aspect:
+     post-office 512² (1.00), house-heart 768² (1.00), wrap-shop 512² (1.00), house-peeky 512² (1.00),
+     house-drop 912×877 (1.04), house-cloud 840×789 (1.065), house-moon 891×909 (0.98).
+   Zaza's heart house was the worst offender: a square 768² sprite crammed into 150×250 (aspect 0.60) →
+   badly gepeng. Now a true square box. post/wrap/peeky held their WIDTH and dropped HEIGHT to reach 1.0
+   (widening would collide neighbours). heart is re-widened to a square cottage; post nudged 20px left +
+   wrap 20px right to open the clearance the wider heart needs (heart cx729 < wrap cx1000, no overlap). */
 const TOWN_BUILDINGS = {
-  post:  { id:'post',  key:'post_office', cx:420,  groundY:888, w:560, h:600, bobAmp:0, bobPeriod:3.2, bobPhase:0 },
-  heart: { id:'heart', key:'house_heart', cx:735,  groundY:672, w:150, h:250, bobAmp:0, bobPeriod:2.9, bobPhase:1.1 },
-  wrap:  { id:'wrap',  key:'wrap_shop',   cx:980,  groundY:748, w:420, h:440, bobAmp:0, bobPeriod:3.0, bobPhase:1.0 },
-  peeky: { id:'peeky', key:'house_peeky', cx:1560, groundY:628, w:330, h:350, bobAmp:0, bobPeriod:2.8, bobPhase:2.0 },
+  post:  { id:'post',  key:'post_office', cx:400,  groundY:888, w:560, h:560, bobAmp:0, bobPeriod:3.2, bobPhase:0 },
+  heart: { id:'heart', key:'house_heart', cx:729,  groundY:672, w:210, h:210, bobAmp:0, bobPeriod:2.9, bobPhase:1.1 },
+  wrap:  { id:'wrap',  key:'wrap_shop',   cx:1000, groundY:748, w:420, h:420, bobAmp:0, bobPeriod:3.0, bobPhase:1.0 },
+  peeky: { id:'peeky', key:'house_peeky', cx:1560, groundY:628, w:350, h:350, bobAmp:0, bobPeriod:2.8, bobPhase:2.0 },
   /* DEFINITIVE FLOAT FIX (BUILD 20260708-7): the moon/drop/cloud sprites had a baked-in grass-oval PAD
      at their base that read as a floating island on the terrain-only town map. That grass oval (+ its
      dark disc outline + flower wings) is now CROPPED off each PNG in PIL so the sprite bottom IS the
@@ -1308,14 +1316,18 @@ const TOWN_ORDER=['peeky','heart','wrap','drop','moon','cloud','post'];
 function buildingHitRect(b){ const pad=18; return { x:b.cx-b.w/2-pad, y:b.groundY-b.h-pad, w:b.w+pad*2, h:b.h+pad*2 }; }
 /* contact-shadow ground line per building — cy == groundY (base sits ON the clearing now), rw ~ 0.44*w.
    Deliberately NOT bobbed, and stronger than the old flat oval, so each house reads as planted. */
+/* GROUNDING (BUILD 60): every contact shadow sits at the sprite's TRUE visual base = groundY − h×botPad
+   fraction, so no house hovers over a detached shadow (the post-office fix, now applied to ALL). Bottom-pad
+   fractions from each PNG's alpha bbox: post 46/512=.090, heart 72/768=.094, wrap 50/512=.098,
+   peeky 51/512=.100; the hill trio (drop/cloud/moon) are tight-cropped (0 pad) so their base == groundY. */
 const TOWN_BUILDING_SHADOW = {
-  post:  { cx:420,  cy:838, rw:236, rh:46, a:0.42 },   // FLOAT FIX: post-office.png has 46px transparent bottom-pad, so its visual base sits ~54px above groundY; the shadow was landing 54px BELOW the base (house floating over a detached shadow). Move the shadow UP to hug the actual base (~y834).
-  heart: { cx:735,  cy:674, rw:90,  rh:20, a:0.32 },   // BUILD 37: wider+softer so the small house nestles, not hovers
-  wrap:  { cx:980,  cy:748, rw:190, rh:42, a:0.38 },
-  peeky: { cx:1560, cy:630, rw:158, rh:34, a:0.38 },
-  drop:  { cx:1366, cy:864, rw:140, rh:30, a:0.34 },   // BUILD 37: widened hill-cluster contact shadows — grounds the "sticker hovering" small houses
-  cloud: { cx:1573, cy:904, rw:144, rh:31, a:0.34 },
-  moon:  { cx:1780, cy:888, rw:130, rh:30, a:0.34 },
+  post:  { cx:400,  cy:838, rw:232, rh:46, a:0.42 },   // 888 − 560*.090 = 838
+  heart: { cx:729,  cy:652, rw:92,  rh:20, a:0.32 },   // 672 − 210*.094 = 652 (was landing at 674, ~22px below the base)
+  wrap:  { cx:1000, cy:707, rw:184, rh:41, a:0.38 },   // 748 − 420*.098 = 707 (was 748, ~41px below the base)
+  peeky: { cx:1560, cy:593, rw:150, rh:33, a:0.38 },   // 628 − 350*.100 = 593 (was 630, ~37px below the base)
+  drop:  { cx:1366, cy:862, rw:140, rh:30, a:0.34 },
+  cloud: { cx:1573, cy:902, rw:144, rh:31, a:0.34 },
+  moon:  { cx:1780, cy:886, rw:130, rh:30, a:0.34 },
 };
 /* BUILD 20260708-8: the peeky knoll (a hard green ellipse + brown dirt oval) itself read as a stuck-on
    floating "pad"/lily-disc under the house — the exact artifact the founder rejects. The town-map already
