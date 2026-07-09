@@ -593,7 +593,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-44';
+const BUILD='20260709-45';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -740,6 +740,15 @@ function noShadow(){ ctx.shadowBlur=0; ctx.shadowColor='transparent'; ctx.shadow
 function dist(a,b,c,d){ return Math.hypot(a-c,b-d); }
 function inRect(px,py,r){ return px>=r.x&&px<=r.x+r.w&&py>=r.y&&py<=r.y+r.h; }
 function easeOutBack(t){ const c1=1.70158,c3=c1+1; return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2); }
+function easeOutElastic(t){ if(t<=0)return 0; if(t>=1)return 1; const c4=(2*Math.PI)/3; return Math.pow(2,-10*t)*Math.sin((t*10-0.75)*c4)+1; }
+function easeInOutCubic(t){ return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
+/* FRAMERATE-CORRECT exponential smoothing: identical convergence at 30 or 60fps.
+   rate = fraction closed per 1/60s frame (0..1); dt in seconds. Replaces the framerate-dependent
+   cur += (target-cur)*min(1,dt*k) approach so motion feels the same on low-end Android and desktop. */
+function smooth(cur,target,rate,dt){ return cur+(target-cur)*(1-Math.pow(1-rate,dt*60)); }
+/* enter the wrong-drop / cancelled-drag RETURN bounce — snapshots start-y so the box springs back onto
+   the belt with an easeOutBack overshoot + damped wobble (item 8). Always route returns through here. */
+function returnPkg(p){ p.state='returning'; p.scale=1; p.rtT=0; p.rty0=p.y; }
 /* soft flattened contact shadow — grounds any sprite at a FIXED ground line (draw BEFORE the sprite,
    ignore idle bob so the object hovers a hair above its own shadow, never swims with it). Radial
    gradient scaled onto an ellipse; cheap enough for every-frame use (no shadowBlur). */
@@ -3073,8 +3082,8 @@ function onDown(cx,cy){
       }
     }
     const pk=pickPackage(p.x,p.y);
-    if(pk){ if(dragging && dragging!==pk){ dragging.state='returning'; dragging.scale=1; }
-      dragging=pk; pk.state='dragging'; dragDX=p.x-pk.x; dragDY=p.y-pk.y; pk.scale=1.14; Audio_.pop(); }
+    if(pk){ if(dragging && dragging!==pk){ returnPkg(dragging); }
+      dragging=pk; pk.state='dragging'; dragDX=p.x-pk.x; dragDY=p.y-pk.y; pk.scale=1.0; pk.grabT=0; Audio_.pop(); }
   }
 }
 function onMove(cx,cy){
@@ -3116,7 +3125,7 @@ function onUp(cx,cy){
   if(!dragging) return;
   const b=boxAt(dragging.x,dragging.y);
   if(b && !dragging.decoy && b.type.id===dragging.type.id){ deliver(dragging,b); }
-  else { dragging.state='returning'; mistakesThisLevel++;
+  else { returnPkg(dragging); mistakesThisLevel++;
     // DECOY belongs to nobody: gentle "aww, that one goes back" (never a boop-fail); it returns to the
     // belt and eventually slides itself off to the sender. Real wrong-drops keep the existing feedback.
     if(dragging.decoy) Audio_.aww();
@@ -3151,11 +3160,11 @@ canvas.addEventListener('pointermove',e=>{ e.preventDefault();
   if(activePointerId!==null && e.pointerId!==activePointerId) return; onMove(e.clientX,e.clientY); },{passive:false});
 canvas.addEventListener('pointerup',e=>{ e.preventDefault();
   if(activePointerId!==null && e.pointerId!==activePointerId) return; activePointerId=null; onUp(e.clientX,e.clientY); },{passive:false});
-canvas.addEventListener('pointercancel',e=>{ if(e&&e.pointerId===activePointerId) activePointerId=null; if(dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } sealSwipe=null; wrapRibbonSwipe=null; friendDragItem=null; if(drive) drive.dragActiveX=null; cancelLongPress(); });
-window.addEventListener('blur',()=>{ activePointerId=null; if(dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } sealSwipe=null; wrapRibbonSwipe=null; friendDragItem=null; if(drive) drive.dragActiveX=null; cancelLongPress(); });
+canvas.addEventListener('pointercancel',e=>{ if(e&&e.pointerId===activePointerId) activePointerId=null; if(dragging){ returnPkg(dragging); dragging=null; hoverType=null; } sealSwipe=null; wrapRibbonSwipe=null; friendDragItem=null; if(drive) drive.dragActiveX=null; cancelLongPress(); });
+window.addEventListener('blur',()=>{ activePointerId=null; if(dragging){ returnPkg(dragging); dragging=null; hoverType=null; } sealSwipe=null; wrapRibbonSwipe=null; friendDragItem=null; if(drive) drive.dragActiveX=null; cancelLongPress(); });
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden){ Audio_.suspend();   // swipe-up / background → kill the music+hum+ambience
-    if(dragging){ dragging.state='returning'; dragging.scale=1; dragging=null; hoverType=null; } }
+    if(dragging){ returnPkg(dragging); dragging=null; hoverType=null; } }
   else { Audio_.resume(); }                  // back to foreground → bring audio back
 });
 window.addEventListener('pagehide',()=>{ Audio_.suspend(); });   // iOS swipe-up-to-home fires pagehide, not always visibilitychange
@@ -3293,14 +3302,29 @@ function update(dt){
         // (return-to-sender) instead of looping — it never counted toward the target, so no soft-lock.
         if(p.x>BELT.x2+150){ if(p.decoy){ p.state='sentoff'; p.offT=0; Audio_.slide(); } else { p.x=BELT.x1-40; p.wob=Math.random()*7; } } }
       else if(p.state==='sentoff'){ p.offT=(p.offT||0)+dt; p.x+=beltSpeed*dt*1.4; p.scale=Math.max(0,1-p.offT*3); }
-      else if(p.state==='returning'){ const ty=laneY(p.lane); p.y+=(ty-p.y)*Math.min(1,dt*8);
-        const tx=Math.max(BELT.x1,Math.min(BELT.x2,p.x)); p.x+=(tx-p.x)*Math.min(1,dt*8);
-        if(Math.abs(p.y-ty)<3) p.state='belt'; }
+      else if(p.state==='returning'){ const ty=laneY(p.lane);
+        // framerate-correct smoothing (item 1) + easeOutBack overshoot wobble (item 8): the box bounces
+        // back onto the belt with a springy overshoot past the lane, then a small damped wobble settle.
+        p.rtT=(p.rtT||0)+dt;
+        const tx=Math.max(BELT.x1,Math.min(BELT.x2,p.rtx!=null?p.rtx:p.x));
+        p.x=smooth(p.x,tx,0.20,dt);
+        const rp=Math.min(1,p.rtT/0.35), over=easeOutBack(rp);        // 0→~1.09→1 overshoot
+        const wob=(1-rp)*Math.sin(p.rtT*34)*10*(1-rp);               // damped wobble, dies out by settle
+        p.y=(p.rty0!=null?p.rty0:p.y)+((ty-(p.rty0!=null?p.rty0:p.y))*over)+wob;
+        p.scale=smooth(p.scale,1,0.22,dt);
+        if(rp>=1 && Math.abs(p.x-tx)<3){ p.state='belt'; p.rtT=0; } }
       else if(p.state==='delivering'){ p.tState=(p.tState||0)+dt;
-        p.x+=(p.dtx-p.x)*Math.min(1,dt*12); p.y+=(p.dty-24-p.y)*Math.min(1,dt*12); p.scale=Math.max(0,1-p.tState*2.2); }
+        p.x=smooth(p.x,p.dtx,0.20,dt); p.y=smooth(p.y,p.dty-24,0.20,dt); p.scale=Math.max(0,1-p.tState*2.2); }
+      else if(p.state==='dragging'){
+        // PICKUP SQUASH-STRETCH (item 2): the grab pops scale 1.0→1.22→1.14 (tactile overshoot) instead
+        // of snapping in one frame. sx/sy squash is applied in drawPackage from the same p.grabT.
+        p.grabT=(p.grabT||0)+dt; const gt=Math.min(1,p.grabT/0.16);
+        p.scale = gt<0.45 ? 1.0+(1.22-1.0)*(gt/0.45)
+                          : 1.22+(1.14-1.22)*easeInOutCubic((gt-0.45)/0.55);
+      }
     }
     // safety: any package orphaned in 'dragging' (multi-touch / lost pointerup) returns to the belt — never deadlock
-    for(const p of packages){ if(p.state==='dragging' && p!==dragging){ p.state='returning'; p.scale=1; } }
+    for(const p of packages){ if(p.state==='dragging' && p!==dragging){ returnPkg(p); } }
     packages=packages.filter(p=>!(p.state==='sentoff'&&p.scale<=0.02));
     // twoBelts runs two lanes, so allow one more parcel in flight; single belt stays at 2.
     const beltCap=curLevel().mech.twoBelts?3:2;
@@ -3595,6 +3619,12 @@ function drawPackage(p){
   const isCue=(p===cuePkg && p.state==='belt' && !p.decoy);
   const isSoftCue=(p===softCuePkg && p.state==='belt' && !p.decoy);
   ctx.save(); ctx.translate(p.x,p.y);
+  // PICKUP SQUASH (item 2): first ~0.12s of a grab starts wide+short and settles to neutral, so the
+  // pop reads as a tactile squash→stretch rather than a uniform scale jump.
+  if(p.state==='dragging' && p.grabT!=null){
+    const ge=easeOutBack(Math.min(1,p.grabT/0.12));
+    ctx.scale(1.15+(1-1.15)*ge, 0.90+(1-0.90)*ge);
+  }
   const cueP=isCue?(0.5+0.5*Math.sin(time*4)):0;
   let s=PKG_S*p.scale*(isCue?(1+cueP*0.055):1);
   if(isCue){ ctx.save(); const gr=s*(0.62+cueP*0.10), gg=ctx.createRadialGradient(0,0,s*0.2,0,0,gr);
