@@ -3738,19 +3738,30 @@ function drawPlayHUD(){
   const gx=W/2-260, gy=40, gw=520, gh=64;
   ctx.save(); shadow(18,'rgba(0,0,0,0.15)',0,6); ctx.fillStyle='rgba(255,252,244,0.94)'; rr(gx,gy,gw,gh,gh/2); ctx.fill(); noShadow();
   const prog=Math.min(1,deliveredThisLevel/L.pkgs), done=prog>=0.999, px=gx+120, pw=gw-250;
-  const th=gh-36, ty=gy+18;
-  ctx.fillStyle='#ece0c8'; rr(px,ty,pw,th,14); ctx.fill();
-  const fw=Math.max(14,pw*prog);
-  ctx.save(); rr(px,ty,fw,th,14); ctx.clip();
-  const g=ctx.createLinearGradient(px,0,px+pw,0);
-  if(done){ g.addColorStop(0,'#FFDE86'); g.addColorStop(1,'#F4B14A'); } else { g.addColorStop(0,'#98D7B4'); g.addColorStop(1,'#5FB985'); }
-  ctx.fillStyle=g; ctx.fillRect(px,ty,fw,th);
-  ctx.globalAlpha=0.42; ctx.fillStyle='#fff'; rr(px+4,ty+3,fw-8,th*0.34,th*0.2); ctx.fill();   // gloss
-  ctx.restore();
-  // leading "progress bead" knob at the fill tip — a satisfying, wordless "you're here" marker
-  if(prog>0.02 && prog<0.999){ const kx=px+fw, ky=ty+th/2; ctx.save(); shadow(5,'rgba(0,0,0,0.15)',0,2);
-    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(kx,ky,th*0.5,0,7); ctx.fill(); noShadow();
-    ctx.fillStyle='#5FB985'; ctx.beginPath(); ctx.arc(kx,ky,th*0.28,0,7); ctx.fill(); ctx.restore(); }
+  const th=gh-36, ty=gy+18, trackCy=ty+th/2;
+  // SEGMENTED STAMP TRACK (Product Director fix): the old continuous bar + leading knob read as a red
+  // "record" dot, not "your progress". Replaced with one warm slot PER parcel in the level — a slot
+  // lights up as a gold delivered-stamp for every drop, empty slots stay cream. A non-reader reads it
+  // instantly as "this many done, this many to go" — a literal FILL, no record-dot. Freshest slot pops.
+  const n=L.pkgs, slotW=pw/n, pipR=Math.min(slotW*0.34, th*0.46);
+  for(let i=0;i<n;i++){
+    const cx=px+slotW*(i+0.5), filled=i<deliveredThisLevel, fresh=(i===deliveredThisLevel-1);
+    const pop=fresh?1+Math.sin(Math.min(1,meterPop)*Math.PI)*0.30:1;
+    ctx.save(); ctx.translate(cx,trackCy); ctx.scale(pop,pop);
+    if(filled){
+      shadow(4,'rgba(120,80,30,0.28)',0,2);
+      const gg=ctx.createLinearGradient(0,-pipR,0,pipR);
+      if(done){ gg.addColorStop(0,'#FFE59A'); gg.addColorStop(1,'#F4B14A'); }
+      else { gg.addColorStop(0,'#FFD98A'); gg.addColorStop(1,'#EDA53A'); }
+      ctx.fillStyle=gg; rr(-pipR,-pipR,pipR*2,pipR*2,pipR*0.5); ctx.fill(); noShadow();
+      ctx.strokeStyle='#B9791F'; ctx.lineWidth=Math.max(1.5,pipR*0.14); rr(-pipR,-pipR,pipR*2,pipR*2,pipR*0.5); ctx.stroke();
+      drawIcon('star',0,0,pipR*1.15,'#FFF7E4','#B9791F');   // a cream "delivered" stamp-star in each lit slot
+    } else {
+      ctx.fillStyle='#ece0c8'; rr(-pipR,-pipR,pipR*2,pipR*2,pipR*0.5); ctx.fill();
+      ctx.strokeStyle='#d8c9a8'; ctx.lineWidth=Math.max(1.5,pipR*0.12); rr(-pipR,-pipR,pipR*2,pipR*2,pipR*0.5); ctx.stroke();
+    }
+    ctx.restore();
+  }
   // WORDLESS goal readout (replaces the "X / Y" numeral a non-reader can't parse): a MAIL BAG that
   // visibly FILLS from empty (muted cream) to full (gold) as the level's packages get delivered, and
   // bounces on every drop (meterPop). Reuses the premium ic_shop_bag raster — no flat vector.
