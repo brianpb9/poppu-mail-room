@@ -3589,10 +3589,13 @@ function drawTutorial(){
   shadow(20,'rgba(0,0,0,0.3)',0,8); ctx.fillStyle='#fffdf6'; rr(cx-cw/2,cy-ch/2,cw,ch,ch/2); ctx.fill(); noShadow();
   const pkgType=(_front?_front.type:box.type), hint=curLevel().hint;
   if(hint==='color'){
-    const {mid,deep}=matteChip(pkgType);
-    glyphIcon('box',  cx-gap, cy, 66, mid, deep);   // a COLORED box on the belt...
+    // tintIcon RECOLORS the raster glyph to the package's own colour (keeps its 3D shading, never a flat
+    // vector) — so both sides visibly carry the SAME colour: "this coloured box -> the matching coloured
+    // mailbox." glyphIcon() can't do this (rasters ignore the fill arg), which is why it read star->star.
+    const col=pkgType.mid;
+    tintIcon('box',  cx-gap, cy, 72, col);   // a COLOURED box on the belt...
     ctx.save(); ctx.globalAlpha=0.6+0.4*Math.sin(time*4); glyphIcon('arrow', cx, cy, 50, '#F4A93E','#E3A93E'); ctx.restore();
-    glyphIcon('home', cx+gap, cy, 66, mid, deep);   // ...goes to the matching COLORED mailbox
+    tintIcon('home', cx+gap, cy, 72, col);   // ...goes to the matching COLOURED mailbox
   } else {
     glyphIcon(pkgType.icon, cx-gap, cy, 56, pkgType.mid, pkgType.deep);
     ctx.save(); ctx.globalAlpha=0.6+0.4*Math.sin(time*4); glyphIcon('arrow', cx, cy, 50, '#F4A93E','#E3A93E'); ctx.restore();
