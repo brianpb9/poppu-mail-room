@@ -4449,13 +4449,21 @@ function drawHouseStarSign(b, groundY){
   const stars=houseMeterStars(b.id);
   const sw=Math.min(b.w*0.66, 148), sh=sw*0.34, cx=b.cx, cy=groundY-b.h*0.28, r=sh*0.42;
   ctx.save();
-  shadow(8,'rgba(0,0,0,0.18)',0,4);
-  ctx.fillStyle='#FFFBF0'; roundRectPath(cx-sw/2,cy-sh/2,sw,sh,r); ctx.fill();
+  // WARM WOOD/KRAFT PLAQUE (Creative fix): the old near-white card read as flat UI 'pasted on' the
+  // house. Now a warm kraft-wood sign with a top-lit gradient, a woodgrain rim, an inset carved bevel,
+  // and a softer/deeper drop-shadow — so it reads carved & hung ON the wall, part of the world.
+  shadow(13,'rgba(70,45,20,0.34)',0,6);
+  const bg=ctx.createLinearGradient(cx,cy-sh/2,cx,cy+sh/2);
+  bg.addColorStop(0,'#E9CB9F'); bg.addColorStop(1,'#D2A874');
+  ctx.fillStyle=bg; roundRectPath(cx-sw/2,cy-sh/2,sw,sh,r); ctx.fill();
   noShadow();
-  ctx.strokeStyle='#E3C79A'; ctx.lineWidth=sh*0.09; roundRectPath(cx-sw/2,cy-sh/2,sw,sh,r); ctx.stroke();
+  ctx.strokeStyle='#9E6E3E'; ctx.lineWidth=sh*0.11; roundRectPath(cx-sw/2,cy-sh/2,sw,sh,r); ctx.stroke();
+  // inset carved bevel: a soft cream top-inner highlight for depth
+  ctx.save(); ctx.globalAlpha=0.40; ctx.strokeStyle='#FFF3DC'; ctx.lineWidth=sh*0.05;
+  roundRectPath(cx-sw/2+sh*0.11,cy-sh/2+sh*0.11,sw-sh*0.22,sh-sh*0.22,r*0.7); ctx.stroke(); ctx.restore();
   const st=sh*0.60, gap=sw*0.24, x0=cx-gap;
   for(let i=0;i<3;i++){ const filled=i<stars;
-    glyphIcon('star', x0+i*gap, cy, st, filled?'#FFD15C':'#F3EAD6', filled?'#E3A93E':'#D8C39B'); }
+    glyphIcon('star', x0+i*gap, cy, st, filled?'#FFD15C':'#C7A87A', filled?'#B9791F':'#9E7C4E'); }
   ctx.restore();
 }
 function clipBuildingSilhouette(cx,groundY,w,h){
