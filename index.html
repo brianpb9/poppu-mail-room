@@ -3860,6 +3860,26 @@ function drawParentDashboard(){
    shape icon but a uniform palette. */
 const NEUTRAL_BOX={ light:'#EAD9BE', mid:'#D6BB90', deep:'#A98A5F' };
 function shapeNeutral(type){ return { id:type.id, icon:type.icon, light:NEUTRAL_BOX.light, mid:NEUTRAL_BOX.mid, deep:NEUTRAL_BOX.deep }; }
+/* MAILBOX MOUNTING CONSISTENCY (Creative #7 / Product #8): every mailbox sprite bakes in the same short
+   wooden post-stub, but the stub used to just end in mid-air — so the top-row boxes read as floating on the
+   wall while the bottom row read as planted on the floor. This plants EVERY post into an identical little
+   wooden BASE-FOOT with a matching grounded contact shadow, so all 6 read as one mounting language:
+   "mailboxes on posts, each on its own stand." Drawn UNDER the sprite (the sprite's stub cradles into the
+   foot). Purely decorative — hit-targets still derive from activeBoxes() coords, untouched. */
+function drawMailboxMount(b){
+  const cx=b.x, w=b.w, footCy=b.y+w*0.45, fw=w*0.34, fh=w*0.115;
+  // one consistent grounded contact shadow for ALL boxes (this is what unifies "floating" vs "planted")
+  bakedContactShadow(cx, footCy+fh*0.5, fw*0.92, fh*0.62, 0.22);
+  ctx.save();
+  const fg=ctx.createLinearGradient(0,footCy-fh/2,0,footCy+fh/2);
+  fg.addColorStop(0,'#CFA36A'); fg.addColorStop(0.55,'#A9793F'); fg.addColorStop(1,'#7C5730');
+  ctx.fillStyle=fg; ctx.strokeStyle='#654428'; ctx.lineWidth=Math.max(2.5,w*0.018);
+  rr(cx-fw/2, footCy-fh/2, fw, fh, fh*0.42); ctx.fill(); ctx.stroke();
+  // soft top lip highlight → reads as a rounded 3D foot the post plants into, not a flat bar
+  ctx.globalAlpha=0.55; ctx.strokeStyle='#E7C892'; ctx.lineWidth=Math.max(1.5,w*0.009); ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(cx-fw*0.34,footCy-fh*0.16); ctx.lineTo(cx+fw*0.34,footCy-fh*0.16); ctx.stroke();
+  ctx.restore();
+}
 function drawMailboxes(){
   const hint=curLevel().hint, mbSkin=equipped('mailbox'), scan=hasUp('scanner');
   const shapeOnly=!!curLevel().mech.shapeOnly, dragDecoy=!!(dragging&&dragging.decoy);
@@ -3875,9 +3895,9 @@ function drawMailboxes(){
     const sx=1+pop*0.4, sy=1-pop*0.4;
     // FIX 3: replaced the big translucent colored disc (which made each box read as floating on a puck)
     // with a soft grounding contact shadow under the box, so it sits ON the floor.
-    // BUILD 37: wider, softer TWO-STOP contact shadow (was one tight dark ellipse that read as a box on a
-    // hovering puck) — a broad ambient falloff + a light core grounds each mailbox onto the floor.
-    bakedContactShadow(b.x, b.y+b.h*0.45, b.w*0.42, b.h*0.12, 0.20);
+    // BUILD 58 (item 4): unified mounting — plant every post into an identical wooden base-foot + grounded
+    // shadow, so all 6 read as one mounting language (no more floating-top vs planted-bottom split).
+    drawMailboxMount(b);
     if(!skinReady) mailboxSkinRing(b, mbSkin);   // procedural ring is fallback-only once the real skin art has landed
     ctx.save(); ctx.translate(b.x,b.y+(glow>0.6?-6:0)); ctx.scale(sx,sy);
     if(glow>0) shadow(46*glow,type.deep);
