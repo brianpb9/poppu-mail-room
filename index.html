@@ -593,7 +593,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260709-46';
+const BUILD='20260709-47';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -4604,13 +4604,18 @@ function drawTownBuilding(b){
   // contact shadow at the building's FIXED ground line — never the bobbed one, so it never "swims"
   const S=TOWN_BUILDING_SHADOW[b.id];
   if(S) bakedContactShadow(S.cx,S.cy,S.rw,S.rh,S.a);
-  // soft warm "tap me" rim glow behind the house (locked ones glow a touch more, to beckon)
-  drawHouseGlow(b, groundY, !unlocked);
+  // SINGLE FOCAL (UI/UX #1): only the ONE actionable next-locked house (the beckon target) glows brighter,
+  // breathes, and stays full-strength; every other locked house RECEDES so a 3-yo reads exactly one place
+  // to tap. Unlocked houses are enterable = actionable, so they stay full too.
+  const recede = !unlocked && b.id!==_townBeckonId;
+  // soft warm "tap me" rim glow behind the house — only the beckon target gets the brighter beckon glow
+  drawHouseGlow(b, groundY, b.id===_townBeckonId);
   const sq=(buildingSqueeze&&buildingSqueeze.id===b.id)?squeezeScale(buildingSqueeze.t):1;
-  // locked buildings get a slightly livelier breathing scale (1.0→1.02→1.0) — inviting, awake, "come tap me"
-  const breathe=unlocked?1:(1.01+0.01*Math.sin(time*2*Math.PI/2.6));
+  // only the beckon target breathes (1.0→1.02→1.0); receding + unlocked houses hold still so the focal pops
+  const breathe=(!unlocked && b.id===_townBeckonId)?(1.01+0.01*Math.sin(time*2*Math.PI/2.6)):1;
   const totalScale=sq*breathe;
   ctx.save(); ctx.translate(b.cx,groundY); ctx.scale(totalScale,totalScale); ctx.translate(-b.cx,-groundY);
+  if(recede) ctx.globalAlpha*=0.82;   // ~18% recede so non-actionable locked houses quietly step back
   if(unlocked){
     if(has(b.key)) ctx.drawImage(IMG[b.key].img, b.cx-b.w/2, groundY-b.h, b.w, b.h);
     else ph_building(b.id, b.cx, groundY, b.w, b.h);
@@ -4637,7 +4642,8 @@ function drawTownBuilding(b){
     // the door invites the touch; the unlock-progress meter is re-seated as a small sign ON the wall.
     const pawSize=Math.min(112, Math.max(64, b.w*0.42));
     if(b.id===_townBeckonId) drawBeckonPaw(b.cx+b.w*0.05, groundY-b.h*0.13, pawSize, b.bobPhase);
-    if(FRIEND_UNLOCK[b.id]) drawHouseStarSign(b, groundY);
+    // plaque only on the beckon target — the one house where progress is meaningful; the rest recede plaque-free
+    if(FRIEND_UNLOCK[b.id] && b.id===_townBeckonId) drawHouseStarSign(b, groundY);
     // one-shot filling-star "getting closer!" pop on tap — icon-first "almost there" feedback (no text)
     const pulseT=(lockedPulse&&lockedPulse.id===b.id)?lockedPulse.t:null;
     if(pulseT!=null && pulseT<0.9){
