@@ -292,6 +292,145 @@ const Billing = {
     else { done&&done(false); }
   },
 };
+/* ---- PAYWALL + PARENT-GATE UI (all DORMANT while IAP_ENABLED=false) --------------------
+   Nothing below ever renders or fires unless openPayFlow() is reached, and openPayFlow() only
+   runs when contentLocked(n) is true — which is IAP_ENABLED && !isPremium() && n>FREE_LEVELS.
+   So the free web/PWA build (IAP_ENABLED=false) shows ZERO paywall/gate UI. */
+const PRICE_DISPLAY='$1.99';   // DISPLAY placeholder only — the REAL localized price is supplied by
+                               // the store (StoreKit 2 / Play Billing) at runtime in the wrapper build.
+/* Anonymous, first-party / on-device analytics ONLY — no ad-ID, no PII. Safe no-op if no sink wired. */
+function trackEvent(name, props){
+  try{ if(typeof window.PoppuAnalytics==='function') window.PoppuAnalytics(name, props||{}); }catch(e){}
+  if(window.__payDebug){ try{ console.log('[trackEvent]', name, props||{}); }catch(e){} }
+}
+/* openPayFlow(trigger): the SINGLE entry to the purchase flow. Always opens the parent math-gate FIRST;
+   the price/Buy panel is only revealed after the gate passes (spec §4 ethics — a child never sees a
+   live price before a grown-up solves the gate). */
+function openPayFlow(trigger){
+  if(!IAP_ENABLED || isPremium()) return;   // dormant unless the native wrapper turned IAP on
+  if(pay) return;                           // never stack or re-pop an already-open flow
+  pay={ mode:'gate', trigger, step:0, total:2, shakeAt:null };
+  newGateQuestion();
+  trackEvent('parent_gate_shown', {trigger});
+  Audio_.pop();
+}
+function newGateQuestion(){
+  const a=1+Math.floor(Math.random()*9), b=1+Math.floor(Math.random()*9), ans=a+b;
+  const choices=[ans];
+  while(choices.length<3){ const d=ans+(Math.floor(Math.random()*9)-4); if(d<2||d===ans||choices.indexOf(d)>=0) continue; choices.push(d); }
+  for(let i=choices.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=choices[i]; choices[i]=choices[j]; choices[j]=t; }
+  pay.a=a; pay.b=b; pay.answer=ans; pay.choices=choices;
+}
+function closePay(){
+  const trig=pay?pay.trigger:null, wasLevelDone=(state==='LEVELDONE');
+  pay=null;
+  // The LEVELDONE results card auto-advances every frame; if the flow was opened by finishing the last
+  // free level, leave that card into TOWN so a "maybe later" close can't instantly re-open the paywall.
+  if(trig==='after_level3' && wasLevelDone) enterTown();
+}
+/* modal geometry (shared by gate + paywall) */
+const PAY_PANEL={x:W/2-460,y:150,w:920,h:780};
+const PAY_CLOSE={x:W/2+460-64,y:150+64,r:42};
+function payChoiceRects(){ const w=200,h=200,gap=64,total=3*w+2*gap,x0=W/2-total/2,y=560;
+  return [0,1,2].map(i=>({i,x:x0+i*(w+gap),y,w,h})); }
+function payBuyRect(){ return {x:W/2-280,y:640,w:560,h:130}; }
+function payRestoreRect(){ return {x:W/2-210,y:800,w:420,h:74}; }
+function drawModalClose(c){
+  ctx.save(); shadow(10,'rgba(0,0,0,0.2)',0,4); ctx.fillStyle='#FF9DB6'; ctx.beginPath(); ctx.arc(c.x,c.y,c.r,0,7); ctx.fill(); noShadow();
+  ctx.strokeStyle='#fff'; ctx.lineWidth=8; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(c.x-15,c.y-15); ctx.lineTo(c.x+15,c.y+15); ctx.moveTo(c.x+15,c.y-15); ctx.lineTo(c.x-15,c.y+15); ctx.stroke(); ctx.restore();
+}
+function drawPadlock(cx,cy,s){
+  ctx.save();
+  ctx.strokeStyle='#8a6a45'; ctx.lineWidth=s*0.22; ctx.lineCap='round';
+  ctx.beginPath(); ctx.arc(cx,cy-s*0.16,s*0.30,Math.PI,0); ctx.stroke();
+  ctx.fillStyle='#C7A87E'; rr(cx-s*0.42,cy+s*0.04,s*0.84,s*0.60,s*0.16); ctx.fill();
+  ctx.lineWidth=s*0.12; rr(cx-s*0.42,cy+s*0.04,s*0.84,s*0.60,s*0.16); ctx.stroke();
+  ctx.restore();
+}
+function drawPayGate(){
+  ctx.save(); ctx.fillStyle='rgba(30,20,12,0.6)'; ctx.fillRect(0,0,W,H);
+  const k=pay.shakeAt!=null?Math.max(0,0.45-(time-pay.shakeAt)):0;   // gentle shake on a wrong tap (never a scold)
+  if(k>0) ctx.translate(Math.sin(time*55)*k*36,0);
+  const P=PAY_PANEL;
+  shadow(30,'rgba(0,0,0,0.35)',0,14); ctx.fillStyle='#fffdf6'; rr(P.x,P.y,P.w,P.h,44); ctx.fill(); noShadow();
+  ctx.lineWidth=8; ctx.strokeStyle='#B79BEA'; rr(P.x,P.y,P.w,P.h,44); ctx.stroke();
+  drawText('Grown-ups only',W/2,P.y+72,52,'#7a5a34',null,'center','800');
+  drawText('Ask a grown-up to tap the answer',W/2,P.y+124,26,'#a88a5c',null,'center','700');
+  drawText(pay.a+'   +   '+pay.b,W/2,P.y+250,88,'#8E6FD6',null,'center','800');
+  for(const b of payChoiceRects()){
+    ctx.save(); shadow(12,'rgba(0,0,0,0.16)',0,6); ctx.fillStyle='#EDE2FF'; rr(b.x,b.y,b.w,b.h,32); ctx.fill(); noShadow();
+    ctx.lineWidth=6; ctx.strokeStyle='#B79BEA'; rr(b.x,b.y,b.w,b.h,32); ctx.stroke(); ctx.restore();
+    drawText(pay.choices[b.i]+'',b.x+b.w/2,b.y+b.h/2,80,'#6a4a2a',null,'center','800');
+  }
+  const dcx=W/2-((pay.total-1)*32)/2, dy=P.y+P.h-64;   // step dots: which of the 2 questions we're on
+  for(let i=0;i<pay.total;i++){ ctx.beginPath(); ctx.fillStyle=i<pay.step?'#8E6FD6':'#e0d4c0'; ctx.arc(dcx+i*32,dy,11,0,7); ctx.fill(); }
+  drawModalClose(PAY_CLOSE);
+  ctx.restore();
+}
+function drawPaywall(){
+  ctx.save(); ctx.fillStyle='rgba(30,20,12,0.6)'; ctx.fillRect(0,0,W,H);
+  const P=PAY_PANEL;
+  shadow(30,'rgba(0,0,0,0.35)',0,14); ctx.fillStyle='#fffdf6'; rr(P.x,P.y,P.w,P.h,44); ctx.fill(); noShadow();
+  ctx.lineWidth=8; ctx.strokeStyle='#FFC96B'; rr(P.x,P.y,P.w,P.h,44); ctx.stroke();
+  drawText('Unlock the Full Post Town',W/2,P.y+66,48,'#7a5a34',null,'center','800');
+  drawText('Levels 4-10, more friend houses & scenes — one time, forever',W/2,P.y+112,24,'#a88a5c',null,'center','700');
+  // STATIC preview strip (no play-then-cutoff, no guilt): a row of what unlocks, each with a small lock.
+  const items=7, cw=100, gap=16, total=items*cw+(items-1)*gap, x0=W/2-total/2, py=P.y+150;
+  for(let i=0;i<items;i++){ const x=x0+i*(cw+gap), t=TYPES[(i+1)%TYPES.length];
+    ctx.save(); ctx.fillStyle='#F7F1E4'; rr(x,py,cw,cw,20); ctx.fill(); ctx.lineWidth=4; ctx.strokeStyle='#e6d6b6'; rr(x,py,cw,cw,20); ctx.stroke(); ctx.restore();
+    if(!uiIcon(t.icon,x+cw/2,py+cw/2-4,cw*0.48)) drawIcon(t.icon,x+cw/2,py+cw/2-4,cw*0.48,t.mid,t.deep);
+    drawPadlock(x+cw-20,py+20,15);
+  }
+  drawText(PRICE_DISPLAY,W/2,P.y+320,60,'#46B76A',null,'center','800');
+  drawText('One-time purchase · No ads · No subscription · No timers',W/2,P.y+372,23,'#8a7a5a',null,'center','700');
+  const buy=payBuyRect();
+  ctx.save(); shadow(16,'rgba(0,0,0,0.2)',0,8);
+  const bg=ctx.createLinearGradient(0,buy.y,0,buy.y+buy.h); bg.addColorStop(0,'#7FD88C'); bg.addColorStop(1,'#46B76A');
+  ctx.fillStyle=bg; rr(buy.x,buy.y,buy.w,buy.h,buy.h/2); ctx.fill(); noShadow(); ctx.restore();
+  drawText('Unlock  '+PRICE_DISPLAY, buy.x+buy.w/2, buy.y+buy.h/2, 46, '#fff', 'rgba(0,0,0,0.15)','center','800');
+  const rest=payRestoreRect();
+  ctx.save(); ctx.fillStyle='#F2E8FF'; rr(rest.x,rest.y,rest.w,rest.h,rest.h/2); ctx.fill(); ctx.lineWidth=4; ctx.strokeStyle='#B79BEA'; rr(rest.x,rest.y,rest.w,rest.h,rest.h/2); ctx.stroke(); ctx.restore();
+  drawText('Restore Purchase', rest.x+rest.w/2, rest.y+rest.h/2, 30, '#7a5a34', null,'center','800');
+  drawText('Tap ✕ for maybe later', W/2, P.y+P.h-28, 22, '#b0a084', null,'center','700');
+  drawModalClose(PAY_CLOSE);
+  ctx.restore();
+}
+function drawPayModal(){ if(!pay) return; if(pay.mode==='gate') drawPayGate(); else drawPaywall(); }
+function handlePayTap(px,py){
+  if(!pay) return;
+  // close (✕) or a tap outside the panel = dismiss, NEVER a charge
+  if(dist(px,py,PAY_CLOSE.x,PAY_CLOSE.y)<PAY_CLOSE.r+8 || !inRect(px,py,PAY_PANEL)){
+    if(pay.mode==='gate') trackEvent('parent_gate_abandoned',{trigger:pay.trigger, step:pay.step});
+    Audio_.pop(); closePay(); return;
+  }
+  if(pay.mode==='gate'){
+    for(const b of payChoiceRects()) if(inRect(px,py,b)){
+      if(pay.choices[b.i]===pay.answer){
+        pay.step++;
+        if(pay.step>=pay.total){ trackEvent('parent_gate_passed',{trigger:pay.trigger}); Audio_.greet(2);
+          pay.mode='wall'; trackEvent('paywall_shown',{trigger:pay.trigger}); }
+        else { Audio_.pop(); newGateQuestion(); }
+      } else { Audio_.aww(); pay.shakeAt=time; }   // gentle: soft "so close" + shake, retry same question
+      return;
+    }
+    return;
+  }
+  // paywall
+  if(inRect(px,py,payBuyRect())){
+    trackEvent('purchase_initiated',{trigger:pay.trigger}); Audio_.pop();
+    Billing.purchase(ok=>{
+      if(ok){ trackEvent('purchase_completed',{trigger:pay.trigger}); Audio_.buy(); closePay(); }
+      else { trackEvent('purchase_failed',{trigger:pay.trigger, reason:Billing.available()?'declined':'unavailable'}); }
+    });
+    return;
+  }
+  if(inRect(px,py,payRestoreRect())){
+    trackEvent('restore_used',{trigger:pay.trigger}); Audio_.pop();
+    Billing.restore(ok=>{ if(ok){ Audio_.buy(); closePay(); } });
+    return;
+  }
+}
 function owns(id){ return !!SAVE.owned[id]; }
 function equipped(cat){ return SAVE.equipped[cat]; }
 function hasUp(id){ return !!SAVE.upgrades[id]; }
@@ -609,7 +748,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260710-67';
+const BUILD='20260710-68';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -1467,6 +1606,7 @@ let menuReturn='START';
 let shuffleActive=false;
 let tutorial=null;                 // {fading,ft} — first-play guided overlay
 let parentOpen=false;              // parent dashboard modal
+let pay=null;                      // monetization modal (DORMANT unless openPayFlow ran): {mode:'gate'|'wall',...}
 let longPressTimer=null, pressPx=0, pressPy=0;   // 3s long-press on Poppu
 
 /* ------------------------------------------------------------ TOWN runtime */
@@ -1816,6 +1956,7 @@ function advanceFromLevelDone(){
   // first-run: the guided Level-1 finish drops the child into TOWN (see what you unlocked!), not Level 2.
   if(pendingFirstTownReturn){ pendingFirstTownReturn=false; Audio_.pop(); enterTown(); return; }
   if(currentLevel>=LEVELS.length){ Audio_.pop(); enterTown(); }
+  else if(contentLocked(currentLevel+1)){ openPayFlow('after_level3'); }   // PRIMARY trigger: finishing the last free level (dormant if IAP off)
   else startLevel(Math.min(LEVELS.length,currentLevel+1));
 }
 
@@ -3315,6 +3456,7 @@ function stampTray(){ const y=602,r=86,gap=230, cx=STATION.x;
 function onDown(cx,cy){
   Audio_.resume();
   const p=toStage(cx,cy);
+  if(pay){ handlePayTap(p.x,p.y); return; }
   if(parentOpen){ handleParentTap(p.x,p.y); return; }
   if(state==='COLDOPEN'){ if(!introActive){ Audio_.pop(); finishColdOpen(); } return; }   // wordless cold-open — tap anywhere to skip
   if(state==='START'){
@@ -3339,6 +3481,7 @@ function onDown(cx,cy){
   if(state==='LEVELMAP'){
     if(dist(p.x,p.y,BACKBTN.x,BACKBTN.y)<BACKBTN.r){ firePress('back'); state=menuReturn; if(menuReturn==='TOWN') enterTown(); return; }
     for(const nd of levelNodes()) if(dist(p.x,p.y,nd.x,nd.y)<nd.rad){
+      if(contentLocked(nd.n)){ openPayFlow('level_node'); return; }   // paid level 4-10 → parent-gate → paywall (dormant if IAP off)
       if(levelUnlocked(nd.n)) startLevel(nd.n); else Audio_.locked(); return; }
     return;
   }
@@ -3567,7 +3710,7 @@ function update(dt){
   if(state==='LEVELDONE'){
     if(!doneCelebrated) triggerLevelDoneCelebration();
     doneScreenT+=dt;
-    if(doneScreenT>=3.5) advanceFromLevelDone();
+    if(doneScreenT>=3.5 && !pay) advanceFromLevelDone();   // don't re-fire the auto-advance while a pay modal is up
   }
   // FIX6: drive the level-clear star tally beat, then hand off into the Delivery Drive.
   if(state==='PLAYING' && levelDone && clearBeatT>=0){
@@ -3631,7 +3774,8 @@ function update(dt){
       if(townTransition.t>=0.55 && !townTransition.fired){
         townTransition.fired=true;
         const tgt=townTransition.target; townTransition=null;
-        if(tgt==='post') startLevel(Math.min(SAVE.maxLevel,LEVELS.length));
+        if(tgt==='post'){ const pl=Math.min(SAVE.maxLevel,LEVELS.length);
+          if(contentLocked(pl)) openPayFlow('post'); else startLevel(pl); }
       }
     }
   }
@@ -6624,6 +6768,7 @@ function frame(now){
   else if(state==='FRIEND') drawFriend();
   else if(state==='DRIVE') drawDrive();
   if(parentOpen) drawParentDashboard();
+  if(pay) drawPayModal();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

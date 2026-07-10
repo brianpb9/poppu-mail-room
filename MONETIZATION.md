@@ -38,11 +38,12 @@ Ethical rule: the paywall gates **CONTENT**, never *progress speed inside conten
 - `const IAP_ENABLED = false` — **the web/PWA build stays 100% free**; a web page cannot take real store money. The **native wrapper build sets this true**.
 - `const FREE_LEVELS = 3`, `contentLocked(n)` — the free/paid gate (a no-op while IAP is off).
 - `const Billing = { available(), purchase(done), restore(done) }` — the **exact bridge contract**; it calls `window.PoppuBilling.buy('poppu_full_unlock', cb)` / `.restore(cb)` and flips `SAVE.purchased` only on a verified success.
+- **BUILT (BUILD-68):** the **paywall panel + math parent-gate UI** and the `openPayFlow(trigger)` wiring are now in `index.html`, all **dormant while `IAP_ENABLED=false`** (zero paywall UI in the free web/PWA build). Gate = randomized 2-step single-digit addition answered by tapping 1 of 3 big number buttons (no typing, no reading); passing reveals the paywall (static preview strip + `PRICE_DISPLAY` + Buy → `Billing.purchase` + Restore → `Billing.restore` + always a "maybe later" close). `contentLocked(n)` is wired at the **level-node tap**, **post-office start**, and **level-complete advance (finishing Level 3 = primary trigger)**. Anonymous first-party `trackEvent()` stub emits `parent_gate_shown/passed/abandoned`, `paywall_shown`, `purchase_initiated/completed/failed`, `restore_used` (no ad-ID, no PII). Scene/friend paid-gating deferred — level gates cover launch.
 
 ## 6. Remaining to ACTIVATE (native-wrapper stage — cannot be done in a web page)
 1. Wrap the single `index.html` in **Capacitor (iOS/Android)** or **TWA (Android)**.
 2. Implement `window.PoppuBilling` over **StoreKit 2 (iOS)** / **Play Billing (Android)** with **server-side/receipt validation**, exposing `buy(sku, cb)` and `restore(cb)`.
-3. Build the **paywall panel** + the **math parent-gate** UI (spec §4) — trivial canvas screens gated on `IAP_ENABLED`; wire `contentLocked(n)` at the level-node tap + post-office start + locked scene/friend taps to open it.
+3. ~~Build the **paywall panel** + the **math parent-gate** UI (spec §4) — trivial canvas screens gated on `IAP_ENABLED`; wire `contentLocked(n)` at the level-node tap + post-office start + locked scene/friend taps to open it.~~ **DONE in BUILD-68** (see §5). Only the level-content gates are wired; scene/friend paid-gating is deferred (optional for launch).
 4. Flip `IAP_ENABLED = true` in the wrapper build only.
 5. Create the `poppu_full_unlock` non-consumable in App Store Connect + Play Console at the chosen base tier.
 
