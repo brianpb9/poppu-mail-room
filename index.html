@@ -201,6 +201,11 @@ function defaultSave(){
        friendGiftGiven: one-time "best friends" (5-heart) celebration+reward, fired exactly once per
        friend and kept forever. */
     driveCollection: {}, driveCollectionTier: {}, friendGiftGiven: {},
+    /* friendDailyGift: { friendTypeId: 'YYYY-M-D' } — last day each BEST-FRIENDS friend handed Poppu a
+       daily present. Once a friend hits 5 hearts, revisiting on a NEW day pays a small +5 gift exactly
+       once that day, so a maxed friend never becomes a dead-end. (One-time 5-heart +15 lives in
+       friendGiftGiven above; this is the recurring layer after.) */
+    friendDailyGift: {},
     /* ------ Living Town / bloom (retention 9-10 lever) ------
        townBloom: monotonic "the place is alive" tier (0..BLOOM_MAX) grown by cumulative
        deliveries + unlocked friends — NEVER regresses, so returning kids find the town they grew.
@@ -235,6 +240,7 @@ function loadSave(){
     if(!s.driveCollection || typeof s.driveCollection!=='object' || Array.isArray(s.driveCollection)) s.driveCollection={};
     if(!s.driveCollectionTier || typeof s.driveCollectionTier!=='object' || Array.isArray(s.driveCollectionTier)) s.driveCollectionTier={};
     if(!s.friendGiftGiven || typeof s.friendGiftGiven!=='object' || Array.isArray(s.friendGiftGiven)) s.friendGiftGiven={};
+    if(!s.friendDailyGift || typeof s.friendDailyGift!=='object' || Array.isArray(s.friendDailyGift)) s.friendDailyGift={};
     if(typeof s.townBloom!=='number' || !isFinite(s.townBloom) || s.townBloom<0) s.townBloom=0;
     if(!s.houseAlive || typeof s.houseAlive!=='object' || Array.isArray(s.houseAlive)) s.houseAlive={};
     if(typeof s.coldOpenSeen!=='boolean') s.coldOpenSeen=false;
@@ -787,7 +793,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260710-70';
+const BUILD='20260710-71';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
@@ -3119,9 +3125,6 @@ function drawWrap(){
    / petting nudge it too, so the meter visibly fills no matter how the child plays. */
 const FRIEND_POS={ x:960, y:640 };
 const FRIEND_ITEM_ICONS=['star','heart','cloud'];
-/* the "want" bubble must only ever ask for something the item tray actually offers — every want is
-   solvable in one tap (A1 bugfix; TYPES ids double as their icon ids so a simple filter is exact). */
-const FRIEND_WANT_TYPES=TYPES.filter(t=>FRIEND_ITEM_ICONS.includes(t.icon));
 function friendItemTray(){
   const y=940, r=78, gap=230, cx=W/2;   // gap widened 200->230 (A8)
   return FRIEND_ITEM_ICONS.map((icon,i)=>({ icon, x:cx-gap+i*gap, y, r }));
@@ -3173,10 +3176,23 @@ function enterFriend(id){
      wave at low hearts, a happier bounce once you've visited a few times, and an excited jump/hug
      right at "best friends" (5 hearts) — reusing the shared bob/squash rig in drawFriendBody so no
      new art is needed, just a bigger/warmer beat + a friendlier chime the more you've bonded. */
+  /* ---- (BUILD 71) EVERY-VISIT "want" ---- the moment the child arrives the friend shows a wordless
+     thought-bubble asking for ONE thing (feed OR pet). Doing it clears the bubble with a sparkle + a
+     small +3 reward, then the friend asks for the OTHER thing once — a tiny 2-step "feed then pet" care
+     ritual that makes the house's purpose obvious. The want is only a hint+bonus: feeding/petting out of
+     order still plays its normal anim, it just doesn't advance the want. First want alternates by the
+     friend's own delivery parity so a returning child sees it vary (no Math.random — resume-safe). */
+  const oneTimePending = hearts>=5 && !SAVE.friendGiftGiven[info.type];
+  const wantFirst = ((SAVE.charDeliveries[info.type]||0)%2===0) ? 'feed' : 'pet';
   friendScene={ id, type:T[info.type], petT:0, breathing:true, feedAnim:null,
     greetT:0, greetHearts:hearts,
     showCoach: !SAVE.friendCoachDone, interacted:false, coachT:0,   // BUILD 61: wordless first-visit care guidance
-    giftPending: hearts>=5 && !SAVE.friendGiftGiven[info.type] };   // one-time "best friends" milestone gift, fires below in update()
+    want:wantFirst, wantIcon:(wantFirst==='feed'?'star':'heart'), wantSatisfied:false, wantStep:0, wantSwapT:null, wantNext:null,
+    giftPending: oneTimePending,   // one-time "best friends" milestone gift, fires below in update()
+    /* daily present for a maxed friend — only on a NEW day, and NOT the same visit the one-time +15 fires
+       (so the first best-friends day reads as one clean big gift, the recurring +5 starts the next visit/day). */
+    dailyGiftPending: hearts>=5 && !oneTimePending && SAVE.friendDailyGift[info.type]!==todayStr(),
+    dailyGiftAnim:null };
   friendDragItem=null;
   state='FRIEND'; floatTexts=[]; popups=[]; particles=[];
   Audio_.setFriendAmbience(true);
@@ -3199,6 +3215,36 @@ function checkFriendGift(){
   burst(FRIEND_POS.x,FRIEND_POS.y-220,'#FFD54A',26,8);
   Audio_.celebrate();
   floatTexts.push({ x:FRIEND_POS.x, y:FRIEND_POS.y-340, text:'+15⭐', t:0, color:'#E3A93E' });
+}
+/* (BUILD 71) recurring "best friends" daily present — fires the FIRST visit each new day to a 5-heart
+   friend, after the one-time gift is already owned. Small reward (+5), one wrapped present handed up,
+   marked per-friend-per-day so it can never repeat the same day. Recomputed fresh on the next
+   enterFriend (like giftPending), so a child who leaves before it fires simply gets it next time. */
+function checkFriendDailyGift(){
+  const F=friendScene; if(!F||!F.dailyGiftPending) return;
+  F.dailyGiftPending=false;
+  if(SAVE.friendDailyGift[F.type.id]===todayStr()) return;   // already claimed today (defensive)
+  SAVE.friendDailyGift[F.type.id]=todayStr(); persist();
+  addStamps(5); persist();
+  F.dailyGiftAnim={ t:0 };
+  confetti(FRIEND_POS.x-120,FRIEND_POS.y-120); confetti(FRIEND_POS.x+120,FRIEND_POS.y-120);
+  burst(FRIEND_POS.x,FRIEND_POS.y-200,'#FFD54A',18,6);
+  Audio_.celebrate();
+  floatTexts.push({ x:FRIEND_POS.x, y:FRIEND_POS.y-330, text:'+5⭐', t:0, color:'#E3A93E' });
+}
+/* (BUILD 71) the child did the thing the friend asked for → clear the want with a happy payoff + a small
+   star bonus, then queue the OTHER action as a second want (once). Doing an action that ISN'T the current
+   want is free play — no bonus, want stays up. */
+function satisfyFriendWant(action){
+  const F=friendScene; if(!F||!F.want||F.wantSatisfied) return;
+  if(F.want!==action) return;   // out-of-order interaction = free play, want unchanged
+  F.wantSatisfied=true;
+  addStamps(3); persist();
+  const flair=FRIEND_FLAIR[F.type.id];
+  burst(FRIEND_POS.x+150,FRIEND_POS.y-250,flair.col,14,5); burst(FRIEND_POS.x+150,FRIEND_POS.y-250,'#FFF3C4',6,4);
+  floatTexts.push({ x:FRIEND_POS.x+150, y:FRIEND_POS.y-300, text:'+3⭐', t:0, color:'#E3A93E' });
+  if(F.wantStep===0){ F.wantStep=1; F.wantNext=(action==='feed'?'pet':'feed'); F.wantSwapT=0.85; }   // queue the 2nd want
+  else { F.wantStep=2; F.want=null; }   // both done → free play (feed/pet still work normally)
 }
 function bumpFriendship(typeId){
   const before=friendHearts(typeId);
@@ -3226,6 +3272,7 @@ function feedFriend(icon, fromPos){
   F.feedAnim={ t:0, icon, from:fromPos||{x:FRIEND_POS.x,y:FRIEND_POS.y+320}, reacted:false };
   Audio_.feed(F.type.index); burst(FRIEND_POS.x,FRIEND_POS.y-40,flair.col,14,5);
   bumpFriendship(F.type.id);
+  satisfyFriendWant('feed');
 }
 function petFriend(){
   const F=friendScene; if(!F) return;
@@ -3234,6 +3281,7 @@ function petFriend(){
   F.petT=0.0001; Audio_.pet(F.type.index);
   burst(FRIEND_POS.x,FRIEND_POS.y-80,FRIEND_FLAIR[F.type.id].col,10,4);
   if(friendPetCooldown<=0){ friendPetCooldown=1.4; bumpFriendship(F.type.id); }   // cooldown gates ONLY the heart bump — squish always plays
+  satisfyFriendWant('pet');
 }
 function dressFriend(hatId){
   // RETIRED (BUILD 61): friend hat dress-up removed to keep every friend on-model. Kept as a safe no-op
@@ -3262,15 +3310,34 @@ function drawFriendHeartMeter(){
     }
   }
 }
+/* (BUILD 71) EVERY-VISIT want cue — a cozy thought-bubble over the friend showing the ONE thing they'd
+   love right now: a treat (feed) or a heart (pet). Gently bobs so it reads as "please?", and only shows
+   while there's an unsatisfied want (during the brief satisfied→swap gap and after both wants are done it
+   simply vanishes, leaving the friend in free-play happiness). No per-frame allocations. */
 function drawFriendWantBubble(){
-  const F=friendScene; if(!F) return;
-  const wantType=FRIEND_WANT_TYPES[Math.floor(time/6)%FRIEND_WANT_TYPES.length];
-  const bx=FRIEND_POS.x+150, by=FRIEND_POS.y-260;
+  const F=friendScene; if(!F || !F.want || F.wantSatisfied) return;
+  const bob=Math.sin(time*3)*8;
+  const bx=FRIEND_POS.x+160, by=FRIEND_POS.y-255+bob;
   ctx.save(); shadow(12,'rgba(0,0,0,0.14)',0,5); ctx.fillStyle='#fffdf6'; ctx.beginPath(); ctx.arc(bx,by,64,0,7); ctx.fill(); noShadow();
   ctx.lineWidth=5; ctx.strokeStyle='#e3d3b4'; ctx.beginPath(); ctx.arc(bx,by,64,0,7); ctx.stroke();
-  ctx.beginPath(); ctx.arc(bx-46,by+58,14,0,7); ctx.fill(); ctx.stroke();
-  ctx.beginPath(); ctx.arc(bx-24,by+34,8,0,7); ctx.fill(); ctx.stroke();
-  glyphIcon(wantType.icon,bx,by,60,wantType.mid,wantType.deep);
+  ctx.beginPath(); ctx.arc(bx-52,by+56,14,0,7); ctx.fill(); ctx.stroke();   // thought-bubble tail (toward friend)
+  ctx.beginPath(); ctx.arc(bx-30,by+34,8,0,7); ctx.fill(); ctx.stroke();
+  if(F.want==='pet') glyphIcon('heart',bx,by,62,'#FF9DB6','#F06A8E');       // pet → give love
+  else glyphIcon(F.wantIcon,bx,by,62,'#FFD15C','#E3A93E');                  // feed → a treat (matches the item tray)
+  ctx.restore();
+}
+/* (BUILD 71) daily best-friends present — a wrapped parcel handed up from the friend, popping in with a
+   little back-ease and a wobble, then held aloft before fading. Reuses the friend's own pkg sprite. */
+function drawFriendDailyGift(){
+  const F=friendScene; if(!F || !F.dailyGiftAnim) return;
+  const t=F.dailyGiftAnim.t;
+  const rise=easeOutBack(Math.min(1,t/0.6)), s=150*Math.min(1,t/0.28);
+  const fade=t>1.6?Math.max(0,1-(t-1.6)/0.6):1;
+  const wob=Math.sin(t*6)*0.06*Math.max(0,1-t*0.6);
+  const key='pkg_'+F.type.id;
+  ctx.save(); ctx.globalAlpha=fade; ctx.translate(FRIEND_POS.x, FRIEND_POS.y-70-rise*170); ctx.rotate(wob);
+  if(has(key)) ctx.drawImage(IMG[key].img,-s/2,-s/2,s,s);
+  else glyphIcon('box',0,0,s,'#FFB4C6','#F06A8E');
   ctx.restore();
 }
 /* per-friend post-chomp reaction — extra idle-bob offset + a body squishY multiplier, layered on top of
@@ -3383,18 +3450,19 @@ function drawFriendDraggedItem(){
    points at the gift tray (a pulsing ring on a treat → "give a gift"). Loops until the child pets or feeds
    once, then is gated off forever by SAVE.friendCoachDone (strongly guides only the very first visit). */
 function drawFriendCoach(){
-  const F=friendScene; if(!F || !F.showCoach || F.interacted) return;
-  const cyc=(F.coachT||0)%3.4, phaseA=cyc<1.7;
-  const poke=Math.abs(Math.sin(cyc*Math.PI*2.4))*16;   // tap "poke" bob
-  if(phaseA){
-    // rising friendship heart off the friend's head — "care for me"
+  const F=friendScene; if(!F || !F.showCoach || F.interacted || !F.want) return;
+  // (BUILD 71) the first-visit coach now DEMONSTRATES the current want-bubble instead of alternating its
+  // own A/B phases — so the bubble (the "what") and the pointing paw (the "how") always agree, never fight.
+  const cyc=(F.coachT||0), poke=Math.abs(Math.sin(cyc*Math.PI*2.4))*16;   // tap "poke" bob
+  if(F.want==='pet'){
+    // rising friendship heart off the friend's head + a paw tapping them — "pet me"
     const rp=(cyc%0.85)/0.85;
     ctx.save(); ctx.globalAlpha=Math.max(0,1-rp);
     glyphIcon('heart',FRIEND_POS.x,FRIEND_POS.y-200-rp*80,46+rp*16,'#FF9DB6','#F06A8E'); ctx.restore();
     drawHand(FRIEND_POS.x+24, FRIEND_POS.y-30+poke);   // paw tapping the friend
   } else {
-    // point at the gift tray (center treat) — "give a gift"
-    const tray=friendItemTray(), mid=tray[Math.floor(tray.length/2)], rp=(cyc-1.7)/1.7;
+    // pulse-ring on the center treat + a paw pointing at it — "give a treat"
+    const tray=friendItemTray(), mid=tray[Math.floor(tray.length/2)], rp=(cyc%1.0);
     ctx.save(); ctx.globalAlpha=0.55*(1-rp); ctx.strokeStyle='#FFD15C'; ctx.lineWidth=7;
     ctx.beginPath(); ctx.arc(mid.x,mid.y,mid.r+10+rp*30,0,7); ctx.stroke(); ctx.restore();
     drawHand(mid.x+30, mid.y-mid.r-14+poke);
@@ -3411,7 +3479,7 @@ function drawFriend(){
     ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
     ctx.save(); ctx.globalAlpha=0.16; ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H); ctx.restore();
   }
-  drawFriendHeartMeter(); drawFriendBody(); drawFriendFeedAnim(); drawFriendWantBubble();
+  drawFriendHeartMeter(); drawFriendBody(); drawFriendFeedAnim(); drawFriendWantBubble(); drawFriendDailyGift();
   drawFriendItemTray(); drawFriendDraggedItem();   // hat tray retired (BUILD 61)
   drawNatureGiftPile(t.id, 1555, 745, 0.98);   // (A) this friend's lifetime gathered-gift collection: woven baskets on the right-side floor that gain a whole new basket every 15 gifts — visibly bigger every session, wordless (hero scale)
   drawFriendCoach();   // wordless first-visit "pet + gift" guidance (BUILD 61)
@@ -3786,8 +3854,13 @@ function update(dt){
       // the gift-pop/confetti/stamps fire over whatever scene they've already moved on to — it simply
       // stays pending (giftPending is recomputed fresh, safely, on the next enterFriend) and fires then.
       if(F.giftPending && F.greetT>=0.65 && state==='FRIEND') checkFriendGift();
+      if(F.dailyGiftPending && F.greetT>=0.7 && state==='FRIEND') checkFriendDailyGift();   // BUILD 71 recurring best-friends gift
       if(F.greetT>1.3) F.greetT=null;
     }
+    // BUILD 71: after the child satisfies a want, hold the cleared bubble a beat, then raise the 2nd want
+    if(F.wantSwapT!=null){ F.wantSwapT-=dt; if(F.wantSwapT<=0){ F.wantSwapT=null;
+      F.want=F.wantNext; F.wantIcon=(F.wantNext==='feed'?'star':'heart'); F.wantSatisfied=false; F.wantNext=null; } }
+    if(F.dailyGiftAnim){ F.dailyGiftAnim.t+=dt; if(F.dailyGiftAnim.t>2.2) F.dailyGiftAnim=null; }
     if(F.petT>0){ F.petT+=dt; if(F.petT>flair.petDur) F.petT=0; }
     if(F.feedAnim){
       F.feedAnim.t+=dt;
