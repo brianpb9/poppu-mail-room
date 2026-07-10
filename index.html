@@ -309,17 +309,30 @@ function trackEvent(name, props){
 function openPayFlow(trigger){
   if(!IAP_ENABLED || isPremium()) return;   // dormant unless the native wrapper turned IAP on
   if(pay) return;                           // never stack or re-pop an already-open flow
-  pay={ mode:'gate', trigger, step:0, total:2, shakeAt:null };
+  pay={ mode:'gate', trigger, step:0, total:2, shakeAt:null, entry:'', wrongCount:0 };
   newGateQuestion();
   trackEvent('parent_gate_shown', {trigger});
   Audio_.pop();
 }
+/* Operands 5..12 → the sum is ALWAYS two digits (10..24), so the answer requires a real TYPED numeric
+   entry (no reading, digits only) — un-brute-forceable, unlike a 3-choice pick. */
 function newGateQuestion(){
-  const a=1+Math.floor(Math.random()*9), b=1+Math.floor(Math.random()*9), ans=a+b;
-  const choices=[ans];
-  while(choices.length<3){ const d=ans+(Math.floor(Math.random()*9)-4); if(d<2||d===ans||choices.indexOf(d)>=0) continue; choices.push(d); }
-  for(let i=choices.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=choices[i]; choices[i]=choices[j]; choices[j]=t; }
-  pay.a=a; pay.b=b; pay.answer=ans; pay.choices=choices;
+  const a=5+Math.floor(Math.random()*8), b=5+Math.floor(Math.random()*8);
+  pay.a=a; pay.b=b; pay.answer=a+b; pay.entry='';
+}
+/* Check the typed entry. Correct → advance/pass. Wrong → CLEAR, gentle aww + shake, NEW question; after
+   4 wrong attempts the gate closes itself (fail-safe) — never a scold, never a live price on a fluke. */
+function gateSubmit(){
+  if(parseInt(pay.entry,10)===pay.answer){
+    pay.step++; pay.entry='';
+    if(pay.step>=pay.total){ trackEvent('parent_gate_passed',{trigger:pay.trigger}); Audio_.greet(2);
+      pay.mode='wall'; trackEvent('paywall_shown',{trigger:pay.trigger}); }
+    else { Audio_.pop(); newGateQuestion(); }
+  } else {
+    pay.wrongCount=(pay.wrongCount||0)+1; pay.entry=''; Audio_.aww(); pay.shakeAt=time;
+    if(pay.wrongCount>=4){ trackEvent('parent_gate_abandoned',{trigger:pay.trigger, reason:'too_many_wrong'}); closePay(); }
+    else newGateQuestion();
+  }
 }
 function closePay(){
   const trig=pay?pay.trigger:null, wasLevelDone=(state==='LEVELDONE');
@@ -331,8 +344,12 @@ function closePay(){
 /* modal geometry (shared by gate + paywall) */
 const PAY_PANEL={x:W/2-460,y:150,w:920,h:780};
 const PAY_CLOSE={x:W/2+460-64,y:150+64,r:42};
-function payChoiceRects(){ const w=200,h=200,gap=64,total=3*w+2*gap,x0=W/2-total/2,y=560;
-  return [0,1,2].map(i=>({i,x:x0+i*(w+gap),y,w,h})); }
+/* 0-9 number pad (3×4): 1-9, then [backspace] 0 [check]. Zero reading — digits only. */
+function payKeypadRects(){ const kw=150,kh=82,gx=22,gy=14,x0=W/2-(3*kw+2*gx)/2,y0=PAY_PANEL.y+400;
+  const rows=[['1','2','3'],['4','5','6'],['7','8','9'],['back','0','ok']];
+  const keys=[];
+  for(let r=0;r<4;r++) for(let c=0;c<3;c++) keys.push({k:rows[r][c], x:x0+c*(kw+gx), y:y0+r*(kh+gy), w:kw, h:kh});
+  return keys; }
 function payBuyRect(){ return {x:W/2-280,y:640,w:560,h:130}; }
 function payRestoreRect(){ return {x:W/2-210,y:800,w:420,h:74}; }
 function drawModalClose(c){
@@ -355,16 +372,38 @@ function drawPayGate(){
   const P=PAY_PANEL;
   shadow(30,'rgba(0,0,0,0.35)',0,14); ctx.fillStyle='#fffdf6'; rr(P.x,P.y,P.w,P.h,44); ctx.fill(); noShadow();
   ctx.lineWidth=8; ctx.strokeStyle='#B79BEA'; rr(P.x,P.y,P.w,P.h,44); ctx.stroke();
-  drawText('Grown-ups only',W/2,P.y+72,52,'#7a5a34',null,'center','800');
-  drawText('Ask a grown-up to tap the answer',W/2,P.y+124,26,'#a88a5c',null,'center','700');
-  drawText(pay.a+'   +   '+pay.b,W/2,P.y+250,88,'#8E6FD6',null,'center','800');
-  for(const b of payChoiceRects()){
-    ctx.save(); shadow(12,'rgba(0,0,0,0.16)',0,6); ctx.fillStyle='#EDE2FF'; rr(b.x,b.y,b.w,b.h,32); ctx.fill(); noShadow();
-    ctx.lineWidth=6; ctx.strokeStyle='#B79BEA'; rr(b.x,b.y,b.w,b.h,32); ctx.stroke(); ctx.restore();
-    drawText(pay.choices[b.i]+'',b.x+b.w/2,b.y+b.h/2,80,'#6a4a2a',null,'center','800');
+  drawText('Grown-ups only',W/2,P.y+62,50,'#7a5a34',null,'center','800');
+  drawText('Ask a grown-up to type the answer',W/2,P.y+108,25,'#a88a5c',null,'center','700');
+  // step dots (which of the 2 questions we're on)
+  const dcx=W/2-((pay.total-1)*30)/2, dy=P.y+148;
+  for(let i=0;i<pay.total;i++){ ctx.beginPath(); ctx.fillStyle=i<pay.step?'#8E6FD6':'#e0d4c0'; ctx.arc(dcx+i*30,dy,10,0,7); ctx.fill(); }
+  // question
+  drawText(pay.a+'   +   '+pay.b,W/2,P.y+212,72,'#8E6FD6',null,'center','800');
+  // typed-answer display box
+  const ab={x:W/2-160,y:P.y+256,w:320,h:80};
+  ctx.save(); ctx.fillStyle='#F7F1E4'; rr(ab.x,ab.y,ab.w,ab.h,20); ctx.fill(); ctx.lineWidth=5; ctx.strokeStyle='#B79BEA'; rr(ab.x,ab.y,ab.w,ab.h,20); ctx.stroke(); ctx.restore();
+  if(pay.entry) drawText(pay.entry,W/2,ab.y+ab.h/2,56,'#6a4a2a',null,'center','800');
+  else { ctx.save(); ctx.globalAlpha=0.35; drawText('_ _',W/2,ab.y+ab.h/2-8,52,'#a88a5c',null,'center','800'); ctx.restore(); }
+  // number pad
+  for(const key of payKeypadRects()){
+    ctx.save(); shadow(8,'rgba(0,0,0,0.14)',0,4);
+    ctx.fillStyle = key.k==='ok'?'#DFF3E0' : key.k==='back'?'#FBE7EC' : '#EDE2FF';
+    rr(key.x,key.y,key.w,key.h,20); ctx.fill(); noShadow();
+    ctx.lineWidth=5; ctx.strokeStyle = key.k==='ok'?'#7FD88C' : key.k==='back'?'#FF9DB6' : '#B79BEA';
+    rr(key.x,key.y,key.w,key.h,20); ctx.stroke(); ctx.restore();
+    const cx=key.x+key.w/2, cy=key.y+key.h/2;
+    if(key.k==='ok'){
+      ctx.save(); ctx.strokeStyle='#3E9E5A'; ctx.lineWidth=9; ctx.lineCap='round'; ctx.lineJoin='round';
+      ctx.beginPath(); ctx.moveTo(cx-22,cy); ctx.lineTo(cx-6,cy+18); ctx.lineTo(cx+24,cy-18); ctx.stroke(); ctx.restore();
+    } else if(key.k==='back'){
+      ctx.save(); ctx.strokeStyle='#E5698A'; ctx.fillStyle='#FDF0F3'; ctx.lineWidth=5; ctx.lineJoin='round';
+      ctx.beginPath(); ctx.moveTo(cx-30,cy); ctx.lineTo(cx-12,cy-18); ctx.lineTo(cx+30,cy-18); ctx.lineTo(cx+30,cy+18); ctx.lineTo(cx-12,cy+18); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.lineWidth=4; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(cx-2,cy-8); ctx.lineTo(cx+16,cy+8); ctx.moveTo(cx+16,cy-8); ctx.lineTo(cx-2,cy+8); ctx.stroke(); ctx.restore();
+    } else {
+      drawText(key.k,cx,cy,50,'#6a4a2a',null,'center','800');
+    }
   }
-  const dcx=W/2-((pay.total-1)*32)/2, dy=P.y+P.h-64;   // step dots: which of the 2 questions we're on
-  for(let i=0;i<pay.total;i++){ ctx.beginPath(); ctx.fillStyle=i<pay.step?'#8E6FD6':'#e0d4c0'; ctx.arc(dcx+i*32,dy,11,0,7); ctx.fill(); }
   drawModalClose(PAY_CLOSE);
   ctx.restore();
 }
@@ -405,13 +444,13 @@ function handlePayTap(px,py){
     Audio_.pop(); closePay(); return;
   }
   if(pay.mode==='gate'){
-    for(const b of payChoiceRects()) if(inRect(px,py,b)){
-      if(pay.choices[b.i]===pay.answer){
-        pay.step++;
-        if(pay.step>=pay.total){ trackEvent('parent_gate_passed',{trigger:pay.trigger}); Audio_.greet(2);
-          pay.mode='wall'; trackEvent('paywall_shown',{trigger:pay.trigger}); }
-        else { Audio_.pop(); newGateQuestion(); }
-      } else { Audio_.aww(); pay.shakeAt=time; }   // gentle: soft "so close" + shake, retry same question
+    const need=String(pay.answer).length;
+    for(const key of payKeypadRects()) if(inRect(px,py,key)){
+      if(key.k==='back'){ if(pay.entry.length){ pay.entry=pay.entry.slice(0,-1); Audio_.pop(); } }
+      else if(key.k==='ok'){ if(pay.entry.length){ gateSubmit(); } }
+      else if(pay.entry.length<need){ pay.entry+=key.k;
+        if(pay.entry.length>=need) gateSubmit();   // auto-check once the full answer length is typed
+        else Audio_.pop(); }
       return;
     }
     return;
@@ -748,7 +787,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260710-68';
+const BUILD='20260710-69';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
