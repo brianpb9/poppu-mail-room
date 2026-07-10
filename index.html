@@ -91,7 +91,7 @@ const LEVELS = [
   { n:2,  pkgs:8,  speed:37, boxes:3, hint:'color', label:'Colors',
     mech:{}, tag:'Colors' },
   { n:3,  pkgs:10, speed:42, boxes:4, hint:'shape', label:'Shapes',
-    mech:{shapeOnly:1}, tag:'Shapes!' },
+    mech:{}, tag:'Shapes!' },
   { n:4,  pkgs:10, speed:45, boxes:4, hint:'color', label:'Seal',
     mech:{seal:1}, tag:'Seal!' },
   { n:5,  pkgs:12, speed:47, boxes:4, hint:'color', label:'Two Belts',
@@ -787,7 +787,7 @@ const Audio_ = (()=>{
    fetches fresh art instead of a stale cached copy. Appended as ?v=<BUILD> to every asset URL below via
    bust(). This is why the founder kept seeing old art (blue-hat Poppu, floating houses): the browser
    held the cached files. Increment the number whenever ANY file in assets/ is regenerated. */
-const BUILD='20260710-69';
+const BUILD='20260710-70';
 function bust(u){ return u + (u.indexOf('?')<0?'?':'&') + 'v=' + BUILD; }
 const ASSET_SRC = {
   bg:'assets/bg-mailroom.webp', bg_forest:'assets/bg-forest.webp', bg_space:'assets/bg-star-deck.webp',
