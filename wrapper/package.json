@@ -12,9 +12,9 @@
   "dependencies": {
     "@capacitor/core": "^6.0.0",
     "@capacitor/ios": "^6.0.0",
-    "@capacitor/android": "^6.0.0",
-    "cordova-plugin-purchase": "^13.11.1"
+    "@capacitor/android": "^6.0.0"
   },
+  "//iap": "At the monetization pass, add the direct Play Billing plugin: `npm i cordova-plugin-purchase` (WRAPPER_SETUP.md §3). Kept OUT of the default build so the free/internal-test AAB requests NO billing permission.",
   "devDependencies": {
     "@capacitor/cli": "^6.0.0"
   }
