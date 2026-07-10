@@ -2,9 +2,9 @@
   "name": "poppu-mailroom-wrapper",
   "version": "1.0.0",
   "private": true,
-  "description": "Native (iOS/Android) wrapper for Poppu's Mail Room — Capacitor + RevenueCat IAP",
+  "description": "Native (iOS/Android) wrapper for Poppu's Mail Room — Capacitor + direct Google Play Billing (cordova-plugin-purchase, no RevenueCat)",
   "scripts": {
-    "copy-web": "rm -rf www && mkdir www && cp ../index.html ../manifest.json www/ && cp -r ../assets www/assets",
+    "copy-web": "rm -rf www && mkdir www && cp ../index.html ../manifest.json poppu-billing-bridge.js www/ && cp -r ../assets www/assets",
     "sync": "npm run copy-web && npx cap sync",
     "open:ios": "npx cap open ios",
     "open:android": "npx cap open android"
@@ -13,7 +13,7 @@
     "@capacitor/core": "^6.0.0",
     "@capacitor/ios": "^6.0.0",
     "@capacitor/android": "^6.0.0",
-    "@revenuecat/purchases-capacitor": "^9.0.0"
+    "cordova-plugin-purchase": "^13.11.1"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.0.0"

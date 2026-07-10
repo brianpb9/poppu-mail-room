@@ -1,7 +1,7 @@
 # 📦 Native Wrapper Runbook — Poppu's Mail Room ($1.99 one-time unlock)
 Turns the web build into a store-listable iOS/Android app with real IAP. Everything the *web project* can't do lives here. Config is in `wrapper/`. Do this on a Mac with Xcode + Android Studio.
 
-**Stack:** Capacitor (WebView wrapper) + **RevenueCat** (`@revenuecat/purchases-capacitor`) for IAP — it handles receipt validation, Restore, and cross-store the non-consumable for you, which is why it's the right choice for a small team over raw StoreKit/Play Billing.
+**Stack:** Capacitor (WebView wrapper) + **direct Google Play Billing** via **`cordova-plugin-purchase`** (Fovea) for IAP — NO RevenueCat, no third-party server, no revenue cut. For a single one-time non-consumable on Android, Play returns a signed + auto-acknowledged purchase, so the plugin talks straight to Play Billing and the bridge is ~40 lines (already written: `wrapper/poppu-billing-bridge.js`). The same plugin covers Apple StoreKit with the same product id if iOS is added later. (RevenueCat is only worth adding later if you go cross-platform AND want its dashboard/receipt-server — the game's `window.PoppuBilling` contract is unchanged either way, so it's a drop-in swap.)
 
 ---
 
@@ -24,50 +24,25 @@ const IAP_ENABLED = false;   // →  const IAP_ENABLED = true;
 That's the only game-code change. `SAVE.purchased`, `FREE_LEVELS=3`, `contentLocked(n)`, and the `Billing` bridge contract are already in the build (see MONETIZATION.md §5). Automate it in `copy-web` if you like:
 `sed -i '' 's/const IAP_ENABLED = false/const IAP_ENABLED = true/' www/index.html`
 
-## 3. The billing bridge — implement `window.PoppuBilling`
-The game calls `window.PoppuBilling.buy('poppu_full_unlock', cb)` / `.restore(cb)`. Add `wrapper/www/poppu-billing-bridge.js` and load it before `</body>` in `www/index.html`:
+## 3. The billing bridge — implement `window.PoppuBilling` (direct Play Billing, no RevenueCat)
+The game calls `window.PoppuBilling.buy('poppu_full_unlock', cb)` / `.restore(cb)` and flips `SAVE.purchased` only on `cb(true)`. The bridge is **already written**: `wrapper/poppu-billing-bridge.js` (copied into `www/` by `npm run copy-web`). It uses **`cordova-plugin-purchase`** talking straight to Google Play Billing — no third party, no revenue cut.
+```bash
+cd wrapper
+npm i cordova-plugin-purchase       # the direct Play Billing / StoreKit plugin
+npx cap sync android                # links the native billing module
+```
+Then load the plugin + bridge before `</body>` in `www/index.html` (add to `copy-web` so it's automatic):
 ```html
-<script type="module" src="poppu-billing-bridge.js"></script>
+<script src="poppu-billing-bridge.js"></script>
 ```
-```js
-// poppu-billing-bridge.js — RevenueCat → window.PoppuBilling (the contract the game expects)
-import { Purchases, LOG_LEVEL } from '@revenuecat/purchases-capacitor';
+The bridge registers `poppu_full_unlock` as a NON_CONSUMABLE, finishes Play's signed+acknowledged purchase (so **no billing server is needed** for a one-time unlock), and resolves `buy`/`restore` per the contract. For stronger anti-piracy later you can add local signature verification with the app's Play license key — optional for a $1.99 unlock.
+> The **paywall panel + math parent-gate** UI are **already built in the game** (BUILD-69, dormant behind `IAP_ENABLED=false`): `contentLocked(n)` is wired at the level-node tap / post-office start / level-complete, opens a typed-number-pad grown-up gate → the paywall → `Billing.purchase()`. Nothing left to build in the game — the wrapper just flips `IAP_ENABLED=true` and provides `window.PoppuBilling` (this bridge).
 
-const ENTITLEMENT = 'full_unlock';         // the RevenueCat entitlement id
-const PRODUCT_ID  = 'poppu_full_unlock';   // the $1.99 non-consumable (same id both stores)
-
-async function configure() {
-  const apiKey = /android/i.test(navigator.userAgent)
-    ? 'goog_XXXXXXXXXXXX'   // RevenueCat Android public SDK key
-    : 'appl_XXXXXXXXXXXX';  // RevenueCat iOS public SDK key
-  await Purchases.setLogLevel({ level: LOG_LEVEL.WARN });
-  await Purchases.configure({ apiKey });
-}
-const hasEntitlement = (info) => !!info?.entitlements?.active?.[ENTITLEMENT];
-
-window.PoppuBilling = {
-  async buy(sku, cb) {
-    try {
-      const offerings = await Purchases.getOfferings();
-      const pkg = offerings.current?.availablePackages?.find(p => p.product.identifier === PRODUCT_ID)
-                || offerings.current?.availablePackages?.[0];
-      const { customerInfo } = await Purchases.purchasePackage({ aPackage: pkg });
-      cb(hasEntitlement(customerInfo));   // game flips SAVE.purchased only on true
-    } catch (e) { cb(false); }            // user-cancel or error → no unlock, no charge
-  },
-  async restore(cb) {
-    try { const { customerInfo } = await Purchases.restorePurchases(); cb(hasEntitlement(customerInfo)); }
-    catch (e) { cb(false); }
-  },
-};
-configure();
-```
-> The **paywall panel + the math parent-gate** UI (MONETIZATION.md §4) are gated on `IAP_ENABLED` and call `Billing.purchase()` only AFTER the gate passes. Build those two small canvas screens in the game and wire `contentLocked(n)` at the level-node tap / post-office start / locked scene+friend taps to open the paywall. (This is the remaining in-game UI work; the entitlement + bridge are done.)
-
-## 4. Store product + RevenueCat
-1. **App Store Connect** and **Play Console**: create a **non-consumable** IAP with product id `poppu_full_unlock`, price tier = **US$1.99** (let each store auto-generate PPP local prices; sanity-check the IN/PH/VN/TH rows).
-2. **RevenueCat** (app.revenuecat.com): create the project, add both store apps, create entitlement `full_unlock`, attach the `poppu_full_unlock` product, paste the store keys. Put the RC public SDK keys into the bridge.
-3. Set **Restore Purchase** button visible in the parent dashboard (Apple requires it for non-consumables — the bridge's `restore()` covers it).
+## 4. Store product (Play Console — no RevenueCat)
+1. **Play Console → Monetize → Products → In-app products → Create product**: id `poppu_full_unlock`, type **non-consumable** (one-time), price **US$1.99** base tier (let Play auto-generate PPP local prices; sanity-check the IN/PH/VN/TH rows land in an impulse zone). Set it **Active**.
+2. Test the real purchase for **$0** with a Play **License tester** account (Play Console → Setup → License testing → add the tester's Gmail). No RevenueCat, no store keys to paste.
+3. The **Restore Purchase** button already exists in the paywall (Play/Apple require it) → the bridge's `restore()` covers it via `store.restorePurchases()`.
+4. *(iOS later, if added)*: same product id in App Store Connect; the same plugin + bridge handle StoreKit — flip `PLATFORM` / add `Platform.APPLE_APPSTORE` in the bridge.
 
 ## 5. Store compliance (both stores, kids app)
 - **Privacy policy URL** — host `PRIVACY_POLICY.html` (e.g. it's already live via GitHub Pages: `https://brianpb9.github.io/poppu-mail-room/PRIVACY_POLICY.html`) and paste that URL in both consoles.
@@ -91,6 +66,7 @@ npx cap open ios       # Xcode → Archive → Distribute → TestFlight (intern
 ---
 ## Status
 - ✅ Web build, PWA, monetization scaffold, entitlement + bridge contract, price ($1.99), privacy policy, live PWA tester URL — **done in the web project.**
-- ⏳ This runbook's steps (wrapper build, RC keys, paywall UI, store products/declarations) — **the dev executes on a Mac**; nothing here needs the web project changed except flipping `IAP_ENABLED` and adding the bridge file.
+- ✅ Paywall panel + typed-number-pad grown-up gate + `contentLocked` wiring — **built in the game** (BUILD-69), dormant behind `IAP_ENABLED=false`. Direct Play Billing bridge (`wrapper/poppu-billing-bridge.js`) — **written**.
+- ⏳ Remaining (dev on a Mac): `npm i cordova-plugin-purchase` + `npx cap sync`, flip `IAP_ENABLED=true` in the wrapper's `www/index.html`, create the `poppu_full_unlock` $1.99 non-consumable in Play Console, build + test the $0 license-tester purchase. No RevenueCat account, no RC keys.
 
 *Wrapper config: `wrapper/capacitor.config.json`, `wrapper/package.json`. Monetization model: `MONETIZATION.md`. Tester guide: `INTERNAL_TEST.md`.*

@@ -1,0 +1,8 @@
+.playtest/
+.playwright-mcp/
+.git/
+wrapper/
+*.backup.html
+index.v2.backup.html
+*.log
+_preview-iap.html
