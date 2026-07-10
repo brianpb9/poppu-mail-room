@@ -12,3 +12,6 @@ wrapper/www/
 wrapper/ios/
 wrapper/android/
 wrapper/package-lock.json
+
+# local IAP preview (never commit — flag forced on)
+_preview-iap.html
